@@ -1,11 +1,2 @@
-# Vary: Sunny Block Planner
-
-Created with [Omma](https://omma.build)
-
-## Setup
-
-Open `index.html` in your browser, or:
-
-```bash
-npx serve .
-```
+npm.cmd install
+npm.cmd run dev -- --host 127.0.0.1 --port 5182

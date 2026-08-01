@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { io } from 'socket.io-client';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
@@ -838,6 +839,18 @@ const memory = JSON.parse(localStorage.getItem('emergentMemory') || '{"sessions"
 memory.sessions += 1;
 localStorage.setItem('emergentMemory', JSON.stringify(memory));
 
+// The Game Master observes behaviour, never raw keystrokes or personal data.
+// This compact session state is what is sent to the optional model endpoint.
+const sessionSignals = {
+  startedAt: performance.now(),
+  lastUserPosition: new THREE.Vector3(0, 0, -10),
+  movementDistance: 0,
+  proximitySeconds: 0,
+  isolationSeconds: 0,
+  nearbyMovementSeconds: 0,
+  visitedCells: new Set(),
+};
+
 function createNamePlate(text, color) {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -897,16 +910,18 @@ function createPlayer(name, color, position, isUser = false) {
   };
 }
 
-const players = [
-  createPlayer('You', 0x2563eb, new THREE.Vector3(0, 0, -10), true),
-  createPlayer('Mira', 0xdb2777, new THREE.Vector3(-15, 0, 8)),
-  createPlayer('Sol', 0xf59e0b, new THREE.Vector3(13, 0, 12)),
-  createPlayer('Ren', 0x16a34a, new THREE.Vector3(6, 0, -18)),
-];
-players.forEach((player) => (player.isUser ? playerGroup : botGroup).add(player.mesh));
-const userPlayer = players[0];
+const socket = io({ autoConnect: false });
+const players = [];
+const playersById = new Map();
+let userPlayer = null;
+let joined = false;
+let roomState = null;
+let lastInputSentAt = 0;
+let announcedRuleKey = null;
+let spectating = false;
 
 const artifacts = [];
+const artifactsByIndex = new Map();
 function createArtifact(position, index) {
   const group = new THREE.Group();
   const core = new THREE.Mesh(
@@ -931,14 +946,7 @@ function createArtifact(position, index) {
   group.userData = { index, collected: false, followOffset: new THREE.Vector3() };
   artifactGroup.add(group);
   artifacts.push(group);
-}
-
-for (let i = 0; i < 12; i++) {
-  createArtifact(new THREE.Vector3(
-    THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.5),
-    0.75,
-    THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.5)
-  ), i);
+  artifactsByIndex.set(index, group);
 }
 
 const secretLayer = new THREE.Group();
@@ -967,6 +975,43 @@ const ruleState = {
   collected: 0,
   lonelyTimer: 0,
   feed: [],
+  activeRule: null,
+  activeRuleEndsAt: 0,
+  lastDecisionAt: -20,
+  deciding: false,
+  lastDecisionSource: 'watching',
+  lastReason: 'The city is learning how this group moves.',
+};
+
+const RULE_LIBRARY = {
+  bond: {
+    id: 'bond',
+    title: 'Unwanted Bond',
+    body: 'Stay close to your bonded partner. If either of you strays too far, both of you continuously lose life.',
+    duration: 70,
+    counterplay: 'Stay within the pink tether range.',
+  },
+  archive: {
+    id: 'archive',
+    title: 'The Archive Demands Witnesses',
+    body: 'You gathered too much alone. Keep another player near your archive, or its weight continuously drains your life.',
+    duration: 65,
+    counterplay: 'Bring a teammate within range of the collector.',
+  },
+  sight: {
+    id: 'sight',
+    title: 'Private Vision',
+    body: 'The city shows you a hidden layer, but it needs solitude. Let someone get too close and your life continuously drains.',
+    duration: 60,
+    counterplay: 'The Seer must explore alone while guiding the group.',
+  },
+  ripple: {
+    id: 'ripple',
+    title: 'Restless Physics',
+    body: 'Momentum has chosen you. Keep moving, or standing still continuously drains your life.',
+    duration: 50,
+    counterplay: 'The Runner must keep moving.',
+  },
 };
 
 function makePanel(styles = '') {
@@ -979,69 +1024,196 @@ function makePanel(styles = '') {
   return panel;
 }
 
-const statusPanel = makePanel('top: 14px; left: 14px; width: 260px;');
+const statusPanel = makePanel('top: 14px; left: 14px; width: 300px;');
 const feedPanel = makePanel('left: 14px; bottom: 14px; width: min(380px, calc(100vw - 28px));');
 const rulePanel = makePanel('right: 14px; top: 14px; width: min(330px, calc(100vw - 28px));');
+const directorPanel = makePanel('right: 14px; bottom: 14px; width: min(330px, calc(100vw - 28px)); pointer-events: auto;');
+let directorView = false;
+let lastDirectorRender = 0;
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#039;', '"': '&quot;' }[character]));
+}
 
 function pushFeed(text) {
   ruleState.feed.unshift({ text, time: 6 });
   ruleState.feed = ruleState.feed.slice(0, 4);
 }
 
-function announceRule(title, body) {
+function announceRule(title, body, counterplay = '') {
   rulePanel.innerHTML = `
-    <div style="background: rgba(255,255,255,0.9); border: 1px solid rgba(15,23,42,0.12); border-radius: 8px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(15,23,42,0.16);">
-      <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #7c3aed; font-weight: 700;">Game Master</div>
-      <div style="font-size: 16px; font-weight: 700; margin-top: 4px;">${title}</div>
-      <div style="font-size: 12px; line-height: 1.45; color: #475569; margin-top: 5px;">${body}</div>
+    <div style="background:linear-gradient(145deg, rgba(30,18,56,.96), rgba(16,23,47,.96)); color:#f8fafc; border:1px solid rgba(196,181,253,.35); border-radius:12px; padding:15px; box-shadow:0 10px 34px rgba(15,23,42,.32);">
+      <div style="font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#c4b5fd; font-weight:800;">Survival directive</div>
+      <div style="font-size:18px; font-weight:800; margin-top:5px;">${escapeHtml(title)}</div>
+      <div style="font-size:12px; line-height:1.5; color:#e2e8f0; margin-top:7px;">${escapeHtml(body)}</div>
+      ${counterplay ? `<div style="margin-top:10px; padding:8px 9px; border-radius:7px; background:rgba(196,181,253,.13); font-size:11px; line-height:1.4; color:#ddd6fe;"><strong>Stay alive:</strong> ${escapeHtml(counterplay)}</div>` : ''}
     </div>
   `;
-  setTimeout(() => {
-    rulePanel.innerHTML = '';
-  }, 6500);
 }
 
 function updateHud() {
+  if (!joined || !userPlayer) {
+    statusPanel.innerHTML = '';
+    feedPanel.innerHTML = '';
+    return;
+  }
   const linked = ruleState.linkedTo ? ruleState.linkedTo.name : 'none';
+  const activeRule = roomState?.activeRule?.title || (ruleState.activeRule ? RULE_LIBRARY[ruleState.activeRule].title : 'None yet');
+  const healthReadout = `<br>Life: ${Math.max(0, Math.round(userPlayer.health))}%`;
+  const survivalText = userPlayer.dead ? 'You died. The city remembers.' : 'Survive. Follow the city\'s rule.';
   statusPanel.innerHTML = `
     <div style="background: rgba(255,255,255,0.84); border: 1px solid rgba(15,23,42,0.10); border-radius: 8px; padding: 11px 13px; box-shadow: 0 4px 18px rgba(15,23,42,0.12);">
-      <div style="font-size: 12px; font-weight: 700; color: #334155;">Health ${Math.max(0, Math.round(userPlayer.health))}</div>
-      <div style="height: 6px; background: #e2e8f0; margin: 8px 0; border-radius: 999px; overflow: hidden;">
-        <div style="height: 100%; width: ${Math.max(0, userPlayer.health)}%; background: #22c55e;"></div>
-      </div>
-      <div style="font-size: 11px; color: #64748b; line-height: 1.5;">Artifacts ${ruleState.collected}/12<br>Link ${linked}<br>Memory sessions ${memory.sessions}</div>
+      <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; color: #7c3aed;">Emergent · Room ${escapeHtml(roomState?.code || '')}</div>
+      <div style="font-size: 14px; font-weight: 700; color: #334155; margin-top: 3px;">${escapeHtml(survivalText)}</div>
+      <div style="font-size: 11px; color: #64748b; line-height: 1.5; margin-top: 6px;">Current rule: ${escapeHtml(activeRule)}<br>Connection: ${escapeHtml(linked)}${healthReadout}</div>
     </div>
   `;
+  const activeRuleObject = roomState?.activeRule;
+  const targets = activeRuleObject?.participants.map((id) => playersById.get(id)?.name).filter(Boolean) || [];
+  const youAreTarget = activeRuleObject?.participants.includes(socket.id);
+  const health = Math.max(0, Math.round(userPlayer.health));
+  const healthColor = health > 60 ? '#34d399' : health > 30 ? '#fbbf24' : '#fb7185';
+  const timeLeft = activeRuleObject ? Math.max(0, Math.ceil((activeRuleObject.endsAt - Date.now()) / 1000)) : null;
+  const party = roomState?.players || [];
+  statusPanel.innerHTML = `
+    <div style="background:rgba(12,18,35,.88); color:#f8fafc; border:1px solid rgba(148,163,184,.2); border-radius:12px; padding:14px; box-shadow:0 10px 34px rgba(15,23,42,.28);">
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:#c4b5fd; font-weight:800;"><span>Emergent</span><span>Room ${escapeHtml(roomState?.code || '')}</span></div>
+      <div style="font-size:16px; font-weight:800; margin-top:7px;">${userPlayer.dead ? 'You became city memory' : 'Stay alive.'}</div>
+      <div style="display:flex; justify-content:space-between; margin-top:10px; font-size:11px; color:#cbd5e1;"><span>YOUR LIFE</span><strong style="color:${healthColor}">${health}%</strong></div>
+      <div style="height:7px; background:rgba(148,163,184,.2); border-radius:999px; overflow:hidden; margin-top:5px;"><div style="height:100%; width:${health}%; background:${healthColor}; border-radius:999px;"></div></div>
+      <div style="margin-top:12px; padding:9px; border-radius:8px; background:${activeRuleObject ? 'rgba(124,58,237,.18)' : 'rgba(148,163,184,.10)'}; font-size:11px; line-height:1.45; color:#e2e8f0;">
+        <strong style="color:#c4b5fd; text-transform:uppercase; letter-spacing:.06em; font-size:9px;">${activeRuleObject ? (youAreTarget ? 'Rule affecting you' : 'Help your team') : 'The city is observing'}</strong><br>
+        ${activeRuleObject ? escapeHtml(youAreTarget ? activeRuleObject.counterplay : `${targets.join(' and ')}: ${activeRuleObject.counterplay}`) : 'Your group\'s behaviour will become the next survival rule.'}
+        ${timeLeft !== null ? `<span style="float:right; color:#ddd6fe; font-weight:700;">${timeLeft}s</span>` : ''}
+      </div>
+      <div style="display:flex; gap:5px; flex-wrap:wrap; margin-top:11px;">${party.map((player) => `<span style="padding:4px 6px; border-radius:999px; background:${player.dead ? 'rgba(248,113,113,.2)' : 'rgba(255,255,255,.08)'}; color:${player.dead ? '#fda4af' : '#cbd5e1'}; font-size:10px;">${escapeHtml(player.name)} ${player.dead ? '†' : ''}</span>`).join('')}</div>
+    </div>`;
   feedPanel.innerHTML = ruleState.feed.map(item => `
     <div style="background: rgba(15,23,42,0.74); color: #f8fafc; border-radius: 8px; padding: 9px 11px; margin-top: 7px; font-size: 12px; line-height: 1.35;">
       ${item.text}
     </div>
   `).join('');
+  updateDirectorView();
 }
 
-function triggerLink(target) {
+function updateDirectorView(force = false) {
+  if (!force && performance.now() - lastDirectorRender < 350) return;
+  lastDirectorRender = performance.now();
+  if (!directorView) {
+    directorPanel.innerHTML = `<button id="director-toggle" style="border: 0; border-radius: 999px; background: rgba(15,23,42,0.78); color: white; padding: 8px 11px; font: 600 11px Inter, system-ui; cursor: pointer;">Director view</button>`;
+  } else {
+    const telemetry = getTelemetry(clock.getElapsedTime());
+    directorPanel.innerHTML = `
+      <div style="background: rgba(15,23,42,0.90); color: #e2e8f0; border-radius: 10px; padding: 12px; box-shadow: 0 8px 28px rgba(15,23,42,0.28); font-size: 11px; line-height: 1.55;">
+        <div style="display:flex; justify-content:space-between; gap:10px; color:#c4b5fd; font-weight:700; letter-spacing:.07em; text-transform:uppercase;">
+          <span>AI Director</span><button id="director-toggle" style="border:0; background:transparent; color:#cbd5e1; font:inherit; cursor:pointer;">close</button>
+        </div>
+        <div style="margin-top:7px; color:#f8fafc;">${escapeHtml(ruleState.lastReason)}</div>
+        <div style="margin-top:7px; color:#94a3b8;">Source: ${escapeHtml(ruleState.lastDecisionSource)} · Cohesion ${telemetry.cohesion} · Exploration ${telemetry.exploration} · Collection ${telemetry.hoarding}</div>
+        <div style="margin-top:5px; color:#94a3b8;">Signals are converted into bounded mechanics; the model cannot write game code.</div>
+      </div>`;
+  }
+  document.getElementById('director-toggle')?.addEventListener('click', () => { directorView = !directorView; updateDirectorView(true); });
+}
+
+const lobby = document.createElement('div');
+lobby.style.cssText = 'position:fixed; inset:0; z-index:40; display:grid; place-items:center; padding:20px; background:linear-gradient(145deg, rgba(8,15,30,.82), rgba(26,12,46,.74)); font-family:Inter,system-ui,sans-serif;';
+lobby.innerHTML = `
+  <form id="lobby-form" style="width:min(420px,100%); background:rgba(255,255,255,.96); border-radius:16px; padding:28px; box-shadow:0 18px 65px rgba(0,0,0,.35);">
+    <div style="font-size:11px; color:#7c3aed; font-weight:800; letter-spacing:.12em; text-transform:uppercase;">Emergent · survival room</div>
+    <h1 style="font-size:29px; margin:8px 0 7px; color:#172033;">The city watches friends.</h1>
+    <p style="font-size:13px; line-height:1.5; color:#64748b; margin:0 0 20px;">Stay alive. The director observes your group and activates only prebuilt survival rules.</p>
+    <label style="display:block; font-size:12px; font-weight:700; color:#334155; margin:12px 0 5px;">Your name</label>
+    <input id="player-name" required maxlength="16" value="Player" style="width:100%; padding:11px 12px; border:1px solid #cbd5e1; border-radius:8px; font:inherit;" />
+    <label style="display:block; font-size:12px; font-weight:700; color:#334155; margin:12px 0 5px;">Room code</label>
+    <input id="room-code" required maxlength="6" value="${Math.random().toString(36).slice(2, 6).toUpperCase()}" style="width:100%; padding:11px 12px; border:1px solid #cbd5e1; border-radius:8px; font:700 16px ui-monospace,monospace; letter-spacing:.12em; text-transform:uppercase;" />
+    <button type="submit" style="width:100%; margin-top:18px; padding:12px; border:0; border-radius:8px; background:#6d28d9; color:white; font:700 14px Inter,system-ui; cursor:pointer;">Enter room</button>
+    <div id="lobby-error" style="min-height:18px; margin-top:10px; color:#dc2626; font-size:12px;"></div>
+    <div style="margin-top:12px; font-size:11px; line-height:1.45; color:#64748b;">Share this room code with up to three friends. Everyone uses the same link, then enters the same code.</div>
+  </form>`;
+document.body.appendChild(lobby);
+
+const deathOverlay = document.createElement('div');
+deathOverlay.style.cssText = 'position:fixed; inset:0; z-index:50; display:none; place-items:center; padding:20px; background:radial-gradient(circle at 50% 35%, rgba(127,29,29,.52), rgba(2,6,23,.94) 58%); font-family:Inter,system-ui,sans-serif;';
+deathOverlay.innerHTML = `
+  <section style="width:min(460px,100%); text-align:center; color:#f8fafc;">
+    <div style="font-size:11px; color:#fda4af; font-weight:800; letter-spacing:.16em; text-transform:uppercase;">City memory recorded</div>
+    <h1 style="font-size:44px; line-height:1; margin:13px 0 10px; letter-spacing:-.05em;">YOU DIED</h1>
+    <p id="death-copy" style="margin:0 auto; max-width:350px; color:#cbd5e1; font-size:14px; line-height:1.55;"></p>
+    <div style="display:flex; gap:10px; justify-content:center; margin-top:24px; flex-wrap:wrap;">
+      <button id="spectate-button" style="border:0; border-radius:8px; padding:11px 15px; background:#ddd6fe; color:#312e81; font:800 13px Inter,system-ui; cursor:pointer;">Spectate survivors</button>
+      <button id="leave-button" style="border:1px solid rgba(226,232,240,.32); border-radius:8px; padding:11px 15px; background:transparent; color:#f8fafc; font:700 13px Inter,system-ui; cursor:pointer;">Leave room</button>
+    </div>
+  </section>`;
+document.body.appendChild(deathOverlay);
+
+function showDeathScreen(name) {
+  deathOverlay.style.display = 'grid';
+  document.getElementById('death-copy').textContent = `${name} did not survive the city. Your friends are still playing—watch them adapt, or leave to start another room.`;
+}
+
+document.getElementById('spectate-button').addEventListener('click', () => {
+  spectating = true;
+  deathOverlay.style.display = 'none';
+  pushFeed('Spectating survivors. The city is still watching.');
+});
+document.getElementById('leave-button').addEventListener('click', () => {
+  socket.disconnect();
+  window.location.reload();
+});
+
+const lobbyForm = document.getElementById('lobby-form');
+const lobbyError = document.getElementById('lobby-error');
+lobbyForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const name = document.getElementById('player-name').value;
+  const roomCode = document.getElementById('room-code').value;
+  lobbyError.textContent = 'Connecting to the city...';
+  socket.connect();
+  socket.emit('join-room', { name, roomCode }, (result) => {
+    if (!result?.ok) { lobbyError.textContent = result?.error || 'Unable to enter this room.'; return; }
+    joined = true;
+    lobby.remove();
+    pushFeed(`Connected to room ${result.code}. Survive together.`);
+  });
+});
+
+socket.on('world-state', syncWorldState);
+socket.on('gm-rule', (rule) => {
+  roomState = { ...(roomState || {}), activeRule: rule };
+  applyNetworkRule(rule);
+});
+socket.on('feed', pushFeed);
+socket.on('player-died', ({ id, name }) => {
+  if (id === socket.id) showDeathScreen(name);
+  else pushFeed(`${name} did not survive the city.`);
+});
+socket.on('connect_error', () => { lobbyError.textContent = 'Could not reach the game server. Check the shared link and try again.'; });
+socket.on('disconnect', () => { if (joined) pushFeed('Connection lost. Rejoin the room to continue.'); });
+
+function triggerLink(target, decision = RULE_LIBRARY.bond) {
   if (ruleState.linkedTo) return;
   ruleState.linkedTo = target;
   memory.linked += 1;
   localStorage.setItem('emergentMemory', JSON.stringify(memory));
   pushFeed(`You kept close to ${target.name}. The world calls it attachment.`);
-  announceRule('Unwanted Bond', `You and ${target.name} are linked. If distance grows too wide, both begin to weaken.`);
+  announceRule(decision.title, decision.body);
   tetherLine.visible = true;
 }
 
-function awakenArtifacts() {
+function awakenArtifacts(decision = RULE_LIBRARY.archive) {
   if (ruleState.artifactsAwake) return;
   ruleState.artifactsAwake = true;
   memory.collected += ruleState.collected;
   localStorage.setItem('emergentMemory', JSON.stringify(memory));
   pushFeed('The artifacts remember being gathered.');
-  announceRule('Forgotten Archive', 'Collected objects now orbit you. Others are drawn toward them, though the reason is hidden.');
+  announceRule(decision.title, decision.body);
   artifacts.filter(a => a.userData.collected).forEach((artifact, index) => {
     artifact.userData.followOffset.set(Math.cos(index) * 1.6, 1.1 + index * 0.08, Math.sin(index) * 1.6);
   });
 }
 
-function grantAlternateSight() {
+function grantAlternateSight(decision = RULE_LIBRARY.sight) {
   if (ruleState.alternateSight) return;
   ruleState.alternateSight = true;
   memory.loner += 1;
@@ -1049,17 +1221,215 @@ function grantAlternateSight() {
   scene.fog.color.set(0xa5f3fc);
   secretLayer.visible = true;
   pushFeed('The quiet player sees the city underneath the city.');
-  announceRule('Private Vision', 'Because you stayed apart, hidden markers are visible only to you.');
+  announceRule(decision.title, decision.body);
 }
 
-function triggerDistortion() {
+function triggerDistortion(decision = RULE_LIBRARY.ripple) {
   if (ruleState.distortion) return;
   ruleState.distortion = true;
   pushFeed('The city notices repeated motion and loosens its physics.');
-  announceRule('Literal Mischief', 'Movement now bends nearby artifacts. The rule was not explained to anyone else.');
+  announceRule(decision.title, decision.body);
+}
+
+function getNearestBot() {
+  return players.slice(1).reduce((nearest, bot) => {
+    const distance = userPlayer.mesh.position.distanceTo(bot.mesh.position);
+    return !nearest || distance < nearest.distance ? { bot, distance } : nearest;
+  }, null);
+}
+
+function updateBehaviourSignals(delta) {
+  const movement = userPlayer.mesh.position.distanceTo(sessionSignals.lastUserPosition);
+  sessionSignals.movementDistance += movement;
+  sessionSignals.lastUserPosition.copy(userPlayer.mesh.position);
+  const nearest = getNearestBot();
+  if (nearest?.distance < 8) sessionSignals.proximitySeconds += delta;
+  if (nearest?.distance > 17) sessionSignals.isolationSeconds += delta;
+  if (nearest?.distance < 6 && movement > delta * 2) sessionSignals.nearbyMovementSeconds += delta;
+
+  const cellX = Math.floor((userPlayer.mesh.position.x + WORLD_LIMIT) / 9);
+  const cellZ = Math.floor((userPlayer.mesh.position.z + WORLD_LIMIT) / 9);
+  sessionSignals.visitedCells.add(`${cellX}:${cellZ}`);
+}
+
+function getTelemetry(elapsed) {
+  if (roomState?.director?.telemetry) {
+    const telemetry = roomState.director.telemetry;
+    return {
+      cohesion: telemetry.averageCohesion ?? 0,
+      exploration: telemetry.explorers ?? 0,
+      hoarding: telemetry.totalArtifactsCollected ?? 0,
+    };
+  }
+  const sessionSeconds = Math.max(1, elapsed);
+  return {
+    sessionSeconds: Math.round(sessionSeconds),
+    playersObserved: players.length,
+    cohesion: Number(THREE.MathUtils.clamp(sessionSignals.proximitySeconds / sessionSeconds, 0, 1).toFixed(2)),
+    exploration: Number(THREE.MathUtils.clamp(sessionSignals.visitedCells.size / 8, 0, 1).toFixed(2)),
+    hoarding: ruleState.collected,
+    isolation: Number(THREE.MathUtils.clamp(sessionSignals.isolationSeconds / sessionSeconds, 0, 1).toFixed(2)),
+    sharedMomentum: Number(THREE.MathUtils.clamp(sessionSignals.nearbyMovementSeconds / sessionSeconds, 0, 1).toFixed(2)),
+    activeRule: ruleState.activeRule,
+  };
+}
+
+function getRuleCandidates(telemetry) {
+  const candidates = [];
+  const nearest = getNearestBot();
+  if (telemetry.cohesion >= 0.28 && nearest?.distance < 9) candidates.push({ ...RULE_LIBRARY.bond, observedPattern: 'Two players repeatedly remain close.' });
+  if (telemetry.hoarding >= 2) candidates.push({ ...RULE_LIBRARY.archive, observedPattern: 'One player repeatedly gathers objects.' });
+  if (telemetry.isolation >= 0.22 || telemetry.exploration >= 0.38) candidates.push({ ...RULE_LIBRARY.sight, observedPattern: 'A player separates from the group to explore.' });
+  if (telemetry.sharedMomentum >= 0.16 && telemetry.hoarding >= 1) candidates.push({ ...RULE_LIBRARY.ripple, observedPattern: 'A player moves urgently near the group.' });
+  return candidates;
+}
+
+function clearActiveRule(message = '') {
+  const endedRule = ruleState.activeRule;
+  if (!endedRule) return;
+  if (endedRule === 'bond') { ruleState.linkedTo = null; tetherLine.visible = false; }
+  if (endedRule === 'archive') ruleState.artifactsAwake = false;
+  if (endedRule === 'sight') { ruleState.alternateSight = false; secretLayer.visible = false; scene.fog.color.set(0x87CEEB); }
+  if (endedRule === 'ripple') ruleState.distortion = false;
+  ruleState.activeRule = null;
+  ruleState.activeRuleEndsAt = 0;
+  rulePanel.innerHTML = '';
+  if (message) pushFeed(message);
+}
+
+function syncPlayers(serverPlayers) {
+  const activeIds = new Set(serverPlayers.map((player) => player.id));
+  for (const player of [...players]) {
+    if (!activeIds.has(player.id)) {
+      player.mesh.parent?.remove(player.mesh);
+      playersById.delete(player.id);
+      players.splice(players.indexOf(player), 1);
+    }
+  }
+  serverPlayers.forEach((state) => {
+    let player = playersById.get(state.id);
+    if (!player) {
+      player = createPlayer(state.name, state.color, new THREE.Vector3(state.x, 0, state.z), state.id === socket.id);
+      player.id = state.id;
+      playersById.set(state.id, player);
+      players.push(player);
+      (player.isUser ? playerGroup : botGroup).add(player.mesh);
+    }
+    player.health = state.health;
+    player.dead = state.dead;
+    player.artifactCount = state.artifactCount;
+    player.mesh.position.lerp(new THREE.Vector3(state.x, 0, state.z), player.isUser ? 0.42 : 0.28);
+    player.mesh.visible = true;
+  });
+  userPlayer = playersById.get(socket.id) || userPlayer;
+}
+
+function syncArtifacts(serverArtifacts) {
+  serverArtifacts.forEach((state) => {
+    let artifact = artifactsByIndex.get(state.index);
+    if (!artifact) {
+      createArtifact(new THREE.Vector3(state.x, 0.75, state.z), state.index);
+      artifact = artifactsByIndex.get(state.index);
+    }
+    artifact.userData.collected = Boolean(state.collectedBy);
+    artifact.userData.ownerId = state.collectedBy;
+    if (!state.collectedBy) {
+      artifact.position.x = state.x;
+      artifact.position.z = state.z;
+      artifact.children[0].material.color.set(0x7c3aed);
+      artifact.children[0].material.emissive.set(0x4c1d95);
+    } else {
+      artifact.children[0].material.color.set(0xfacc15);
+      artifact.children[0].material.emissive.set(0x854d0e);
+    }
+  });
+}
+
+function applyNetworkRule(rule) {
+  const key = rule ? `${rule.id}:${rule.endsAt}` : null;
+  players.forEach((player) => {
+    const aura = player.mesh.children[2];
+    if (aura?.material?.color) {
+      aura.material.color.set(rule?.participants.includes(player.id) ? 0xf43f5e : player.color);
+      aura.material.opacity = rule?.participants.includes(player.id) ? 0.72 : (player.isUser ? 0.42 : 0.22);
+    }
+  });
+  if (key === announcedRuleKey) return;
+  announcedRuleKey = key;
+  clearActiveRule();
+  if (!rule) return;
+  ruleState.activeRule = rule.id;
+  ruleState.activeRuleEndsAt = rule.endsAt;
+  ruleState.lastDecisionSource = roomState?.director?.source || 'room Game Master';
+  ruleState.lastReason = roomState?.director?.reason || 'The Game Master made a room decision.';
+  const affected = rule.participants.includes(socket.id);
+  if (rule.id === 'bond' && affected) {
+    const partnerId = rule.participants.find((id) => id !== socket.id);
+    ruleState.linkedTo = playersById.get(partnerId) || null;
+    tetherLine.visible = Boolean(ruleState.linkedTo);
+  }
+  if (rule.id === 'archive') ruleState.artifactsAwake = true;
+  if (rule.id === 'sight') {
+    ruleState.alternateSight = affected;
+    secretLayer.visible = affected;
+    scene.fog.color.set(affected ? 0xa5f3fc : 0x87CEEB);
+  }
+  if (rule.id === 'ripple') ruleState.distortion = true;
+  const selectedNames = rule.participants.map((id) => playersById.get(id)?.name).filter(Boolean).join(' and ');
+  announceRule(rule.title, affected ? rule.body : `${selectedNames || 'A teammate'} is affected. ${rule.counterplay}`, rule.counterplay);
+}
+
+function syncWorldState(state) {
+  roomState = state;
+  ruleState.lastDecisionSource = state.director?.source || ruleState.lastDecisionSource;
+  ruleState.lastReason = state.director?.reason || ruleState.lastReason;
+  syncPlayers(state.players);
+  syncArtifacts(state.artifacts);
+  applyNetworkRule(state.activeRule);
+}
+
+function applyGameMasterDecision(decision, elapsed) {
+  const rule = RULE_LIBRARY[decision.ruleId];
+  if (!rule) return;
+  clearActiveRule();
+  ruleState.activeRule = rule.id;
+  ruleState.activeRuleEndsAt = elapsed + rule.duration;
+  ruleState.lastDecisionSource = decision.source === 'model' ? 'configured AI model' : 'local Game Master fallback';
+  ruleState.lastReason = decision.reason || 'The Game Master found a new group pattern.';
+  if (rule.id === 'bond') triggerLink(getNearestBot()?.bot, decision);
+  if (rule.id === 'archive') awakenArtifacts(decision);
+  if (rule.id === 'sight') grantAlternateSight(decision);
+  if (rule.id === 'ripple') triggerDistortion(decision);
+}
+
+async function askGameMaster(elapsed) {
+  if (ruleState.deciding || ruleState.activeRule || elapsed - ruleState.lastDecisionAt < 14) return;
+  const telemetry = getTelemetry(elapsed);
+  const candidates = getRuleCandidates(telemetry);
+  if (!candidates.length) {
+    ruleState.lastReason = 'The Game Master is still looking for a distinct group pattern.';
+    return;
+  }
+  ruleState.deciding = true;
+  ruleState.lastDecisionAt = elapsed;
+  try {
+    const response = await fetch('/api/game-master', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ telemetry, candidates: candidates.map(({ id, title, body, counterplay, observedPattern }) => ({ id, title, body, counterplay, observedPattern })) }),
+    });
+    if (!response.ok) throw new Error('Game Master endpoint unavailable');
+    applyGameMasterDecision(await response.json(), elapsed);
+  } catch {
+    // A self-contained prototype is more reliable during a demo than a hard dependency on a network service.
+    applyGameMasterDecision({ ruleId: candidates[0].id, ...candidates[0], source: 'fallback', reason: candidates[0].observedPattern }, elapsed);
+  } finally {
+    ruleState.deciding = false;
+  }
 }
 
 function updateUser(delta) {
+  if (!joined || !userPlayer || userPlayer.dead) return;
   const move = new THREE.Vector3();
   if (input.has('KeyW') || input.has('ArrowUp')) move.z -= 1;
   if (input.has('KeyS') || input.has('ArrowDown')) move.z += 1;
@@ -1067,97 +1437,39 @@ function updateUser(delta) {
   if (input.has('KeyD') || input.has('ArrowRight')) move.x += 1;
   if (move.lengthSq() > 0) {
     move.normalize();
-    const speed = ruleState.linkedTo && userPlayer.mesh.position.distanceTo(ruleState.linkedTo.mesh.position) > 14 ? 5.2 : userPlayer.speed;
-    userPlayer.mesh.position.addScaledVector(move, speed * delta);
     userPlayer.mesh.rotation.y = Math.atan2(move.x, move.z);
-    userPlayer.stillTimer = 0;
-  } else {
-    userPlayer.stillTimer += delta;
   }
-  userPlayer.mesh.position.x = THREE.MathUtils.clamp(userPlayer.mesh.position.x, -WORLD_LIMIT, WORLD_LIMIT);
-  userPlayer.mesh.position.z = THREE.MathUtils.clamp(userPlayer.mesh.position.z, -WORLD_LIMIT, WORLD_LIMIT);
+  if (performance.now() - lastInputSentAt > 75) {
+    socket.emit('move', { x: move.x, z: move.z });
+    lastInputSentAt = performance.now();
+  }
 }
 
-function updateBots(delta) {
-  players.slice(1).forEach((bot, index) => {
-    bot.wanderTimer -= delta;
-    if (bot.wanderTimer <= 0 || bot.mesh.position.distanceTo(bot.wanderTarget) < 1.5) {
-      bot.wanderTarget.set(THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.4), 0, THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.4));
-      bot.wanderTimer = 3 + Math.random() * 4;
-    }
-    if (ruleState.artifactsAwake && index === 0) {
-      bot.wanderTarget.copy(userPlayer.mesh.position);
-    }
-    const direction = bot.wanderTarget.clone().sub(bot.mesh.position);
-    direction.y = 0;
-    if (direction.lengthSq() > 0.1) {
-      direction.normalize();
-      bot.mesh.position.addScaledVector(direction, bot.speed * delta);
-      bot.mesh.rotation.y = Math.atan2(direction.x, direction.z);
-    }
-  });
-}
+function updateBots() {}
 
 function updateArtifacts(delta, elapsed) {
   artifacts.forEach((artifact, index) => {
     artifact.rotation.y += delta * 1.6;
     artifact.children[1].rotation.z += delta * 2;
-    artifact.position.y += Math.sin(elapsed * 2 + index) * delta * 0.2;
-    if (!artifact.userData.collected && artifact.position.distanceTo(userPlayer.mesh.position) < 1.5) {
-      artifact.userData.collected = true;
-      ruleState.collected += 1;
-      pushFeed(`Artifact ${ruleState.collected} chose you.`);
-      artifact.children[0].material.color.set(0xfacc15);
-      artifact.children[0].material.emissive.set(0x854d0e);
-      if (ruleState.collected >= 4) awakenArtifacts();
-    }
-    if (artifact.userData.collected && ruleState.artifactsAwake) {
-      const target = userPlayer.mesh.position.clone().add(artifact.userData.followOffset);
+    artifact.position.y = 0.75 + Math.sin(elapsed * 2 + index) * 0.12;
+    const archiveRule = roomState?.activeRule?.id === 'archive';
+    const owner = playersById.get(artifact.userData.ownerId);
+    artifact.visible = !artifact.userData.collected || (archiveRule && Boolean(owner));
+    if (artifact.userData.collected && archiveRule && owner) {
+      const offset = new THREE.Vector3(Math.cos(index * 2.2) * 1.55, 1.0 + (index % 3) * 0.15, Math.sin(index * 2.2) * 1.55);
+      const target = owner.mesh.position.clone().add(offset);
       artifact.position.lerp(target, 1 - Math.pow(0.001, delta));
-    }
-    if (ruleState.distortion && !artifact.userData.collected) {
-      artifact.position.x += Math.sin(elapsed * 1.5 + index) * delta * 0.8;
     }
   });
 }
 
 function updateGameMaster(delta) {
-  let nearestBot = null;
-  let nearestDistance = Infinity;
-  players.slice(1).forEach((bot) => {
-    const distance = userPlayer.mesh.position.distanceTo(bot.mesh.position);
-    if (distance < nearestDistance) {
-      nearestDistance = distance;
-      nearestBot = bot;
-    }
-    const timer = userPlayer.followTimers.get(bot.name) || 0;
-    userPlayer.followTimers.set(bot.name, distance > 2.5 && distance < 7.5 ? timer + delta : Math.max(0, timer - delta));
-    if ((userPlayer.followTimers.get(bot.name) || 0) > 5.5) triggerLink(bot);
-  });
-
-  if (nearestDistance > 17 && userPlayer.stillTimer > 2) {
-    ruleState.lonelyTimer += delta;
-    if (ruleState.lonelyTimer > 6.5) grantAlternateSight();
-  } else {
-    ruleState.lonelyTimer = Math.max(0, ruleState.lonelyTimer - delta);
-  }
-
-  if (userPlayer.stillTimer < 0.2 && nearestBot && nearestDistance < 5 && ruleState.collected >= 2) {
-    triggerDistortion();
-  }
-
+  if (!joined || !userPlayer) return;
   if (ruleState.linkedTo) {
-    const distance = userPlayer.mesh.position.distanceTo(ruleState.linkedTo.mesh.position);
     const points = tetherLine.geometry.attributes.position;
     points.setXYZ(0, userPlayer.mesh.position.x, 1.4, userPlayer.mesh.position.z);
     points.setXYZ(1, ruleState.linkedTo.mesh.position.x, 1.4, ruleState.linkedTo.mesh.position.z);
     points.needsUpdate = true;
-    if (distance > 15) {
-      userPlayer.health = Math.max(0, userPlayer.health - delta * 7);
-      ruleState.linkedTo.health = Math.max(0, ruleState.linkedTo.health - delta * 4);
-    } else {
-      userPlayer.health = Math.min(100, userPlayer.health + delta * 2);
-    }
   }
 
   ruleState.feed.forEach(item => item.time -= delta);
@@ -1165,7 +1477,9 @@ function updateGameMaster(delta) {
 }
 
 function updateCamera() {
-  const target = userPlayer.mesh.position;
+  if (!userPlayer) return;
+  const survivor = spectating ? players.find((player) => !player.dead && player.id !== socket.id) : null;
+  const target = (survivor || userPlayer).mesh.position;
   const desired = target.clone().add(new THREE.Vector3(18, 18, 18));
   camera.position.lerp(desired, 0.035);
   controls.target.lerp(target, 0.08);
@@ -1173,7 +1487,6 @@ function updateCamera() {
 
 window.addEventListener('keydown', (event) => input.add(event.code));
 window.addEventListener('keyup', (event) => input.delete(event.code));
-pushFeed(memory.sessions > 1 ? 'The world remembers this group.' : 'No objective was given. The world is watching.');
 updateHud();
 
 // Clock for animations
@@ -1188,7 +1501,7 @@ function animate() {
   updateUser(delta);
   updateBots(delta);
   updateArtifacts(delta, elapsed);
-  updateGameMaster(delta);
+  updateGameMaster(delta, elapsed);
   updateCamera();
   updateHud();
   controls.update();

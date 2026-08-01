@@ -825,6 +825,357 @@ for (let row = 0; row < GRID_SIZE; row++) {
   }
 }
 
+// Emergent prototype layer
+const WORLD_LIMIT = totalSpan / 2 + 10;
+const input = new Set();
+const playerGroup = new THREE.Group();
+const botGroup = new THREE.Group();
+const artifactGroup = new THREE.Group();
+const mutationGroup = new THREE.Group();
+scene.add(playerGroup, botGroup, artifactGroup, mutationGroup);
+
+const memory = JSON.parse(localStorage.getItem('emergentMemory') || '{"sessions":0,"collected":0,"loner":0,"linked":0}');
+memory.sessions += 1;
+localStorage.setItem('emergentMemory', JSON.stringify(memory));
+
+function createNamePlate(text, color) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(0, 0, 256, 64);
+  ctx.fillStyle = color;
+  ctx.font = 'bold 28px Inter, Arial';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 32);
+  const texture = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true }));
+  sprite.scale.set(3.4, 0.85, 1);
+  sprite.position.y = 2.5;
+  return sprite;
+}
+
+function createPlayer(name, color, position, isUser = false) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.42, 1.1, 6, 12),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.05 })
+  );
+  body.position.y = 0.9;
+  body.castShadow = true;
+  group.add(body);
+
+  const visor = new THREE.Mesh(
+    new THREE.BoxGeometry(0.54, 0.16, 0.08),
+    new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.2 })
+  );
+  visor.position.set(0, 1.22, 0.38);
+  group.add(visor);
+
+  const aura = new THREE.Mesh(
+    new THREE.RingGeometry(0.65, 0.8, 28),
+    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: isUser ? 0.42 : 0.22 })
+  );
+  aura.rotation.x = -Math.PI / 2;
+  aura.position.y = 0.04;
+  group.add(aura);
+  group.add(createNamePlate(name, `#${new THREE.Color(color).getHexString()}`));
+  group.position.copy(position);
+  return {
+    name,
+    color,
+    mesh: group,
+    health: 100,
+    speed: isUser ? 8 : 4,
+    isUser,
+    wanderTarget: position.clone(),
+    wanderTimer: 0,
+    stillTimer: 0,
+    followTimers: new Map(),
+  };
+}
+
+const players = [
+  createPlayer('You', 0x2563eb, new THREE.Vector3(0, 0, -10), true),
+  createPlayer('Mira', 0xdb2777, new THREE.Vector3(-15, 0, 8)),
+  createPlayer('Sol', 0xf59e0b, new THREE.Vector3(13, 0, 12)),
+  createPlayer('Ren', 0x16a34a, new THREE.Vector3(6, 0, -18)),
+];
+players.forEach((player) => (player.isUser ? playerGroup : botGroup).add(player.mesh));
+const userPlayer = players[0];
+
+const artifacts = [];
+function createArtifact(position, index) {
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.45, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0x7c3aed,
+      emissive: 0x4c1d95,
+      emissiveIntensity: 0.45,
+      roughness: 0.35,
+      metalness: 0.35,
+    })
+  );
+  core.castShadow = true;
+  group.add(core);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.72, 0.025, 8, 32),
+    new THREE.MeshBasicMaterial({ color: 0xc4b5fd, transparent: true, opacity: 0.65 })
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+  group.position.copy(position);
+  group.userData = { index, collected: false, followOffset: new THREE.Vector3() };
+  artifactGroup.add(group);
+  artifacts.push(group);
+}
+
+for (let i = 0; i < 12; i++) {
+  createArtifact(new THREE.Vector3(
+    THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.5),
+    0.75,
+    THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.5)
+  ), i);
+}
+
+const secretLayer = new THREE.Group();
+secretLayer.visible = false;
+mutationGroup.add(secretLayer);
+for (let i = 0; i < 18; i++) {
+  const marker = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(0.28, 0),
+    new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.48 })
+  );
+  marker.position.set(THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.6), 2 + Math.random() * 4, THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.6));
+  secretLayer.add(marker);
+}
+
+const linkMaterial = new THREE.LineBasicMaterial({ color: 0xf43f5e, transparent: true, opacity: 0.85 });
+const linkGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+const tetherLine = new THREE.Line(linkGeometry, linkMaterial);
+tetherLine.visible = false;
+scene.add(tetherLine);
+
+const ruleState = {
+  linkedTo: null,
+  artifactsAwake: false,
+  alternateSight: false,
+  distortion: false,
+  collected: 0,
+  lonelyTimer: 0,
+  feed: [],
+};
+
+function makePanel(styles = '') {
+  const panel = document.createElement('div');
+  panel.style.cssText = `
+    position: fixed; z-index: 20; font-family: Inter, system-ui, -apple-system, sans-serif;
+    color: #18212f; pointer-events: none; ${styles}
+  `;
+  document.body.appendChild(panel);
+  return panel;
+}
+
+const statusPanel = makePanel('top: 14px; left: 14px; width: 260px;');
+const feedPanel = makePanel('left: 14px; bottom: 14px; width: min(380px, calc(100vw - 28px));');
+const rulePanel = makePanel('right: 14px; top: 14px; width: min(330px, calc(100vw - 28px));');
+
+function pushFeed(text) {
+  ruleState.feed.unshift({ text, time: 6 });
+  ruleState.feed = ruleState.feed.slice(0, 4);
+}
+
+function announceRule(title, body) {
+  rulePanel.innerHTML = `
+    <div style="background: rgba(255,255,255,0.9); border: 1px solid rgba(15,23,42,0.12); border-radius: 8px; padding: 12px 14px; box-shadow: 0 6px 24px rgba(15,23,42,0.16);">
+      <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #7c3aed; font-weight: 700;">Game Master</div>
+      <div style="font-size: 16px; font-weight: 700; margin-top: 4px;">${title}</div>
+      <div style="font-size: 12px; line-height: 1.45; color: #475569; margin-top: 5px;">${body}</div>
+    </div>
+  `;
+  setTimeout(() => {
+    rulePanel.innerHTML = '';
+  }, 6500);
+}
+
+function updateHud() {
+  const linked = ruleState.linkedTo ? ruleState.linkedTo.name : 'none';
+  statusPanel.innerHTML = `
+    <div style="background: rgba(255,255,255,0.84); border: 1px solid rgba(15,23,42,0.10); border-radius: 8px; padding: 11px 13px; box-shadow: 0 4px 18px rgba(15,23,42,0.12);">
+      <div style="font-size: 12px; font-weight: 700; color: #334155;">Health ${Math.max(0, Math.round(userPlayer.health))}</div>
+      <div style="height: 6px; background: #e2e8f0; margin: 8px 0; border-radius: 999px; overflow: hidden;">
+        <div style="height: 100%; width: ${Math.max(0, userPlayer.health)}%; background: #22c55e;"></div>
+      </div>
+      <div style="font-size: 11px; color: #64748b; line-height: 1.5;">Artifacts ${ruleState.collected}/12<br>Link ${linked}<br>Memory sessions ${memory.sessions}</div>
+    </div>
+  `;
+  feedPanel.innerHTML = ruleState.feed.map(item => `
+    <div style="background: rgba(15,23,42,0.74); color: #f8fafc; border-radius: 8px; padding: 9px 11px; margin-top: 7px; font-size: 12px; line-height: 1.35;">
+      ${item.text}
+    </div>
+  `).join('');
+}
+
+function triggerLink(target) {
+  if (ruleState.linkedTo) return;
+  ruleState.linkedTo = target;
+  memory.linked += 1;
+  localStorage.setItem('emergentMemory', JSON.stringify(memory));
+  pushFeed(`You kept close to ${target.name}. The world calls it attachment.`);
+  announceRule('Unwanted Bond', `You and ${target.name} are linked. If distance grows too wide, both begin to weaken.`);
+  tetherLine.visible = true;
+}
+
+function awakenArtifacts() {
+  if (ruleState.artifactsAwake) return;
+  ruleState.artifactsAwake = true;
+  memory.collected += ruleState.collected;
+  localStorage.setItem('emergentMemory', JSON.stringify(memory));
+  pushFeed('The artifacts remember being gathered.');
+  announceRule('Forgotten Archive', 'Collected objects now orbit you. Others are drawn toward them, though the reason is hidden.');
+  artifacts.filter(a => a.userData.collected).forEach((artifact, index) => {
+    artifact.userData.followOffset.set(Math.cos(index) * 1.6, 1.1 + index * 0.08, Math.sin(index) * 1.6);
+  });
+}
+
+function grantAlternateSight() {
+  if (ruleState.alternateSight) return;
+  ruleState.alternateSight = true;
+  memory.loner += 1;
+  localStorage.setItem('emergentMemory', JSON.stringify(memory));
+  scene.fog.color.set(0xa5f3fc);
+  secretLayer.visible = true;
+  pushFeed('The quiet player sees the city underneath the city.');
+  announceRule('Private Vision', 'Because you stayed apart, hidden markers are visible only to you.');
+}
+
+function triggerDistortion() {
+  if (ruleState.distortion) return;
+  ruleState.distortion = true;
+  pushFeed('The city notices repeated motion and loosens its physics.');
+  announceRule('Literal Mischief', 'Movement now bends nearby artifacts. The rule was not explained to anyone else.');
+}
+
+function updateUser(delta) {
+  const move = new THREE.Vector3();
+  if (input.has('KeyW') || input.has('ArrowUp')) move.z -= 1;
+  if (input.has('KeyS') || input.has('ArrowDown')) move.z += 1;
+  if (input.has('KeyA') || input.has('ArrowLeft')) move.x -= 1;
+  if (input.has('KeyD') || input.has('ArrowRight')) move.x += 1;
+  if (move.lengthSq() > 0) {
+    move.normalize();
+    const speed = ruleState.linkedTo && userPlayer.mesh.position.distanceTo(ruleState.linkedTo.mesh.position) > 14 ? 5.2 : userPlayer.speed;
+    userPlayer.mesh.position.addScaledVector(move, speed * delta);
+    userPlayer.mesh.rotation.y = Math.atan2(move.x, move.z);
+    userPlayer.stillTimer = 0;
+  } else {
+    userPlayer.stillTimer += delta;
+  }
+  userPlayer.mesh.position.x = THREE.MathUtils.clamp(userPlayer.mesh.position.x, -WORLD_LIMIT, WORLD_LIMIT);
+  userPlayer.mesh.position.z = THREE.MathUtils.clamp(userPlayer.mesh.position.z, -WORLD_LIMIT, WORLD_LIMIT);
+}
+
+function updateBots(delta) {
+  players.slice(1).forEach((bot, index) => {
+    bot.wanderTimer -= delta;
+    if (bot.wanderTimer <= 0 || bot.mesh.position.distanceTo(bot.wanderTarget) < 1.5) {
+      bot.wanderTarget.set(THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.4), 0, THREE.MathUtils.randFloatSpread(WORLD_LIMIT * 1.4));
+      bot.wanderTimer = 3 + Math.random() * 4;
+    }
+    if (ruleState.artifactsAwake && index === 0) {
+      bot.wanderTarget.copy(userPlayer.mesh.position);
+    }
+    const direction = bot.wanderTarget.clone().sub(bot.mesh.position);
+    direction.y = 0;
+    if (direction.lengthSq() > 0.1) {
+      direction.normalize();
+      bot.mesh.position.addScaledVector(direction, bot.speed * delta);
+      bot.mesh.rotation.y = Math.atan2(direction.x, direction.z);
+    }
+  });
+}
+
+function updateArtifacts(delta, elapsed) {
+  artifacts.forEach((artifact, index) => {
+    artifact.rotation.y += delta * 1.6;
+    artifact.children[1].rotation.z += delta * 2;
+    artifact.position.y += Math.sin(elapsed * 2 + index) * delta * 0.2;
+    if (!artifact.userData.collected && artifact.position.distanceTo(userPlayer.mesh.position) < 1.5) {
+      artifact.userData.collected = true;
+      ruleState.collected += 1;
+      pushFeed(`Artifact ${ruleState.collected} chose you.`);
+      artifact.children[0].material.color.set(0xfacc15);
+      artifact.children[0].material.emissive.set(0x854d0e);
+      if (ruleState.collected >= 4) awakenArtifacts();
+    }
+    if (artifact.userData.collected && ruleState.artifactsAwake) {
+      const target = userPlayer.mesh.position.clone().add(artifact.userData.followOffset);
+      artifact.position.lerp(target, 1 - Math.pow(0.001, delta));
+    }
+    if (ruleState.distortion && !artifact.userData.collected) {
+      artifact.position.x += Math.sin(elapsed * 1.5 + index) * delta * 0.8;
+    }
+  });
+}
+
+function updateGameMaster(delta) {
+  let nearestBot = null;
+  let nearestDistance = Infinity;
+  players.slice(1).forEach((bot) => {
+    const distance = userPlayer.mesh.position.distanceTo(bot.mesh.position);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestBot = bot;
+    }
+    const timer = userPlayer.followTimers.get(bot.name) || 0;
+    userPlayer.followTimers.set(bot.name, distance > 2.5 && distance < 7.5 ? timer + delta : Math.max(0, timer - delta));
+    if ((userPlayer.followTimers.get(bot.name) || 0) > 5.5) triggerLink(bot);
+  });
+
+  if (nearestDistance > 17 && userPlayer.stillTimer > 2) {
+    ruleState.lonelyTimer += delta;
+    if (ruleState.lonelyTimer > 6.5) grantAlternateSight();
+  } else {
+    ruleState.lonelyTimer = Math.max(0, ruleState.lonelyTimer - delta);
+  }
+
+  if (userPlayer.stillTimer < 0.2 && nearestBot && nearestDistance < 5 && ruleState.collected >= 2) {
+    triggerDistortion();
+  }
+
+  if (ruleState.linkedTo) {
+    const distance = userPlayer.mesh.position.distanceTo(ruleState.linkedTo.mesh.position);
+    const points = tetherLine.geometry.attributes.position;
+    points.setXYZ(0, userPlayer.mesh.position.x, 1.4, userPlayer.mesh.position.z);
+    points.setXYZ(1, ruleState.linkedTo.mesh.position.x, 1.4, ruleState.linkedTo.mesh.position.z);
+    points.needsUpdate = true;
+    if (distance > 15) {
+      userPlayer.health = Math.max(0, userPlayer.health - delta * 7);
+      ruleState.linkedTo.health = Math.max(0, ruleState.linkedTo.health - delta * 4);
+    } else {
+      userPlayer.health = Math.min(100, userPlayer.health + delta * 2);
+    }
+  }
+
+  ruleState.feed.forEach(item => item.time -= delta);
+  ruleState.feed = ruleState.feed.filter(item => item.time > 0);
+}
+
+function updateCamera() {
+  const target = userPlayer.mesh.position;
+  const desired = target.clone().add(new THREE.Vector3(18, 18, 18));
+  camera.position.lerp(desired, 0.035);
+  controls.target.lerp(target, 0.08);
+}
+
+window.addEventListener('keydown', (event) => input.add(event.code));
+window.addEventListener('keyup', (event) => input.delete(event.code));
+pushFeed(memory.sessions > 1 ? 'The world remembers this group.' : 'No objective was given. The world is watching.');
+updateHud();
+
 // Clock for animations
 const clock = new THREE.Clock();
 
@@ -832,7 +1183,14 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
+  const elapsed = clock.getElapsedTime();
 
+  updateUser(delta);
+  updateBots(delta);
+  updateArtifacts(delta, elapsed);
+  updateGameMaster(delta);
+  updateCamera();
+  updateHud();
   controls.update();
 
   // Move clouds

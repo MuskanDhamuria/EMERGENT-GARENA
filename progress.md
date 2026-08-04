@@ -1,0 +1,9 @@
+Original prompt: Redesign the game into a classic Pokémon Emerald / FireRed inspired 2D pixel-art adventure with a living AI Game Master.
+
+- 2026-08-04: Replacing the previous 3D city prototype with a canvas-based top-down pixel overworld. Planned controls: arrows/WASD, E interact, P demo GM cycle, F fullscreen.
+- 2026-08-04: Implemented the connected 100x76 pixel overworld with village, forest, caves, lake/bridges, ruins, shrine, temple, pass, camp, graveyard and grove; added observation/assignment/evolution/finale loop.
+- 2026-08-04: Verified an in-browser gameplay render with the mandated Playwright client. Staggered world evolutions now manifest as a hidden-cave passage, relic vault, lake bridge and spirit portal before the temple finale.
+- 2026-08-04: Increased walking speed to 8.2 tiles/sec and sprint speed to 13 tiles/sec, added a relic-direction compass, atmospheric GM observations, generous interaction range, and a visible tree-wall plus hard movement/camera boundary around the smaller playable world. Verified in browser with no console errors.
+- 2026-08-04: Reduced the Game Master observation phase from 90 to 30 seconds and moved the first scheduled evolution forward accordingly. Verified the opening HUD displays the new 30-second countdown.
+- 2026-08-04: Corrected the boundary placement: removed the interior tree rectangle and moved the natural tree rim to the true outer two map tiles. Playable bounds now sit just inside that edge; build and visual check pass.
+- 2026-08-04: Implemented the agentic multiplayer vertical slice: server-authoritative telemetry, 30-second unique archetype assignment, evolution/unlock/finale state, private rules/paths, and a safe stdio MCP Game Master server. Live four-client test confirmed the server awoke Explorer, Guardian, Collector and Loner after observation.

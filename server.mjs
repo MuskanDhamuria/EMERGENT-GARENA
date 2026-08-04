@@ -1,262 +1,356 @@
 import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { Server } from 'socket.io';
 
-function loadDotEnv() {
-  if (!existsSync('.env')) return;
-  for (const line of readFileSync('.env', 'utf8').split(/\r?\n/)) {
-    const match = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
-    if (match && !process.env[match[1]]) process.env[match[1]] = match[2].replace(/^['"]|['"]$/g, '');
-  }
-}
-
-loadDotEnv();
-
-const port = Number(process.env.PORT || 8787);
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
-const allowedRuleIds = new Set(['bond', 'archive', 'sight', 'ripple']);
-const WORLD_LIMIT = 38;
-const PLAYER_COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
+/*
+ * The game client is deliberately dumb: it renders this state and reports what a
+ * player did.  This file is the authority for identity, rules, unlocks and the
+ * finale.  An AI Game Master (through emergent-mcp.mjs) may only make the
+ * validated changes exposed by /api/mcp below.
+ */
+const PORT = Number(process.env.PORT || 8787);
+const OBSERVATION_MS = 30_000;
+const WORLD_LIMIT = 44;
+const MAX_PLAYERS = 4;
+const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
 const SPAWNS = [[0, -10], [-3, -6], [9, -4], [-9, 4]];
-const ARTIFACT_SPAWNS = [[4, -7], [-4, -3], [5, 3], [-13, 9], [12, 11], [-17, -12], [19, -3], [-5, 18], [3, -20], [20, 18], [-20, 17], [14, -18]];
 const rooms = new Map();
 
-const RULE_LIBRARY = {
-  bond: { id: 'bond', title: 'Unwanted Bond', body: 'Stay close to your bonded partner. If either of you strays too far, both of you continuously lose life.', duration: 70, counterplay: 'Stay within the pink tether range.' },
-  archive: { id: 'archive', title: 'The Archive Demands Witnesses', body: 'You gathered too much alone. Keep another player near your archive, or its weight continuously drains your life.', duration: 65, counterplay: 'Bring a teammate within range of the collector.' },
-  sight: { id: 'sight', title: 'Private Vision', body: 'The city shows you a hidden layer, but it needs solitude. Let someone get too close and your life continuously drains.', duration: 60, counterplay: 'The Seer must explore alone while guiding the group.' },
-  ripple: { id: 'ripple', title: 'Restless Physics', body: 'Momentum has chosen you. Keep moving, or standing still continuously drains your life.', duration: 50, counterplay: 'The Runner must keep moving.' },
+const contentTypes = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.woff2': 'font/woff2',
 };
 
+const LOCATIONS = [
+  'starting-village', 'whispering-forest', 'crystal-cave', 'lake-of-echoes',
+  'forgotten-ruins', 'sacred-shrine', 'mountain-pass', 'abandoned-camp',
+  'small-graveyard', 'secret-grove', 'hidden-cave', 'ancient-temple',
+];
+const FEATURES = new Set([
+  'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
+  'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
+  'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
+  'hidden-portal', 'ancient-temple', 'final-gate',
+]);
+const ARCHETYPES = ['Explorer', 'Collector', 'Guardian', 'Loner'];
+const RELICS = [
+  ['moss-compass', -10, -12], ['sun-shard', 12, -4], ['moon-bell', 19, 11],
+  ['river-pearl', -3, 18], ['root-key', -17, 8], ['cave-amber', 6, 3],
+  ['ember-stone', 22, -15], ['star-seed', -22, 16], ['temple-sigil', 2, -21],
+];
+const EVOLUTION_LIBRARY = {
+  Explorer: [
+    ['hidden-cave', 'Your curiosity has opened the Hidden Cave.'],
+    ['invisible-bridge', 'An invisible bridge now answers the Explorer’s gaze.'],
+    ['forgotten-ruins', 'New ruins have emerged in the northern forest.'],
+  ],
+  Collector: [
+    ['relic-vault', 'The relic vault has recognised a discerning collector.'],
+    ['evolving-artifacts', 'Gathered relics have begun to evolve and reveal their stories.'],
+    ['treasure-cache', 'Hidden treasure caches now glitter beneath the old world.'],
+  ],
+  Guardian: [
+    ['healing-shrine', 'A healing shrine rises to shelter the group.'],
+    ['protective-barrier', 'A protective barrier now guards those who travel together.'],
+    ['revival-monument', 'A revival monument remembers the Guardian’s care.'],
+  ],
+  Loner: [
+    ['spirit-realm', 'The veil thins: the Loner may enter the spirit realm.'],
+    ['illusion-passage', 'Illusion passages become visible to a solitary eye.'],
+    ['hidden-portal', 'A hidden portal has opened beyond ordinary sight.'],
+  ],
+};
+
+function now() { return Date.now(); }
+function cleanText(value, fallback = '', max = 220) {
+  if (typeof value !== 'string') return fallback;
+  return value.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max) || fallback;
+}
+function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value) || 0)); }
 function sendJson(response, status, body) {
-  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(body));
 }
-
-function clampText(value, fallback, max = 220) {
-  if (typeof value !== 'string') return fallback;
-  return value.replace(/[<>]/g, '').trim().slice(0, max) || fallback;
+function locationFor(x, z) {
+  // Coarse server-side regions; exact tile decoration remains a client concern.
+  if (z < -16) return 'mountain-pass';
+  if (x > 16 && z < -3) return 'whispering-forest';
+  if (x > 13 && z > 10) return 'forgotten-ruins';
+  if (x < -15 && z > 8) return 'small-graveyard';
+  if (x < -14 && z < -5) return 'crystal-cave';
+  if (z > 12) return 'lake-of-echoes';
+  if (Math.abs(x) < 10 && Math.abs(z) < 10) return 'starting-village';
+  return 'abandoned-camp';
 }
-
-function parseModelContent(content) {
-  if (typeof content !== 'string') return {};
-  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const object = (fenced ? fenced[1] : content).match(/\{[\s\S]*\}/);
-  try { return JSON.parse(object ? object[0] : content); } catch { return {}; }
+function event(room, type, message, options = {}) {
+  const item = { id: `${now()}-${Math.random().toString(36).slice(2, 7)}`, at: now(), type, message: cleanText(message, 'The world shifts.'), ...options };
+  room.events.push(item);
+  if (room.events.length > 40) room.events.shift();
+  if (options.privateTo) io.to(options.privateTo).emit('gm-private', item);
+  else io.to(room.code).emit('gm-event', item);
+  return item;
 }
-
-function validateDecision(candidates, response) {
-  const candidateIds = candidates.map((candidate) => candidate.id);
-  const modelRuleIsAllowed = candidateIds.includes(response?.ruleId) && allowedRuleIds.has(response.ruleId);
-  const ruleId = modelRuleIsAllowed ? response.ruleId : candidateIds[0];
-  const selected = candidates.find((candidate) => candidate.id === ruleId) || {};
-  return {
-    ruleId,
-    title: clampText(modelRuleIsAllowed ? response?.title : selected.title, 'The city responds.', 56),
-    body: clampText(modelRuleIsAllowed ? response?.body : selected.body, 'A new survival rule is taking hold.'),
-    reason: clampText(modelRuleIsAllowed ? response?.reason : selected.observedPattern, 'The Game Master recognised a group pattern.', 160),
-    source: modelRuleIsAllowed ? 'model' : 'fallback',
-  };
-}
-
-async function chooseRule(telemetry, candidates) {
-  const allowedCandidates = candidates.filter((candidate) => allowedRuleIds.has(candidate.id));
-  if (!allowedCandidates.length) return { ruleId: null, source: 'waiting' };
-  const fallback = validateDecision(allowedCandidates, {});
-  if (!process.env.GM_API_URL || !process.env.GM_API_KEY || !process.env.GM_MODEL) return fallback;
-
-  const prompt = [
-    'You are the Game Master for Emergent, a social survival game.',
-    'Choose exactly one rule from the supplied candidates. You may only select an allowed id.',
-    'Every rule is pre-implemented and balanced by the server. Do not invent mechanics, objectives, damage, or exceptions.',
-    'Write direct, intriguing survival copy: players must understand what action prevents life loss, but need not know what behaviour triggered the rule.',
-    'Return strict JSON only: {"ruleId":"...","title":"...","body":"...","reason":"..."}.',
-    `Observed room telemetry: ${JSON.stringify(telemetry)}`,
-    `Allowed candidates: ${JSON.stringify(allowedCandidates.map(({ id, title, body, counterplay, observedPattern }) => ({ id, title, body, counterplay, observedPattern })))}.`,
-  ].join('\n');
-
-  try {
-    const response = await fetch(process.env.GM_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.GM_API_KEY}` },
-      body: JSON.stringify({ model: process.env.GM_MODEL, temperature: 0.55, max_tokens: 220, messages: [{ role: 'user', content: prompt }] }),
-      signal: AbortSignal.timeout(7000),
-    });
-    if (!response.ok) {
-      const detail = (await response.text()).replace(/\s+/g, ' ').slice(0, 700);
-      throw new Error(`Model returned ${response.status}${detail ? `: ${detail}` : ''}`);
-    }
-    const data = await response.json();
-    return validateDecision(allowedCandidates, parseModelContent(data?.choices?.[0]?.message?.content));
-  } catch (error) {
-    console.warn(`Game Master model unavailable: ${error.message}`);
-    return fallback;
-  }
-}
-
 function createRoom(code) {
+  const createdAt = now();
   return {
-    code,
-    createdAt: Date.now(),
-    players: new Map(),
-    artifacts: ARTIFACT_SPAWNS.map(([x, z], index) => ({ index, x, z, collectedBy: null })),
-    pairSeconds: new Map(),
-    activeRule: null,
-    lastDecisionAt: 0,
-    deciding: false,
-    director: { source: 'watching', reason: 'The city is watching how this group survives.', telemetry: {} },
+    code, createdAt, observationEndsAt: createdAt + OBSERVATION_MS, phase: 'observing',
+    players: new Map(), relics: RELICS.map(([id, x, z]) => ({ id, x, z, collectedBy: null })),
+    world: { unlocked: new Set(['starting-village', 'whispering-forest', 'lake-of-echoes']), privateUnlocks: new Map() },
+    events: [], archetypesAssignedAt: null, lastEvolutionAt: 0, finalObjective: null,
+    director: { narration: 'No quest has been written. The Game Master is listening.', source: 'server', at: createdAt },
   };
 }
-
-function makePlayer(id, name, index) {
+function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index] || [0, 0];
-  return { id, name: name.slice(0, 16), color: PLAYER_COLORS[index], x, z, inputX: 0, inputZ: 0, health: 100, dead: false, stillSeconds: 0, movement: 0, proximity: 0, isolation: 0, sharedMomentum: 0, visited: new Set(), artifactCount: 0 };
+  return {
+    id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], x, z,
+    inputX: 0, inputZ: 0, locationId: locationFor(x, z), visited: new Set(['starting-village']),
+    relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
+    nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0,
+    archetype: null, evolutions: [], privateRules: [], lastTelemetryAt: now(),
+  };
 }
-
+function activePlayers(room) { return [...room.players.values()]; }
+function getPlayer(room, playerId) { return room.players.get(playerId); }
 function distance(a, b) { return Math.hypot(a.x - b.x, a.z - b.z); }
-function livePlayers(room) { return [...room.players.values()].filter((player) => !player.dead); }
-function pairKey(a, b) { return [a.id, b.id].sort().join(':'); }
-
-function getRoomTelemetry(room) {
-  const players = livePlayers(room);
-  const seconds = Math.max(1, (Date.now() - room.createdAt) / 1000);
+function closestDistance(room, player) {
+  return activePlayers(room).filter((other) => other.id !== player.id).reduce((best, other) => Math.min(best, distance(player, other)), Infinity);
+}
+function playerTelemetry(room, player) {
+  const elapsed = Math.max(1, (now() - room.createdAt) / 1000);
   return {
-    playersObserved: players.length,
-    averageCohesion: Number((players.reduce((total, player) => total + player.proximity / seconds, 0) / Math.max(players.length, 1)).toFixed(2)),
-    totalArtifactsCollected: room.artifacts.filter((artifact) => artifact.collectedBy).length,
-    explorers: players.filter((player) => player.visited.size >= 4).length,
-    isolatedPlayers: players.filter((player) => player.isolation > 5).length,
-    activeRule: room.activeRule?.id || null,
+    id: player.id, name: player.name, location: player.locationId,
+    locationsDiscovered: player.visited.size, relicsCollected: player.relicIds.size,
+    interactions: player.interactions, distanceTravelled: Math.round(player.movement),
+    nearGroupSeconds: Math.round(player.nearSeconds), aloneSeconds: Math.round(player.aloneSeconds),
+    riskEvents: player.riskEvents, rescues: player.rescues, follows: player.follows,
+    cohesion: Number((player.nearSeconds / elapsed).toFixed(2)),
+  };
+}
+function roomTelemetry(room) {
+  return {
+    roomCode: room.code, phase: room.phase,
+    observationSecondsRemaining: Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)),
+    players: activePlayers(room).map((player) => playerTelemetry(room, player)),
+    relicsCollected: room.relics.filter((relic) => relic.collectedBy).length,
+    unlockedFeatures: [...room.world.unlocked], finalObjective: room.finalObjective,
   };
 }
 
-function getCandidates(room) {
-  const players = livePlayers(room);
-  const candidates = [];
-  const strongestPair = [...room.pairSeconds.entries()].sort((a, b) => b[1] - a[1])[0];
-  if (strongestPair?.[1] >= 5) {
-    const ids = strongestPair[0].split(':');
-    const pair = ids.map((id) => room.players.get(id)).filter(Boolean);
-    if (pair.length === 2) candidates.push({ ...RULE_LIBRARY.bond, participants: ids, observedPattern: `${pair[0].name} and ${pair[1].name} repeatedly stayed together.` });
-  }
-  const collector = players.find((player) => player.artifactCount >= 2);
-  if (collector) candidates.push({ ...RULE_LIBRARY.archive, participants: [collector.id], observedPattern: `${collector.name} repeatedly gathered objects alone.` });
-  const explorer = players.sort((a, b) => b.isolation - a.isolation || b.visited.size - a.visited.size)[0];
-  if (explorer && (explorer.isolation >= 6 || explorer.visited.size >= 5)) candidates.push({ ...RULE_LIBRARY.sight, participants: [explorer.id], observedPattern: `${explorer.name} separated from the group to explore.` });
-  const runner = players.sort((a, b) => b.movement - a.movement)[0];
-  if (runner && runner.movement >= 28 && runner.sharedMomentum >= 3) candidates.push({ ...RULE_LIBRARY.ripple, participants: [runner.id], observedPattern: `${runner.name} repeatedly moved with urgency near the group.` });
-  return candidates;
-}
-
-function ruleViolation(room, player) {
-  const rule = room.activeRule;
-  if (!rule || !rule.participants.includes(player.id)) return false;
-  const companions = livePlayers(room).filter((other) => other.id !== player.id);
-  const nearest = companions.reduce((best, other) => Math.min(best, distance(player, other)), Infinity);
-  if (rule.id === 'bond') {
-    const partner = room.players.get(rule.participants.find((id) => id !== player.id));
-    return !partner || partner.dead || distance(player, partner) > 14;
-  }
-  if (rule.id === 'archive') return nearest > 9;
-  if (rule.id === 'sight') return nearest < 7;
-  if (rule.id === 'ripple') return player.stillSeconds > 2.5;
-  return false;
-}
-
-function serializeRoom(room) {
+// The score model is explainable and deterministic. The MCP agent may request a
+// different assignment, but can never duplicate an archetype or name a player it
+// cannot see.
+function archetypeScores(player) {
   return {
-    code: room.code,
-    players: [...room.players.values()].map(({ id, name, color, x, z, health, dead, artifactCount }) => ({ id, name, color, x, z, health: Math.round(health), dead, artifactCount })),
-    artifacts: room.artifacts,
-    activeRule: room.activeRule && { id: room.activeRule.id, title: room.activeRule.title, body: room.activeRule.body, counterplay: room.activeRule.counterplay, participants: room.activeRule.participants, endsAt: room.activeRule.endsAt },
-    director: room.director,
+    Explorer: player.visited.size * 3 + player.movement / 30 + player.riskEvents * 2,
+    Collector: player.relicIds.size * 9 + (player.interactions.relic || 0) * 2 + (player.interactions.object || 0),
+    Guardian: player.nearSeconds / 3 + player.rescues * 8 + (player.interactions.shrine || 0) * 2 + player.follows,
+    Loner: player.aloneSeconds / 3 + player.visited.size + (player.interactions.secret || 0) * 3,
   };
 }
-
-async function decideForRoom(room) {
-  if (room.deciding || room.activeRule || Date.now() - room.lastDecisionAt < 12_000) return;
-  if (livePlayers(room).length < 2) {
-    room.director = { source: 'watching', reason: 'The city is waiting for at least two players before it writes a survival rule.', telemetry: getRoomTelemetry(room) };
-    return;
+function calculateAssignments(room) {
+  const players = activePlayers(room);
+  const available = ARCHETYPES.slice(0, players.length);
+  let best = { score: -Infinity, choices: [] };
+  function search(index, unused, choices, score) {
+    if (index === players.length) { if (score > best.score) best = { score, choices: [...choices] }; return; }
+    for (const archetype of unused) {
+      const next = unused.filter((item) => item !== archetype);
+      search(index + 1, next, [...choices, [players[index].id, archetype]], score + archetypeScores(players[index])[archetype]);
+    }
   }
-  const candidates = getCandidates(room);
-  if (!candidates.length) { room.director = { source: 'watching', reason: 'The city is waiting for a distinct survival pattern.', telemetry: getRoomTelemetry(room) }; return; }
-  room.deciding = true;
-  room.lastDecisionAt = Date.now();
-  const telemetry = getRoomTelemetry(room);
-  const decision = await chooseRule(telemetry, candidates);
-  const selected = candidates.find((candidate) => candidate.id === decision.ruleId);
-  if (selected && !room.activeRule) {
-    room.activeRule = { ...selected, ...decision, endsAt: Date.now() + selected.duration * 1000 };
-    room.director = { source: decision.source === 'model' ? 'configured AI model' : 'local Game Master fallback', reason: decision.reason, telemetry };
-    io.to(room.code).emit('gm-rule', room.activeRule);
+  search(0, available, [], 0);
+  return best.choices;
+}
+function assignArchetypes(room, assignments, source = 'server') {
+  if (room.phase !== 'observing' && room.phase !== 'awakening') return { ok: false, error: 'Archetypes have already been assigned.' };
+  if (!Array.isArray(assignments) || assignments.length !== room.players.size) return { ok: false, error: 'Every current player requires one assignment.' };
+  const seenPlayers = new Set(); const seenArchetypes = new Set();
+  for (const item of assignments) {
+    if (!getPlayer(room, item.playerId) || !ARCHETYPES.includes(item.archetype) || seenPlayers.has(item.playerId) || seenArchetypes.has(item.archetype)) return { ok: false, error: 'Assignments must use distinct valid players and archetypes.' };
+    seenPlayers.add(item.playerId); seenArchetypes.add(item.archetype);
   }
-  room.deciding = false;
+  for (const { playerId, archetype } of assignments) {
+    const player = getPlayer(room, playerId); player.archetype = archetype;
+    event(room, 'archetype-awakened', `${player.name} has awakened as the ${archetype}.`, { playerId, archetype });
+  }
+  room.phase = 'evolving'; room.archetypesAssignedAt = now();
+  room.director = { narration: 'I have observed your choices. Now I will grow a world that answers them.', source, at: now() };
+  return { ok: true, assignments };
+}
+function unlock(room, feature, message, options = {}) {
+  if (!FEATURES.has(feature)) return { ok: false, error: 'Unknown world feature.' };
+  const player = options.playerId && getPlayer(room, options.playerId);
+  if (options.privateTo && !player) return { ok: false, error: 'Unknown private audience.' };
+  if (options.privateTo) {
+    const privateSet = room.world.privateUnlocks.get(options.privateTo) || new Set();
+    privateSet.add(feature); room.world.privateUnlocks.set(options.privateTo, privateSet);
+    event(room, 'private-unlock', message || `${feature} has become visible only to you.`, { privateTo: options.privateTo, feature, playerId: options.privateTo });
+  } else {
+    const fresh = !room.world.unlocked.has(feature); room.world.unlocked.add(feature);
+    if (fresh || message) event(room, 'world-unlocked', message || `${feature} is now accessible.`, { feature });
+  }
+  return { ok: true, feature };
+}
+function evolve(room, playerId, source = 'server') {
+  const player = getPlayer(room, playerId);
+  if (!player?.archetype) return { ok: false, error: 'This player has no archetype.' };
+  const path = EVOLUTION_LIBRARY[player.archetype];
+  const step = path[player.evolutions.length];
+  if (!step) return { ok: false, error: 'This archetype has reached its current evolution limit.' };
+  const [feature, narration] = step;
+  player.evolutions.push(feature);
+  const privateUnlock = ['spirit-realm', 'illusion-passage', 'hidden-portal'].includes(feature);
+  const result = unlock(room, feature, narration, privateUnlock ? { privateTo: player.id, playerId } : {});
+  if (!result.ok) return result;
+  // Asymmetric information is a mechanic, not merely private UI copy.
+  if (privateUnlock) player.privateRules.push({ id: feature, title: 'Private Vision', message: 'Only you can see this path. Decide what to tell the others.' });
+  room.director = { narration, source, at: now() };
+  event(room, 'archetype-evolved', `${player.name}'s ${player.archetype} identity has evolved: ${feature.replaceAll('-', ' ')}.`, { playerId, archetype: player.archetype, feature });
+  maybeCreateFinale(room, source);
+  return { ok: true, playerId, archetype: player.archetype, feature };
+}
+function createFinalObjective(room, source = 'server') {
+  if (room.finalObjective) return room.finalObjective;
+  const required = activePlayers(room).filter((player) => player.archetype).map((player) => ({
+    playerId: player.id, archetype: player.archetype,
+    task: ({ Explorer: 'discover the hidden temple entrance', Collector: 'place three gathered relics in the altar', Guardian: 'activate the awakened shrine', Loner: 'cross the spirit realm and open the final gate' })[player.archetype],
+    completed: false,
+  }));
+  if (!required.length) return null;
+  room.world.unlocked.add('ancient-temple'); room.world.unlocked.add('final-gate');
+  room.finalObjective = { id: `temple-${room.createdAt}`, title: 'The Ancient Temple Has Awakened', description: 'The finale was shaped by this group’s discovered identities.', required, status: 'active', createdAt: now(), source };
+  event(room, 'finale-created', 'The Ancient Temple has awakened. Each identity is now needed to open the final gate.', { objective: room.finalObjective });
+  return room.finalObjective;
+}
+function maybeCreateFinale(room, source) {
+  const players = activePlayers(room);
+  if (players.length && players.every((player) => player.archetype && player.evolutions.length > 0)) createFinalObjective(room, source);
+}
+function completeObjectiveTask(room, player, action) {
+  const objective = room.finalObjective;
+  if (!objective || objective.status !== 'active' || !player.archetype) return;
+  const task = objective.required.find((item) => item.playerId === player.id);
+  if (!task || task.completed) return;
+  const valid = (player.archetype === 'Explorer' && ['discover-temple', 'temple-entrance'].includes(action))
+    || (player.archetype === 'Collector' && ['offer-relics', 'altar'].includes(action) && player.relicIds.size >= 3)
+    || (player.archetype === 'Guardian' && ['activate-shrine', 'shrine'].includes(action))
+    || (player.archetype === 'Loner' && ['open-final-gate', 'spirit-gate'].includes(action));
+  if (!valid) return;
+  task.completed = true;
+  event(room, 'finale-progress', `${player.name} fulfilled the ${player.archetype} rite.`, { playerId: player.id, archetype: player.archetype });
+  if (objective.required.every((item) => item.completed)) {
+    objective.status = 'complete'; objective.completedAt = now();
+    event(room, 'finale-complete', 'The final gate opens. This world has learned how you play together.', { objective });
+  }
+}
+function collectRelic(room, player, relicId) {
+  const relic = room.relics.find((item) => item.id === relicId && !item.collectedBy);
+  if (!relic) return { ok: false, error: 'That relic is unavailable.' };
+  if (distance(player, relic) > 4) return { ok: false, error: 'Move closer to collect that relic.' };
+  relic.collectedBy = player.id; player.relicIds.add(relic.id);
+  player.interactions.relic = (player.interactions.relic || 0) + 1;
+  event(room, 'relic-collected', `${player.name} collected the ${relic.id.replaceAll('-', ' ')}.`, { playerId: player.id, relicId });
+  return { ok: true, relicId };
+}
+function serializeRoom(room, viewerId = null) {
+  // State reads are also a safe advancement point. This keeps a room progressing
+  // even if a host/browser pauses its timer or there are no movement packets.
+  advanceRoom(room);
+  // A final, side-effect-safe guard at the serialization boundary guarantees the
+  // observation promise: a room cannot remain roleless once its window closes.
+  if (room.phase === 'observing' && now() - room.createdAt >= OBSERVATION_MS && room.players.size) {
+    const assignments = calculateAssignments(room);
+    if (assignments.length === room.players.size) {
+      for (const [playerId, archetype] of assignments) room.players.get(playerId).archetype = archetype;
+      room.phase = 'evolving'; room.archetypesAssignedAt = now();
+      room.director = { narration: 'I have observed your choices. Your identities are awake.', source: 'behaviour model', at: now() };
+      event(room, 'archetype-awakened', 'The Game Master has assigned four unique identities from the group’s behaviour.');
+    }
+  }
+  const viewer = viewerId && getPlayer(room, viewerId);
+  const privateUnlocks = viewer ? [...(room.world.privateUnlocks.get(viewer.id) || [])] : [];
+  return {
+    code: room.code, phase: room.phase, observationEndsAt: room.observationEndsAt,
+    observationSecondsRemaining: Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)),
+    players: activePlayers(room).map((player) => ({ id: player.id, name: player.name, color: player.color, x: player.x, z: player.z, locationId: player.locationId, archetype: player.archetype, relicCount: player.relicIds.size, evolutions: player.evolutions })),
+    relics: room.relics.map(({ id, x, z, collectedBy }) => ({ id, x, z, collectedBy })),
+    world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective,
+    director: room.director, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [],
+  };
+}
+function broadcastState(room) {
+  for (const player of activePlayers(room)) io.to(player.id).emit('world-state', serializeRoom(room, player.id));
+}
+function recordTelemetry(room, player, payload = {}) {
+  const x = clamp(payload.x ?? payload.position?.x, -WORLD_LIMIT, WORLD_LIMIT);
+  const z = clamp(payload.z ?? payload.position?.z, -WORLD_LIMIT, WORLD_LIMIT);
+  const travelled = Math.min(8, Math.hypot(x - player.x, z - player.z));
+  if (travelled) { player.movement += travelled; player.movementSamples += 1; }
+  player.x = x; player.z = z; player.locationId = LOCATIONS.includes(payload.locationId) ? payload.locationId : locationFor(x, z); player.visited.add(player.locationId);
+  if (Array.isArray(payload.visitedLocations)) for (const location of payload.visitedLocations) if (LOCATIONS.includes(location)) player.visited.add(location);
+  if (Number.isFinite(payload.riskEvents)) player.riskEvents = Math.max(player.riskEvents, Math.min(50, Number(payload.riskEvents)));
+  if (Number.isFinite(payload.rescues)) player.rescues = Math.max(player.rescues, Math.min(50, Number(payload.rescues)));
+  if (Number.isFinite(payload.follows)) player.follows = Math.max(player.follows, Math.min(100, Number(payload.follows)));
+  player.lastTelemetryAt = now();
+}
+function tickRoom(room, delta) {
+  for (const player of activePlayers(room)) {
+    const magnitude = Math.hypot(player.inputX, player.inputZ);
+    if (magnitude > 0) recordTelemetry(room, player, { x: player.x + player.inputX / magnitude * 8 * delta, z: player.z + player.inputZ / magnitude * 8 * delta });
+    const nearest = closestDistance(room, player);
+    if (nearest <= 9) player.nearSeconds += delta;
+    else if (activePlayers(room).length > 1) player.aloneSeconds += delta;
+  }
+  advanceRoom(room);
+}
+function advanceRoom(room) {
+  if (room.phase === 'observing' && now() >= room.observationEndsAt && room.players.size) {
+    event(room, 'gm-narration', "I've observed your curiosity, caution, and connection. Your identities are awakening.");
+    assignArchetypes(room, calculateAssignments(room), 'behaviour model');
+  }
+  if (room.phase === 'evolving' && now() - room.lastEvolutionAt > 15_000) {
+    const target = activePlayers(room).filter((player) => player.evolutions.length < 1).sort((a, b) => b.movement + b.relicIds.size * 5 - (a.movement + a.relicIds.size * 5))[0];
+    if (target) { room.lastEvolutionAt = now(); evolve(room, target.id, 'behaviour model'); }
+  }
 }
 
-function updateRoom(room, delta) {
-  const players = livePlayers(room);
-  for (const player of players) {
-    const length = Math.hypot(player.inputX, player.inputZ);
-    if (length > 0) {
-      const speed = 8 * delta;
-      player.x = Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, player.x + (player.inputX / length) * speed));
-      player.z = Math.max(-WORLD_LIMIT, Math.min(WORLD_LIMIT, player.z + (player.inputZ / length) * speed));
-      player.movement += speed;
-      player.stillSeconds = 0;
-    } else player.stillSeconds += delta;
-    player.visited.add(`${Math.floor((player.x + WORLD_LIMIT) / 9)}:${Math.floor((player.z + WORLD_LIMIT) / 9)}`);
-    const others = players.filter((other) => other.id !== player.id);
-    if (others.length) {
-      const nearest = others.reduce((best, other) => Math.min(best, distance(player, other)), Infinity);
-      if (nearest < 8) player.proximity += delta;
-      if (nearest > 17) player.isolation += delta;
-      if (nearest < 6 && length > 0) player.sharedMomentum += delta;
-    }
-  }
-
-  for (let index = 0; index < players.length; index++) {
-    for (let otherIndex = index + 1; otherIndex < players.length; otherIndex++) {
-      const a = players[index]; const b = players[otherIndex]; const key = pairKey(a, b);
-      const current = room.pairSeconds.get(key) || 0;
-      room.pairSeconds.set(key, distance(a, b) < 8 ? current + delta : Math.max(0, current - delta * 0.5));
-    }
-  }
-
-  for (const artifact of room.artifacts) {
-    if (artifact.collectedBy) continue;
-    const collector = players.find((player) => distance(player, artifact) < 1.5);
-    if (collector) { artifact.collectedBy = collector.id; collector.artifactCount += 1; io.to(room.code).emit('feed', `${collector.name} gathered an artifact.`); }
-  }
-
-  if (room.activeRule && Date.now() >= room.activeRule.endsAt) {
-    io.to(room.code).emit('feed', 'The city releases its rule and starts watching again.');
-    room.activeRule = null;
-  }
-  for (const player of players) {
-    if (ruleViolation(room, player)) player.health = Math.max(0, player.health - delta * 8);
-    else if (room.activeRule?.participants.includes(player.id)) player.health = Math.min(100, player.health + delta * 1.5);
-    if (player.health <= 0 && !player.dead) { player.dead = true; player.inputX = 0; player.inputZ = 0; io.to(room.code).emit('player-died', { id: player.id, name: player.name }); }
-  }
-  void decideForRoom(room);
+async function readBody(request) {
+  let body = '';
+  for await (const chunk of request) { body += chunk; if (body.length > 50_000) throw new Error('Request body too large.'); }
+  try { return JSON.parse(body || '{}'); } catch { throw new Error('Invalid JSON body.'); }
+}
+function endpointRoom(payload) { return rooms.get(String(payload.roomCode || '').toUpperCase()); }
+async function handleMcpApi(request, response, pathname) {
+  let payload;
+  try { payload = request.method === 'GET' ? Object.fromEntries(new URL(request.url, 'http://localhost').searchParams) : await readBody(request); }
+  catch (error) { sendJson(response, 400, { ok: false, error: error.message }); return; }
+  if (pathname === '/api/mcp/rooms') { sendJson(response, 200, { ok: true, rooms: [...rooms.values()].map((room) => ({ roomCode: room.code, phase: room.phase, playerCount: room.players.size })) }); return; }
+  const room = endpointRoom(payload);
+  if (!room) { sendJson(response, 404, { ok: false, error: 'Unknown room.' }); return; }
+  if (pathname === '/api/mcp/world-state') { sendJson(response, 200, { ok: true, state: serializeRoom(room) }); return; }
+  if (pathname === '/api/mcp/telemetry') { sendJson(response, 200, { ok: true, telemetry: roomTelemetry(room) }); return; }
+  let result;
+  if (pathname === '/api/mcp/narrate') {
+    const message = cleanText(payload.message, '', 280); if (!message) { sendJson(response, 400, { ok: false, error: 'A narration message is required.' }); return; }
+    result = { ok: true, event: event(room, 'gm-narration', message, payload.privateTo ? { privateTo: payload.privateTo } : {}) };
+  } else if (pathname === '/api/mcp/assign-archetypes') result = assignArchetypes(room, payload.assignments, 'MCP Game Master');
+  else if (pathname === '/api/mcp/unlock') result = unlock(room, payload.feature, cleanText(payload.message), payload.privateTo ? { privateTo: payload.privateTo, playerId: payload.privateTo } : {});
+  else if (pathname === '/api/mcp/evolve') result = evolve(room, payload.playerId, 'MCP Game Master');
+  else if (pathname === '/api/mcp/finale') result = { ok: true, objective: createFinalObjective(room, 'MCP Game Master') };
+  else { sendJson(response, 404, { ok: false, error: 'Unknown MCP endpoint.' }); return; }
+  broadcastState(room); sendJson(response, result.ok ? 200 : 400, result);
 }
 
 const server = createServer(async (request, response) => {
-  if (request.method === 'POST' && request.url === '/api/game-master') {
-    let body = '';
-    request.on('data', (chunk) => { body += chunk; if (body.length > 20_000) request.destroy(); });
-    request.on('end', async () => {
-      try {
-        const payload = JSON.parse(body || '{}');
-        sendJson(response, 200, await chooseRule(payload.telemetry || {}, Array.isArray(payload.candidates) ? payload.candidates : []));
-      } catch { sendJson(response, 400, { error: 'Invalid Game Master request.' }); }
-    });
-    return;
-  }
-  const urlPath = request.url === '/' ? '/index.html' : request.url?.split('?')[0] || '/index.html';
+  const pathname = (request.url || '/').split('?')[0];
+  if (pathname.startsWith('/api/mcp/')) { await handleMcpApi(request, response, pathname); return; }
+  if (request.method === 'GET' && pathname === '/api/game-master') { sendJson(response, 200, { ok: true, message: 'Use the narrow /api/mcp endpoints to observe or alter a room.' }); return; }
+  const urlPath = pathname === '/' ? '/index.html' : pathname;
   const filePath = normalize(join('dist', urlPath));
   if (!filePath.startsWith(normalize('dist')) || !existsSync(filePath)) { response.writeHead(404); response.end('Build the app first with npm run build.'); return; }
   try { response.writeHead(200, { 'Content-Type': contentTypes[extname(filePath)] || 'application/octet-stream' }); response.end(await readFile(filePath)); }
@@ -265,41 +359,44 @@ const server = createServer(async (request, response) => {
 
 const io = new Server(server, { cors: { origin: true } });
 io.on('connection', (socket) => {
-  socket.on('join-room', ({ roomCode, name }, callback = () => {}) => {
-    const code = String(roomCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-    const cleanName = String(name || '').replace(/[^a-zA-Z0-9 _-]/g, '').trim().slice(0, 16);
-    if (code.length < 4 || !cleanName) return callback({ ok: false, error: 'Enter a 4–6 character room code and a name.' });
-    const room = rooms.get(code) || createRoom(code);
-    if (!rooms.has(code)) rooms.set(code, room);
-    if (room.players.size >= 4) return callback({ ok: false, error: 'This room already has four players.' });
+  socket.on('join-room', ({ roomCode, name } = {}, callback = () => {}) => {
+    const code = String(roomCode).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    const cleanName = cleanText(name, '', 16);
+    if (code.length < 4 || !cleanName) { callback({ ok: false, error: 'Enter a 4–6 character room code and a name.' }); return; }
+    const room = rooms.get(code) || createRoom(code); if (!rooms.has(code)) rooms.set(code, room);
+    if (room.players.size >= MAX_PLAYERS) { callback({ ok: false, error: 'This adventure already has four players.' }); return; }
     socket.join(code); socket.data.roomCode = code;
-    room.players.set(socket.id, makePlayer(socket.id, cleanName, room.players.size));
-    callback({ ok: true, code, playerId: socket.id });
-    io.to(code).emit('feed', `${cleanName} entered the city.`);
-    io.to(code).emit('world-state', serializeRoom(room));
+    const player = createPlayer(socket.id, cleanName, room.players.size); room.players.set(socket.id, player);
+    callback({ ok: true, code, playerId: socket.id, observationSeconds: OBSERVATION_MS / 1000 });
+    event(room, 'player-joined', `${player.name} entered the world.`); broadcastState(room);
   });
-  socket.on('move', ({ x, z }) => {
-    const room = rooms.get(socket.data.roomCode); const player = room?.players.get(socket.id);
-    if (!player || player.dead) return;
-    player.inputX = Math.max(-1, Math.min(1, Number(x) || 0));
-    player.inputZ = Math.max(-1, Math.min(1, Number(z) || 0));
+  socket.on('move', ({ x, z } = {}) => { const room = rooms.get(socket.data.roomCode); const player = room && getPlayer(room, socket.id); if (player) { player.inputX = clamp(x, -1, 1); player.inputZ = clamp(z, -1, 1); } });
+  socket.on('player-telemetry', (payload = {}) => { const room = rooms.get(socket.data.roomCode); const player = room && getPlayer(room, socket.id); if (!player) return; recordTelemetry(room, player, payload); if (payload.relicId) collectRelic(room, player, cleanText(payload.relicId, '', 32)); broadcastState(room); });
+  socket.on('interact', ({ type, targetId } = {}) => {
+    const room = rooms.get(socket.data.roomCode); const player = room && getPlayer(room, socket.id); if (!player) return;
+    const action = cleanText(type, '', 32); player.interactions[action] = (player.interactions[action] || 0) + 1;
+    if (action === 'relic') collectRelic(room, player, cleanText(targetId, '', 32));
+    else if (action === 'help') player.rescues += 1;
+    else if (action === 'follow') player.follows += 1;
+    else if (action) completeObjectiveTask(room, player, action);
+    broadcastState(room);
   });
+  socket.on('request-world-state', () => { const room = rooms.get(socket.data.roomCode); if (room) socket.emit('world-state', serializeRoom(room, socket.id)); });
   socket.on('disconnect', () => {
     const room = rooms.get(socket.data.roomCode); if (!room) return;
     const player = room.players.get(socket.id); room.players.delete(socket.id);
-    if (player) io.to(room.code).emit('feed', `${player.name} left the city.`);
-    if (!room.players.size) rooms.delete(room.code); else io.to(room.code).emit('world-state', serializeRoom(room));
+    if (!room.players.size) rooms.delete(room.code); else { event(room, 'player-left', `${player?.name || 'A wanderer'} left the world.`); broadcastState(room); }
   });
 });
 
-let lastTick = Date.now();
+let lastTick = now();
 setInterval(() => {
-  const now = Date.now(); const delta = Math.min(0.1, (now - lastTick) / 1000); lastTick = now;
-  for (const room of rooms.values()) { updateRoom(room, delta); io.to(room.code).emit('world-state', serializeRoom(room)); }
-}, 50);
+  const stamp = now(); const delta = Math.min(0.2, (stamp - lastTick) / 1000); lastTick = stamp;
+  for (const room of rooms.values()) { tickRoom(room, delta); broadcastState(room); }
+}, 100);
 
-const lanAddress = Object.values(networkInterfaces()).flat().find((network) => network && network.family === 'IPv4' && !network.internal)?.address;
-server.listen(port, '0.0.0.0', () => {
-  console.log(`Emergent running at http://127.0.0.1:${port}`);
-  if (lanAddress) console.log(`Friends on the same Wi-Fi can join at http://${lanAddress}:${port}`);
+const lan = Object.values(networkInterfaces()).flat().find((item) => item?.family === 'IPv4' && !item.internal)?.address;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Emergent server running at http://127.0.0.1:${PORT}`);
+  if (lan) console.log(`LAN: http://${lan}:${PORT}`);
 });

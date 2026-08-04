@@ -133,7 +133,7 @@ const BOUNDS={minX:1,maxX:58,minY:1,maxY:32};
 function passable(x,y) {
  const tx=Math.round(x),ty=Math.round(y);
  if(tx<BOUNDS.minX||tx>BOUNDS.maxX||ty<BOUNDS.minY||ty>BOUNDS.maxY) return false;
- const collision=authoredForest?.layers?.find(layer=>/collision/i.test(layer.name));
+ const collision=authoredForest?.layers?.find(layer=>layer.name==='LAYER WITH COLLISION');
  return !collision || collision.data?.[ty*W+tx]===0;
 }
 function note(text, duration=4) { state.notice=text; state.noticeTimer=duration; }

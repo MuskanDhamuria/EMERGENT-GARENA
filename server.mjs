@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { networkInterfaces } from 'node:os';
@@ -21,6 +21,12 @@ const MAX_PLAYERS = 4;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
 // These compact coordinates map to the clear ground beside the CSD camp.
 const SPAWNS = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
+const MAP_WIDTH = 60, MAP_OFFSET_X = 30, MAP_OFFSET_Z = 17;
+let collisionTiles = [];
+try {
+  const forestMap = JSON.parse(readFileSync(join(process.cwd(), 'public', 'game-art', 'forest.json'), 'utf8'));
+  collisionTiles = forestMap.layers?.find((layer) => layer.name === 'LAYER WITH COLLISION')?.data || [];
+} catch { console.warn('CSD collision map unavailable; using map-edge collision only.'); }
 const rooms = new Map();
 
 const contentTypes = {
@@ -75,6 +81,11 @@ function cleanText(value, fallback = '', max = 220) {
   return value.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, max) || fallback;
 }
 function clamp(value, min, max) { return Math.max(min, Math.min(max, Number(value) || 0)); }
+function walkableWorld(x, z) {
+  const tx = Math.round(x + MAP_OFFSET_X), ty = Math.round(z + MAP_OFFSET_Z);
+  if (tx < 1 || tx > 58 || ty < 1 || ty > 32) return false;
+  return !collisionTiles.length || collisionTiles[ty * MAP_WIDTH + tx] === 0;
+}
 function sendJson(response, status, body) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   response.end(JSON.stringify(body));
@@ -293,9 +304,10 @@ function broadcastState(room) {
 function recordTelemetry(room, player, payload = {}) {
   const x = clamp(payload.x ?? payload.position?.x, WORLD_MIN_X, WORLD_MAX_X);
   const z = clamp(payload.z ?? payload.position?.z, WORLD_MIN_Z, WORLD_MAX_Z);
-  const travelled = Math.min(8, Math.hypot(x - player.x, z - player.z));
+  const next = walkableWorld(x, z) ? { x, z } : { x: player.x, z: player.z };
+  const travelled = Math.min(8, Math.hypot(next.x - player.x, next.z - player.z));
   if (travelled) { player.movement += travelled; player.movementSamples += 1; }
-  player.x = x; player.z = z; player.locationId = LOCATIONS.includes(payload.locationId) ? payload.locationId : locationFor(x, z); player.visited.add(player.locationId);
+  player.x = next.x; player.z = next.z; player.locationId = LOCATIONS.includes(payload.locationId) ? payload.locationId : locationFor(next.x, next.z); player.visited.add(player.locationId);
   if (Array.isArray(payload.visitedLocations)) for (const location of payload.visitedLocations) if (LOCATIONS.includes(location)) player.visited.add(location);
   if (Number.isFinite(payload.riskEvents)) player.riskEvents = Math.max(player.riskEvents, Math.min(50, Number(payload.riskEvents)));
   if (Number.isFinite(payload.rescues)) player.rescues = Math.max(player.rescues, Math.min(50, Number(payload.rescues)));

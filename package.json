@@ -7,6 +7,7 @@
     "dev": "vite",
     "api": "node server.mjs",
     "mcp": "node mcp-game-master.mjs",
+    "agent:gemini": "node gemini-mcp-agent.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "serve": "node server.mjs"

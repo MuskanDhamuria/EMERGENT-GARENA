@@ -1,7 +1,8 @@
 import { io } from 'socket.io-client';
 
-// Everdawn: a compact, canvas-first pixel adventure. No external art pipeline is needed:
-// every tile is intentionally drawn on a 16px grid so it stays crisp at every resolution.
+// Everdawn uses the 32px world art from the original CSD prototype.  We render it
+// at 16px logical tiles with smoothing disabled, so the shared game stays crisp
+// while using proper authored terrain, water, trees and village art.
 const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 640;
@@ -9,6 +10,18 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
+
+const art = {};
+function loadArt(name, source) {
+  const image = new Image();
+  image.src = source;
+  image.addEventListener('load', () => { art[name] = image; render(); });
+  return image;
+}
+loadArt('camping', '/game-art/camping-32.png');
+loadArt('cave', '/game-art/cave-32.png');
+let authoredForest=null;
+fetch('/game-art/forest.json').then(response=>response.ok?response.json():null).then(layout=>{authoredForest=layout;render();}).catch(()=>{});
 
 const T = 16, W = 100, H = 76;
 const C = { grass:'#72bd58', grass2:'#62ae50', path:'#d8be80', water:'#49afd0', water2:'#68c8dd', deep:'#2780b8', tree:'#2f7a42', tree2:'#57a94f', trunk:'#92592e', cliff:'#746c78', cliff2:'#a4948b', stone:'#c1aa82', roof:'#c9554d', wall:'#f5d99c', ink:'#27324a', pink:'#fa8c9b', gold:'#f7d25c', purple:'#9b75c9' };
@@ -45,7 +58,8 @@ function applyWorldState(world) {
   state.network.lastState=performance.now(); state.network.roomCode=world.code || state.network.roomCode;
   const mine=world.players.find(pl=>pl.id===state.network.playerId);
   if (mine) {
-    const q=playerWorldPosition(mine); Object.assign(p,{name:mine.name||p.name,x:q.x,y:q.y,color:cssColor(mine.color,p.color),health:mine.health,dead:mine.dead,artifactCount:mine.relicCount ?? mine.artifactCount});
+    const q=playerWorldPosition(mine); Object.assign(p,{name:mine.name||p.name,color:cssColor(mine.color,p.color),health:mine.health,dead:mine.dead,artifactCount:mine.relicCount ?? mine.artifactCount});
+    if(!Number.isFinite(p.targetX)){p.x=q.x;p.y=q.y;} p.targetX=q.x;p.targetY=q.y;
     if (mine.archetype) p.archetype=mine.archetype;
     for(const feature of mine.evolutions||[]) state.unlockedFeatures.add(feature);
   }
@@ -107,11 +121,11 @@ zone(76,63,19,10,'Ancient Temple'); cliffs(75,62,21,12); path(56,68,22,3);
 // make village clear, lake banks natural, and passages open.
 rect(39,32,22,18,'grass'); path(41,39,18,3); path(49,33,3,18);
 for (const [x,y] of [[60,18],[65,12],[70,36],[82,53],[84,68],[14,68]]) map[y][x]={kind:'cave',zone:map[y][x].zone};
-// A soft, natural tree rim sits at the true map edge, never cutting through an explorable route.
-for(let x=0;x<W;x++){map[0][x]={kind:'tree',zone:'World Edge'};map[1][x]={kind:'tree',zone:'World Edge'};map[H-2][x]={kind:'tree',zone:'World Edge'};map[H-1][x]={kind:'tree',zone:'World Edge'};}
-for(let y=0;y<H;y++){map[y][0]={kind:'tree',zone:'World Edge'};map[y][1]={kind:'tree',zone:'World Edge'};map[y][W-2]={kind:'tree',zone:'World Edge'};map[y][W-1]={kind:'tree',zone:'World Edge'};}
+// A two-tile scenic rim sits outside the shared movement limits: sea at the
+// east/west sides and mountain cliffs north/south, never an interior tree wall.
+for(let x=2;x<=94;x++){map[2][x]={kind:'cliff',zone:'World Rim'};map[3][x]={kind:'cliff',zone:'World Rim'};map[73][x]={kind:'cliff',zone:'World Rim'};map[74][x]={kind:'cliff',zone:'World Rim'};}
+for(let y=2;y<=74;y++){map[y][2]={kind:'water',zone:'World Rim'};map[y][3]={kind:'water',zone:'World Rim'};map[y][93]={kind:'water',zone:'World Rim'};map[y][94]={kind:'water',zone:'World Rim'};}
 
-const houses=[{x:42,y:35,w:5,h:4},{x:54,y:35,w:5,h:4},{x:42,y:43,w:5,h:4},{x:54,y:43,w:5,h:4}];
 const ruins=[{x:73,y:34},{x:79,y:37},{x:86,y:34},{x:76,y:42}];
 const flowers=[[38,35],[39,47],[62,42],[58,50],[29,59],[32,65],[25,40],[34,29],[72,49],[89,55],[20,62],[22,34],[47,30],[62,33]];
 const relicNodes=[{x:17,y:13,name:'Grove Dewdrop',type:'explorer',taken:false},{x:65,y:14,name:'Crystal Shard',type:'collector',taken:false},{x:80,y:53,name:'Sanctuary Bell',type:'guardian',taken:false},{x:45,y:68,name:'Moonstone',type:'loner',taken:false},{x:85,y:37,name:'Sun Tablet',type:'collector',taken:false}];
@@ -121,7 +135,10 @@ const landmarks=[
 
 function nearest(a, list, radius=2) { return list.find(o => Math.hypot(a.x-o.x,a.y-o.y)<radius); }
 function tileAt(x,y) { return map[Math.max(0,Math.min(H-1,Math.round(y)))][Math.max(0,Math.min(W-1,Math.round(x)))]; }
-const BOUNDS={minX:2,maxX:97,minY:2,maxY:73};
+// Inside edge of the visible CSD forest belt. These coordinates map directly
+// to the server's compact min/max bounds, so touching an edge only blocks
+// motion â€” it cannot snap a player elsewhere.
+const BOUNDS={minX:7,maxX:90,minY:8,maxY:67};
 function passable(x,y) { if(x<BOUNDS.minX||x>BOUNDS.maxX||y<BOUNDS.minY||y>BOUNDS.maxY) return false; const k=tileAt(x,y).kind; return !['tree','water','cliff'].includes(k); }
 function note(text, duration=4) { state.notice=text; state.noticeTimer=duration; }
 function discover(land) { if (!state.discoveries.has(land.name)) { state.discoveries.add(land.name); p.score.explore += 3; note(`✦ ${land.name} discovered — curiosity is noted.`); } }
@@ -184,6 +201,7 @@ function showLanternGate(){
  const gate=document.createElement('form'); gate.id='lantern-gate';
  gate.innerHTML='<div class="gate-card"><div class="gate-title">LIGHT A LANTERN</div><p>Enter a shared tale. The world will decide what you become.</p><label>NAME<input name="name" maxlength="16" required value="Wanderer"></label><label>ROOM CODE<input name="room" maxlength="6" required value="DAWN"></label><button>ENTER THE WORLD</button><button type="button" class="alone">WANDER ALONE</button><small>No roles. No quest log. Only what the world notices.</small></div>';
  document.body.appendChild(gate);
+ gate.querySelector('input[name="name"]').focus();
  gate.addEventListener('submit',event=>{event.preventDefault(); const data=new FormData(gate); gate.remove(); connectToRoom(String(data.get('name')),String(data.get('room')).toUpperCase());});
  gate.querySelector('.alone').addEventListener('click',()=>{gate.remove();state.demo=true;state.started=true;note('A lone lantern enters Everdawn. The Game Master is quietly watching.',6);});
 }
@@ -191,6 +209,7 @@ function showLanternGate(){
 function update(dt) {
  if(!state.started||state.complete) return;
  state.time+=dt; state.frame+=dt*10; if(state.noticeTimer>0) state.noticeTimer-=dt;
+ if(state.network.connected&&Number.isFinite(p.targetX)){const ease=Math.min(1,dt*14);p.x+=(p.targetX-p.x)*ease;p.y+=(p.targetY-p.y)*ease;}
  if(!state.network.connected && state.phase==='observing' && state.time>=OBSERVATION_SECONDS) assignArchetypes();
  let dx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0), dy=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);
  if(dx||dy) { const d=Math.hypot(dx,dy), sprint=keys.shift||keys[' ']; dx/=d;dy/=d; p.dir=Math.abs(dx)>Math.abs(dy)?(dx>0?1:3):(dy>0?2:0); if(state.network.connected){ socket.emit('move',{x:dx*(sprint?1.35:1),z:dy*(sprint?1.35:1)}); } else { const speed=sprint?13:8.2, nx=p.x+dx*dt*speed,ny=p.y+dy*dt*speed; if(passable(nx,p.y))p.x=nx;if(passable(p.x,ny))p.y=ny; p.score.explore+=dt*(sprint?.42:.30); } }
@@ -206,17 +225,53 @@ function update(dt) {
 
 function px(x){return Math.floor(x*T-(state.camera.x*T-canvas.width/2));} function py(y){return Math.floor(y*T-(state.camera.y*T-canvas.height/2));}
 function fill(color,x,y,w=T,h=T){ctx.fillStyle=color;ctx.fillRect(px(x),py(y),w,h)}
+function sheetTile(sheet, gid, X, Y, width=T, height=T) {
+ const image=art[sheet]; if(!image) return false;
+ const tile=gid-1, columns=Math.floor(image.width/32);
+ ctx.drawImage(image,(tile%columns)*32,Math.floor(tile/columns)*32,32,32,X,Y,width,height);
+ return true;
+}
+function drawAuthoredForest(x,y,X,Y) {
+ const originX=4, originY=4;
+ // The forest route uses a tree-and-water section of the CSD map. The camp
+ // section is reserved for the starting village stamp, avoiding a duplicated
+ // camp or any partial buildings at the route boundary.
+ const sourceX=25+(x-originX), sourceY=y-originY;
+ if(!authoredForest || sourceX<0 || sourceY<0 || sourceX>=authoredForest.width || sourceY>=authoredForest.height) return false;
+ const index=sourceY*authoredForest.width+sourceX;
+ for(const layer of authoredForest.layers||[]) { const gid=layer.data?.[index]||0; if(gid) sheetTile('camping',gid,X,Y); }
+ return true;
+}
+function drawForestStamp(sourceX,sourceY,width,height,destX,destY) {
+ if(!authoredForest) return;
+ for(let y=0;y<height;y++) for(let x=0;x<width;x++) {
+  const sourceIndex=(sourceY+y)*authoredForest.width+sourceX+x;
+  for(const layer of authoredForest.layers||[]) {
+   const gid=layer.data?.[sourceIndex]||0;
+   if(gid) sheetTile('camping',gid,px(destX+x),py(destY+y));
+  }
+ }
+}
 function drawTile(x,y,t) {
  const X=px(x),Y=py(y), wave=(Math.floor(state.frame/5)+x+y)%2;
- if(t.kind==='water') {ctx.fillStyle=C.water;ctx.fillRect(X,Y,T,T);ctx.fillStyle=C.water2;ctx.fillRect(X+2,Y+(wave?5:10),7,2);ctx.fillRect(X+11,Y+(wave?11:4),4,2);return;}
- ctx.fillStyle=t.kind==='path'?C.path:t.kind==='cliff'?C.cliff:C.grass;ctx.fillRect(X,Y,T,T);
- if(t.kind==='grass'){ctx.fillStyle=C.grass2; if((x*7+y*3)%5===0)ctx.fillRect(X+3,Y+5,2,4); if((x*9+y)%7===0)ctx.fillRect(X+12,Y+10,2,3);}
- if(t.kind==='path'){ctx.fillStyle='#c3a768';if((x+y)%3===0)ctx.fillRect(X+3,Y+4,3,2);}
- if(t.kind==='cliff'){ctx.fillStyle=C.cliff2;ctx.fillRect(X,Y,16,3);ctx.fillStyle='#5b5864';ctx.fillRect(X+3,Y+6,6,3);ctx.fillRect(X+10,Y+11,4,3);}
- if(t.kind==='tree'){ctx.fillStyle='#2e663c';ctx.fillRect(X+6,Y+10,5,6);ctx.fillStyle=C.tree;ctx.fillRect(X+2,Y+4,12,9);ctx.fillStyle=C.tree2;ctx.fillRect(X+5,Y+2,7,5);ctx.fillStyle='#91d365';ctx.fillRect(X+4,Y+5,3,3);}
- if(t.kind==='cave'){ctx.fillStyle='#655c64';ctx.fillRect(X,Y,T,T);ctx.fillStyle='#28324a';ctx.fillRect(X+3,Y+5,10,11);ctx.fillStyle='#a69582';ctx.fillRect(X,Y,16,4);}
+ if((t.zone==='Whispering Forest' || t.zone==='Secret Grove') && drawAuthoredForest(x,y,X,Y)) return;
+ // All terrain art below is from the CSD authored forest/camping sheet.
+ if(t.kind==='water') { sheetTile('camping',121,X,Y); return; }
+ if(t.kind==='path') { sheetTile('camping',66,X,Y); return; }
+ if(t.kind==='cave') { sheetTile('cave',42,X,Y); return; }
+ sheetTile('camping',84,X,Y);
 }
-function building(h){const X=px(h.x),Y=py(h.y);ctx.fillStyle='#a03e42';ctx.fillRect(X-2,Y-5,h.w*T+4,9);ctx.fillStyle=C.roof;ctx.fillRect(X,Y-8,h.w*T,8);ctx.fillStyle=C.wall;ctx.fillRect(X,Y+4,h.w*T,h.h*T-4);ctx.fillStyle='#704d38';ctx.fillRect(X+h.w*T/2-3,Y+(h.h-1)*T,6,T);ctx.fillStyle='#7bb5d1';ctx.fillRect(X+4,Y+9,5,5);}
+function startingVillage(){
+ // One intact camp stamp from the authored CSD forest: no cut-up sprites and
+ // no cross-pack style clash. It is the players' Lantern Village at dawn.
+ drawForestStamp(6,10,18,13,40,33);
+}
+function drawCsdBoundary(){
+ // Four uninterrupted belts assembled from the dense tree section of the
+ // same authored CSD map. They are visual and collision boundaries together.
+ for(let x=2;x<98;x+=12){drawForestStamp(0,0,12,6,x,2);drawForestStamp(0,0,12,6,x,68);}
+ for(let y=2;y<74;y+=6){drawForestStamp(0,0,5,6,2,y);drawForestStamp(0,0,5,6,91,y);}
+}
 function bridge(x,y,w){fill('#7d5536',x,y,w*T,8);ctx.fillStyle='#c49a62';for(let i=0;i<w;i++)ctx.fillRect(px(x+i)+1,py(y)+1,14,5)}
 function flower(x,y){ctx.fillStyle='#f9e3ef';ctx.fillRect(px(x)+5,py(y)+5,5,5);ctx.fillStyle=C.pink;ctx.fillRect(px(x)+6,py(y)+4,3,7);}
 function ruin(r){const X=px(r.x),Y=py(r.y);ctx.fillStyle='#917d73';ctx.fillRect(X+3,Y+3,8,13);ctx.fillStyle='#d1b99a';ctx.fillRect(X+4,Y+2,6,3);ctx.fillStyle='#655e69';ctx.fillRect(X+5,Y+8,2,5);}
@@ -245,7 +300,7 @@ function drawHUD(){
 }
 function wrap(txt,x,y,max,line){const words=txt.split(' ');let s='',yy=y;for(const word of words){if(ctx.measureText(s+word).width>max){ctx.fillText(s,x,yy);s=word+' ';yy+=line;}else s+=word+' ';}ctx.fillText(s,x,yy);}
 function drawStart(){ctx.fillStyle='#70b957';ctx.fillRect(0,0,960,640); for(let i=0;i<80;i++){ctx.fillStyle=i%2?'#57a94f':'#81c963';ctx.fillRect((i*79)%960,(i*131)%640,16,16);}ctx.textAlign='center';ctx.font='bold 54px monospace';ctx.fillStyle='#26304a';ctx.fillText('EVERDAWN',482,179);ctx.fillStyle='#fff3b8';ctx.fillText('EVERDAWN',480,175);ctx.font='bold 15px monospace';ctx.fillStyle='#fff9de';ctx.fillText('A living tale, shaped by the way you wander.',480,215); panel(245,264,470,128);ctx.font='bold 13px monospace';ctx.fillStyle='#f8de90';ctx.fillText('NO ONE HAS TOLD YOU WHAT THIS WORLD IS FOR.',480,296);ctx.font='11px monospace';ctx.fillStyle='#e4f1dc';ctx.fillText('It will learn from the choices you make together.',480,328);ctx.fillText('Some laws will be shared. Some will belong to only one of you.',480,353);ctx.font='bold 14px monospace';ctx.fillStyle='#ffef9c';ctx.fillText('CLICK TO LIGHT A LANTERN',480,445);}
-function render(){ctx.clearRect(0,0,canvas.width,canvas.height);if(!state.started){drawStart();return;} const minX=Math.floor(state.camera.x-31),maxX=Math.ceil(state.camera.x+31),minY=Math.floor(state.camera.y-22),maxY=Math.ceil(state.camera.y+22);for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)if(map[y]?.[x])drawTile(x,y,map[y][x]);houses.forEach(building);bridge(16,49,8);bridge(16,56,8);flowers.forEach(f=>flower(...f));ruins.forEach(ruin);shrine();temple();evolutionObjects(); relicNodes.filter(r=>!r.taken).forEach(r=>{ctx.fillStyle=C.gold;ctx.fillRect(px(r.x)+5,py(r.y)+3,6,10);ctx.fillStyle='#fff0a8';ctx.fillRect(px(r.x)+6,py(r.y)+2,3,3);});state.players.forEach(character);state.players.forEach(pl=>label(pl.name,pl.x,pl.y,pl.color));drawHUD();}
+function render(){ctx.clearRect(0,0,canvas.width,canvas.height);if(!state.started){drawStart();return;} const minX=Math.floor(state.camera.x-31),maxX=Math.ceil(state.camera.x+31),minY=Math.floor(state.camera.y-22),maxY=Math.ceil(state.camera.y+22);for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)if(map[y]?.[x])drawTile(x,y,map[y][x]);drawCsdBoundary();startingVillage();bridge(16,49,8);bridge(16,56,8);flowers.forEach(f=>flower(...f));ruins.forEach(ruin);shrine();temple();evolutionObjects(); relicNodes.filter(r=>!r.taken).forEach(r=>{ctx.fillStyle=C.gold;ctx.fillRect(px(r.x)+5,py(r.y)+3,6,10);ctx.fillStyle='#fff0a8';ctx.fillRect(px(r.x)+6,py(r.y)+2,3,3);});state.players.forEach(character);state.players.forEach(pl=>label(pl.name,pl.x,pl.y,pl.color));drawHUD();}
 let last=performance.now();function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);render();requestAnimationFrame(loop);}requestAnimationFrame(loop);
 window.advanceTime=(ms)=>{const steps=Math.max(1,Math.round(ms/(1000/60)));for(let i=0;i<steps;i++)update(1/60);render();};
 window.render_game_to_text=()=>JSON.stringify({coordinates:'tile origin top-left; x east, y south',mode:state.started?'adventure':'title',phase:state.phase,seconds:Math.floor(state.time),player:{x:+p.x.toFixed(1),y:+p.y.toFixed(1),archetype:p.archetype},relics:state.relics,discoveries:[...state.discoveries],evolved:[...state.evolved],finalObjective:state.finalOpen,nearby:nearest(p,landmarks,4)?.name||null});

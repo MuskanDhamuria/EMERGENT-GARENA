@@ -13,10 +13,18 @@ import { Server } from 'socket.io';
  */
 const PORT = Number(process.env.PORT || 8787);
 const OBSERVATION_MS = 30_000;
-const WORLD_LIMIT = 44;
+// Server coordinates map to client tiles via x + 48, z + 38. These limits
+// therefore end exactly at the visible, impassable pixel-world rim.
+// These exactly match the visible CSD tree belt in scene.js.  They are
+// deliberately asymmetric because the authored boundary is one tile thicker
+// at the west/north edge; players are stopped, never teleported.
+const WORLD_MIN_X = -41, WORLD_MAX_X = 42;
+const WORLD_MIN_Z = -30, WORLD_MAX_Z = 29;
 const MAX_PLAYERS = 4;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
-const SPAWNS = [[0, -10], [-3, -6], [9, -4], [-9, 4]];
+// These compact coordinates map to the client village via x + 48, z + 38.
+// Keeping all four spawn points in that village prevents a network-join snap.
+const SPAWNS = [[0, 2], [3, 2], [1, 4], [4, 4]];
 const rooms = new Map();
 
 const contentTypes = {
@@ -287,8 +295,8 @@ function broadcastState(room) {
   for (const player of activePlayers(room)) io.to(player.id).emit('world-state', serializeRoom(room, player.id));
 }
 function recordTelemetry(room, player, payload = {}) {
-  const x = clamp(payload.x ?? payload.position?.x, -WORLD_LIMIT, WORLD_LIMIT);
-  const z = clamp(payload.z ?? payload.position?.z, -WORLD_LIMIT, WORLD_LIMIT);
+  const x = clamp(payload.x ?? payload.position?.x, WORLD_MIN_X, WORLD_MAX_X);
+  const z = clamp(payload.z ?? payload.position?.z, WORLD_MIN_Z, WORLD_MAX_Z);
   const travelled = Math.min(8, Math.hypot(x - player.x, z - player.z));
   if (travelled) { player.movement += travelled; player.movementSamples += 1; }
   player.x = x; player.z = z; player.locationId = LOCATIONS.includes(payload.locationId) ? payload.locationId : locationFor(x, z); player.visited.add(player.locationId);

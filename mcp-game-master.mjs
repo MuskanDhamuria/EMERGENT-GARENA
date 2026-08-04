@@ -59,6 +59,15 @@ const server = new McpServer({
   version: '1.0.0',
 });
 
+server.registerTool('list_active_rooms', {
+  title: 'List active Emergent rooms',
+  description: 'List live room codes and their current phase. Use this only to choose a room to observe; read telemetry before making a decision.',
+  inputSchema: {},
+}, async () => {
+  try { return toolResult(await gameRequest('/api/mcp/rooms')); }
+  catch (error) { return toolError(error.message); }
+});
+
 server.registerTool('get_world_state', {
   title: 'Get authoritative world state',
   description: 'Read the current players, discovered places, accessible features, active rules, evolutions and finale for one Emergent room. Call before making a world-changing decision.',

@@ -16,7 +16,21 @@ For visual iteration only, use `npm.cmd run dev` and open the Vite address it pr
 
 ## Agentic Game Master
 
-`npm.cmd run mcp` starts a stdio MCP server. It connects to the local game server by default (`http://127.0.0.1:8787`); set `EMERGENT_GAME_SERVER_URL` to change that address.
+`npm.cmd run mcp` starts a stdio MCP server for an MCP host. To run the live Gemini Game Master bridge, use `npm.cmd run agent:gemini`; it starts an MCP client internally and calls Gemini for each decision cycle. It connects to the local game server by default (`http://127.0.0.1:8787`); set `EMERGENT_GAME_SERVER_URL` to change that address.
+
+The bridge reads `GM_API_KEY` (or `GEMINI_API_KEY`) and `GM_MODEL` (or `GEMINI_MODEL`) from `.env`. `GM_API_URL` is optional: omit it for Gemini's native API, use a Gemini `generateContent` URL for native REST, or retain an OpenAI-compatible Gemini proxy URL if that is your existing setup.
+
+Run the live stack in two terminals:
+
+```powershell
+# Terminal 1
+npm.cmd run api
+
+# Terminal 2
+npm.cmd run agent:gemini
+```
+
+The bridge starts its own MCP stdio child process, lists active rooms through MCP, reads authoritative state and telemetry through MCP, asks Gemini for one safe decision, then executes that decision through an MCP tool. Do not run `npm.cmd run mcp` separately when using `agent:gemini`.
 
 The MCP server exposes validated tools for an AI Game Master to:
 

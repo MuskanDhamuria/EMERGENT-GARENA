@@ -19,26 +19,28 @@ function loadArt(name, source) {
   return image;
 }
 loadArt('camping', '/game-art/camping-32.png');
-loadArt('cave', '/game-art/cave-32.png');
 let authoredForest=null;
 fetch('/game-art/forest.json').then(response=>response.ok?response.json():null).then(layout=>{authoredForest=layout;render();}).catch(()=>{});
 
-const T = 16, W = 100, H = 76;
+// The CSD forest is an authored 60 x 34 tile world.  It is rendered whole,
+// not stamped into a different map, so its routes and edge treatment remain
+// visually coherent.
+const T = 20, W = 60, H = 34;
 const C = { grass:'#72bd58', grass2:'#62ae50', path:'#d8be80', water:'#49afd0', water2:'#68c8dd', deep:'#2780b8', tree:'#2f7a42', tree2:'#57a94f', trunk:'#92592e', cliff:'#746c78', cliff2:'#a4948b', stone:'#c1aa82', roof:'#c9554d', wall:'#f5d99c', ink:'#27324a', pink:'#fa8c9b', gold:'#f7d25c', purple:'#9b75c9' };
 const OBSERVATION_SECONDS = 30;
 
 const map = Array.from({length:H}, (_,y) => Array.from({length:W}, (_,x) => ({kind:'grass', zone:''})));
 const state = {
   started:false, time:0, paused:false, phase:'observing', notice:'The Game Master is quietly watching...',
-  noticeTimer:0, camera:{x:50,y:38}, relics:0, discoveries:new Set(['Starting Village']), evolved:new Set(),
+  noticeTimer:0, camera:{x:30,y:17}, relics:0, discoveries:new Set(['Starting Village']), evolved:new Set(),
   finalOpen:false, complete:false, demo:false, frame:0, nextEvolutionAt:48, lastWhisper:0,
   network:{connected:false, attempted:false, playerId:null, roomCode:null, lastState:0, lastTelemetry:0},
   privateRule:null, publicEvent:null, finalObjective:null, serverRelics:[], unlockedFeatures:new Set(),
   players:[
-    {name:'Mus', x:48, y:40, color:'#ef5b64', dir:2, score:{explore:0,collect:0,guard:0,lone:0}, archetype:null, lead:true},
-    {name:'Lio', x:51, y:40, color:'#4b86db', dir:0, score:{explore:5,collect:1,guard:1,lone:0}, archetype:null, bot:'explore'},
-    {name:'Nia', x:49, y:42, color:'#f3c650', dir:3, score:{explore:1,collect:5,guard:2,lone:0}, archetype:null, bot:'collect'},
-    {name:'Orr', x:52, y:42, color:'#8a6cc8', dir:1, score:{explore:1,collect:0,guard:4,lone:4}, archetype:null, bot:'guard'}
+    {name:'Mus', x:24, y:17, color:'#ef5b64', dir:2, score:{explore:0,collect:0,guard:0,lone:0}, archetype:null, lead:true},
+    {name:'Lio', x:26, y:17, color:'#4b86db', dir:0, score:{explore:5,collect:1,guard:1,lone:0}, archetype:null, bot:'explore'},
+    {name:'Nia', x:25, y:19, color:'#f3c650', dir:3, score:{explore:1,collect:5,guard:2,lone:0}, archetype:null, bot:'collect'},
+    {name:'Orr', x:27, y:19, color:'#8a6cc8', dir:1, score:{explore:1,collect:0,guard:4,lone:4}, archetype:null, bot:'guard'}
   ]
 };
 const p = state.players[0];
@@ -48,9 +50,9 @@ const p = state.players[0];
 const socket = io({ autoConnect:false, timeout:2500, reconnectionAttempts:1 });
 function cssColor(color, fallback) { return typeof color==='string' ? color : Number.isFinite(color) ? `#${Math.max(0, color).toString(16).padStart(6,'0').slice(-6)}` : fallback; }
 function playerWorldPosition(player) {
-  // The server's compact world uses -38..38; retain support for future tile-space states.
+  // Server space is centred on the 60 x 34 authored CSD map.
   return Math.abs(Number(player.x)) <= 40 && Math.abs(Number(player.z ?? player.y)) <= 40
-    ? { x:48 + Number(player.x), y:38 + Number(player.z ?? player.y) }
+    ? { x:30 + Number(player.x), y:17 + Number(player.z ?? player.y) }
     : { x:Number(player.x), y:Number(player.y ?? player.z) };
 }
 function applyWorldState(world) {
@@ -107,30 +109,19 @@ function water(x,y,w,h) { rect(x,y,w,h,'water'); }
 function trees(x,y,w,h) { for(let j=y;j<y+h;j++) for(let i=x;i<x+w;i++) if((i*13+j*7)%3!==0) map[j][i]={kind:'tree',zone:map[j][i].zone}; }
 function cliffs(x,y,w,h) { rect(x,y,w,h,'cliff'); }
 
-// A single hand-authored world, laid out like a classic route map rather than disconnected levels.
-zone(0,0,W,H,'Meadow');
-zone(40,33,20,16,'Starting Village'); path(0,40,100,3); path(48,0,3,76); path(29,36,25,3); path(53,51,3,18); path(24,58,30,3);
-zone(4,6,31,28,'Whispering Forest'); trees(3,4,34,31); path(32,15,17,3); zone(12,10,9,8,'Secret Grove'); rect(12,10,9,8,'grass'); trees(12,10,9,8);
-zone(2,45,22,18,'Lake of Glass'); water(2,45,23,17); path(16,49,8,2); path(16,56,8,2);
-zone(4,64,22,9,'Mountain Pass'); cliffs(2,64,28,12); path(8,68,32,3); zone(28,62,13,9,'Abandoned Camp'); rect(28,62,13,9,'grass');
-zone(60,5,23,22,'Crystal Cave'); cliffs(60,5,25,24); path(48,18,16,3); zone(65,9,8,7,'Hidden Cave');
-zone(69,31,22,14,'Forgotten Ruins'); rect(69,31,22,14,'grass'); path(57,36,17,3);
-zone(73,48,18,13,'Sacred Shrine'); rect(73,48,18,13,'grass'); path(60,54,16,3);
-zone(38,65,18,8,'Small Graveyard'); rect(38,65,18,8,'grass');
-zone(76,63,19,10,'Ancient Temple'); cliffs(75,62,21,12); path(56,68,22,3);
-// make village clear, lake banks natural, and passages open.
-rect(39,32,22,18,'grass'); path(41,39,18,3); path(49,33,3,18);
-for (const [x,y] of [[60,18],[65,12],[70,36],[82,53],[84,68],[14,68]]) map[y][x]={kind:'cave',zone:map[y][x].zone};
-// A two-tile scenic rim sits outside the shared movement limits: sea at the
-// east/west sides and mountain cliffs north/south, never an interior tree wall.
-for(let x=2;x<=94;x++){map[2][x]={kind:'cliff',zone:'World Rim'};map[3][x]={kind:'cliff',zone:'World Rim'};map[73][x]={kind:'cliff',zone:'World Rim'};map[74][x]={kind:'cliff',zone:'World Rim'};}
-for(let y=2;y<=74;y++){map[y][2]={kind:'water',zone:'World Rim'};map[y][3]={kind:'water',zone:'World Rim'};map[y][93]={kind:'water',zone:'World Rim'};map[y][94]={kind:'water',zone:'World Rim'};}
+// The playable world is the CSD map itself.  Discovery names are logical
+// regions for the Game Master; no procedural terrain is painted over it.
+zone(0,0,W,H,'Everdawn');
+zone(13,11,13,12,'Starting Village'); zone(1,1,18,13,'Whispering Forest');
+zone(3,3,8,7,'Secret Grove'); zone(34,20,25,13,'Lake of Glass');
+zone(43,1,15,11,'Crystal Cave'); zone(48,4,7,6,'Hidden Cave');
+zone(24,2,12,8,'Forgotten Ruins'); zone(42,13,14,8,'Sacred Shrine');
+zone(20,24,13,8,'Small Graveyard'); zone(4,23,14,9,'Mountain Pass');
+zone(7,13,9,9,'Abandoned Camp'); zone(48,24,10,8,'Ancient Temple');
 
-const ruins=[{x:73,y:34},{x:79,y:37},{x:86,y:34},{x:76,y:42}];
-const flowers=[[38,35],[39,47],[62,42],[58,50],[29,59],[32,65],[25,40],[34,29],[72,49],[89,55],[20,62],[22,34],[47,30],[62,33]];
-const relicNodes=[{x:17,y:13,name:'Grove Dewdrop',type:'explorer',taken:false},{x:65,y:14,name:'Crystal Shard',type:'collector',taken:false},{x:80,y:53,name:'Sanctuary Bell',type:'guardian',taken:false},{x:45,y:68,name:'Moonstone',type:'loner',taken:false},{x:85,y:37,name:'Sun Tablet',type:'collector',taken:false}];
+const relicNodes=[{x:7,y:7,name:'Grove Dewdrop',type:'explorer',taken:false},{x:43,y:25,name:'Crystal Shard',type:'collector',taken:false},{x:48,y:17,name:'Sanctuary Bell',type:'guardian',taken:false},{x:26,y:28,name:'Moonstone',type:'loner',taken:false},{x:30,y:6,name:'Sun Tablet',type:'collector',taken:false}];
 const landmarks=[
- {x:48,y:40,name:'Starting Village',kind:'village'}, {x:20,y:24,name:'Whispering Forest',kind:'forest'}, {x:15,y:13,name:'Secret Grove',kind:'grove'}, {x:17,y:53,name:'Lake of Glass',kind:'lake'}, {x:14,y:68,name:'Mountain Pass',kind:'mountain'}, {x:35,y:66,name:'Abandoned Camp',kind:'camp'}, {x:65,y:14,name:'Crystal Cave',kind:'cave'}, {x:70,y:36,name:'Forgotten Ruins',kind:'ruin'}, {x:82,y:53,name:'Sacred Shrine',kind:'shrine'}, {x:46,y:68,name:'Small Graveyard',kind:'grave'}, {x:85,y:68,name:'Ancient Temple',kind:'temple'}
+ {x:20,y:17,name:'Starting Village',kind:'village'}, {x:7,y:7,name:'Whispering Forest',kind:'forest'}, {x:5,y:5,name:'Secret Grove',kind:'grove'}, {x:43,y:25,name:'Lake of Glass',kind:'lake'}, {x:8,y:27,name:'Mountain Pass',kind:'mountain'}, {x:12,y:17,name:'Abandoned Camp',kind:'camp'}, {x:50,y:6,name:'Crystal Cave',kind:'cave'}, {x:30,y:6,name:'Forgotten Ruins',kind:'ruin'}, {x:48,y:17,name:'Sacred Shrine',kind:'shrine'}, {x:26,y:28,name:'Small Graveyard',kind:'grave'}, {x:53,y:28,name:'Ancient Temple',kind:'temple'}
 ];
 
 function nearest(a, list, radius=2) { return list.find(o => Math.hypot(a.x-o.x,a.y-o.y)<radius); }
@@ -138,8 +129,13 @@ function tileAt(x,y) { return map[Math.max(0,Math.min(H-1,Math.round(y)))][Math.
 // Inside edge of the visible CSD forest belt. These coordinates map directly
 // to the server's compact min/max bounds, so touching an edge only blocks
 // motion â€” it cannot snap a player elsewhere.
-const BOUNDS={minX:7,maxX:90,minY:8,maxY:67};
-function passable(x,y) { if(x<BOUNDS.minX||x>BOUNDS.maxX||y<BOUNDS.minY||y>BOUNDS.maxY) return false; const k=tileAt(x,y).kind; return !['tree','water','cliff'].includes(k); }
+const BOUNDS={minX:1,maxX:58,minY:1,maxY:32};
+function passable(x,y) {
+ const tx=Math.round(x),ty=Math.round(y);
+ if(tx<BOUNDS.minX||tx>BOUNDS.maxX||ty<BOUNDS.minY||ty>BOUNDS.maxY) return false;
+ const collision=authoredForest?.layers?.find(layer=>/collision/i.test(layer.name));
+ return !collision || collision.data?.[ty*W+tx]===0;
+}
 function note(text, duration=4) { state.notice=text; state.noticeTimer=duration; }
 function discover(land) { if (!state.discoveries.has(land.name)) { state.discoveries.add(land.name); p.score.explore += 3; note(`✦ ${land.name} discovered — curiosity is noted.`); } }
 function collect(r) { r.taken=true; state.relics++; p.score.collect += 4; note(`✦ You found ${r.name}. The world remembers what you treasure.`); evolveCheck(); }
@@ -178,7 +174,7 @@ function interact() {
  }
  const r=nearest(p,relicNodes.filter(n=>!n.taken),3.25); if(r) { collect(r); return; }
  const l=nearest(p,landmarks,3.25); if(l) { discover(l); if(l.kind==='shrine') p.score.guard+=3; if(l.kind==='grave') p.score.lone+=3; evolveCheck(); return; }
- if(state.finalOpen && Math.hypot(p.x-85,p.y-68)<4) { state.complete=true; note('The Temple welcomes the four stories you have written. Everdawn remembers.',99); }
+ if(state.finalOpen && Math.hypot(p.x-53,p.y-28)<4) { state.complete=true; note('The Temple welcomes the four stories you have written. Everdawn remembers.',99); }
  note('Wildflowers rustle in the warm breeze.');
 }
 
@@ -214,12 +210,12 @@ function update(dt) {
  let dx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0), dy=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);
  if(dx||dy) { const d=Math.hypot(dx,dy), sprint=keys.shift||keys[' ']; dx/=d;dy/=d; p.dir=Math.abs(dx)>Math.abs(dy)?(dx>0?1:3):(dy>0?2:0); if(state.network.connected){ socket.emit('move',{x:dx*(sprint?1.35:1),z:dy*(sprint?1.35:1)}); } else { const speed=sprint?13:8.2, nx=p.x+dx*dt*speed,ny=p.y+dy*dt*speed; if(passable(nx,p.y))p.x=nx;if(passable(p.x,ny))p.y=ny; p.score.explore+=dt*(sprint?.42:.30); } }
  else if(state.network.connected) socket.emit('move',{x:0,z:0});
- if(state.network.connected && performance.now()-state.network.lastTelemetry>550) { const landmark=nearest(p,landmarks,4); socket.emit('player-telemetry',{x:p.x-48,z:p.y-38,locationId:landmark?.name?.toLowerCase().replaceAll(' ','-')}); state.network.lastTelemetry=performance.now(); }
+ if(state.network.connected && performance.now()-state.network.lastTelemetry>550) { const landmark=nearest(p,landmarks,4); socket.emit('player-telemetry',{x:p.x-30,z:p.y-17,locationId:landmark?.name?.toLowerCase().replaceAll(' ','-')}); state.network.lastTelemetry=performance.now(); }
  // The three companions visibly roam according to their observed tendencies.
- if(!state.network.connected) state.players.slice(1).forEach((b,i)=>{ const a=state.time*.35+i*2; const tx=i===0?35:i===1?65:52, ty=i===0?22:i===1?17:52; const nx=tx+Math.cos(a)*(3+i),ny=ty+Math.sin(a*.7)*(2+i); if(passable(nx,ny)){b.x=nx;b.y=ny;} });
+ if(!state.network.connected) state.players.slice(1).forEach((b,i)=>{ const a=state.time*.35+i*2; const targets=[[29,16],[22,20],[32,20]][i]; const nx=targets[0]+Math.cos(a)*(2+i*.4),ny=targets[1]+Math.sin(a*.7)*(2+i*.35); if(passable(nx,ny)){b.x=nx;b.y=ny;} });
  const l=nearest(p,landmarks,2.4); if(l) discover(l);
  if(state.phase==='observing' && state.time-state.lastWhisper>18){ state.lastWhisper=state.time; const whispers=['“You followed a road no map marked.”','“The relics are answering your footsteps.”','“The others learn from the space between you.”','“What you repeat becomes your legend.”']; note(whispers[Math.floor(state.time/18)%whispers.length],4); }
- state.camera.x=Math.max(31,Math.min(69,state.camera.x+(p.x-state.camera.x)*Math.min(1,dt*5))); state.camera.y=Math.max(22,Math.min(54,state.camera.y+(p.y-state.camera.y)*Math.min(1,dt*5)));
+ state.camera.x=Math.max(24,Math.min(36,state.camera.x+(p.x-state.camera.x)*Math.min(1,dt*5))); state.camera.y=Math.max(16,Math.min(18,state.camera.y+(p.y-state.camera.y)*Math.min(1,dt*5)));
  if(!state.network.connected&&state.phase==='evolving' && state.time>=state.nextEvolutionAt && state.evolved.size<4) { evolve(['Explorer','Collector','Guardian','Loner'].find(a=>!state.evolved.has(a))); state.nextEvolutionAt+=12; }
 }
 
@@ -231,46 +227,14 @@ function sheetTile(sheet, gid, X, Y, width=T, height=T) {
  ctx.drawImage(image,(tile%columns)*32,Math.floor(tile/columns)*32,32,32,X,Y,width,height);
  return true;
 }
-function drawAuthoredForest(x,y,X,Y) {
- const originX=4, originY=4;
- // The forest route uses a tree-and-water section of the CSD map. The camp
- // section is reserved for the starting village stamp, avoiding a duplicated
- // camp or any partial buildings at the route boundary.
- const sourceX=25+(x-originX), sourceY=y-originY;
- if(!authoredForest || sourceX<0 || sourceY<0 || sourceX>=authoredForest.width || sourceY>=authoredForest.height) return false;
- const index=sourceY*authoredForest.width+sourceX;
+function drawCsdMap(x,y,X,Y) {
+ if(!authoredForest || x<0 || y<0 || x>=W || y>=H) return false;
+ const index=y*W+x;
  for(const layer of authoredForest.layers||[]) { const gid=layer.data?.[index]||0; if(gid) sheetTile('camping',gid,X,Y); }
  return true;
 }
-function drawForestStamp(sourceX,sourceY,width,height,destX,destY) {
- if(!authoredForest) return;
- for(let y=0;y<height;y++) for(let x=0;x<width;x++) {
-  const sourceIndex=(sourceY+y)*authoredForest.width+sourceX+x;
-  for(const layer of authoredForest.layers||[]) {
-   const gid=layer.data?.[sourceIndex]||0;
-   if(gid) sheetTile('camping',gid,px(destX+x),py(destY+y));
-  }
- }
-}
 function drawTile(x,y,t) {
- const X=px(x),Y=py(y), wave=(Math.floor(state.frame/5)+x+y)%2;
- if((t.zone==='Whispering Forest' || t.zone==='Secret Grove') && drawAuthoredForest(x,y,X,Y)) return;
- // All terrain art below is from the CSD authored forest/camping sheet.
- if(t.kind==='water') { sheetTile('camping',121,X,Y); return; }
- if(t.kind==='path') { sheetTile('camping',66,X,Y); return; }
- if(t.kind==='cave') { sheetTile('cave',42,X,Y); return; }
- sheetTile('camping',84,X,Y);
-}
-function startingVillage(){
- // One intact camp stamp from the authored CSD forest: no cut-up sprites and
- // no cross-pack style clash. It is the players' Lantern Village at dawn.
- drawForestStamp(6,10,18,13,40,33);
-}
-function drawCsdBoundary(){
- // Four uninterrupted belts assembled from the dense tree section of the
- // same authored CSD map. They are visual and collision boundaries together.
- for(let x=2;x<98;x+=12){drawForestStamp(0,0,12,6,x,2);drawForestStamp(0,0,12,6,x,68);}
- for(let y=2;y<74;y+=6){drawForestStamp(0,0,5,6,2,y);drawForestStamp(0,0,5,6,91,y);}
+ drawCsdMap(x,y,px(x),py(y));
 }
 function bridge(x,y,w){fill('#7d5536',x,y,w*T,8);ctx.fillStyle='#c49a62';for(let i=0;i<w;i++)ctx.fillRect(px(x+i)+1,py(y)+1,14,5)}
 function flower(x,y){ctx.fillStyle='#f9e3ef';ctx.fillRect(px(x)+5,py(y)+5,5,5);ctx.fillStyle=C.pink;ctx.fillRect(px(x)+6,py(y)+4,3,7);}
@@ -300,7 +264,7 @@ function drawHUD(){
 }
 function wrap(txt,x,y,max,line){const words=txt.split(' ');let s='',yy=y;for(const word of words){if(ctx.measureText(s+word).width>max){ctx.fillText(s,x,yy);s=word+' ';yy+=line;}else s+=word+' ';}ctx.fillText(s,x,yy);}
 function drawStart(){ctx.fillStyle='#70b957';ctx.fillRect(0,0,960,640); for(let i=0;i<80;i++){ctx.fillStyle=i%2?'#57a94f':'#81c963';ctx.fillRect((i*79)%960,(i*131)%640,16,16);}ctx.textAlign='center';ctx.font='bold 54px monospace';ctx.fillStyle='#26304a';ctx.fillText('EVERDAWN',482,179);ctx.fillStyle='#fff3b8';ctx.fillText('EVERDAWN',480,175);ctx.font='bold 15px monospace';ctx.fillStyle='#fff9de';ctx.fillText('A living tale, shaped by the way you wander.',480,215); panel(245,264,470,128);ctx.font='bold 13px monospace';ctx.fillStyle='#f8de90';ctx.fillText('NO ONE HAS TOLD YOU WHAT THIS WORLD IS FOR.',480,296);ctx.font='11px monospace';ctx.fillStyle='#e4f1dc';ctx.fillText('It will learn from the choices you make together.',480,328);ctx.fillText('Some laws will be shared. Some will belong to only one of you.',480,353);ctx.font='bold 14px monospace';ctx.fillStyle='#ffef9c';ctx.fillText('CLICK TO LIGHT A LANTERN',480,445);}
-function render(){ctx.clearRect(0,0,canvas.width,canvas.height);if(!state.started){drawStart();return;} const minX=Math.floor(state.camera.x-31),maxX=Math.ceil(state.camera.x+31),minY=Math.floor(state.camera.y-22),maxY=Math.ceil(state.camera.y+22);for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)if(map[y]?.[x])drawTile(x,y,map[y][x]);drawCsdBoundary();startingVillage();bridge(16,49,8);bridge(16,56,8);flowers.forEach(f=>flower(...f));ruins.forEach(ruin);shrine();temple();evolutionObjects(); relicNodes.filter(r=>!r.taken).forEach(r=>{ctx.fillStyle=C.gold;ctx.fillRect(px(r.x)+5,py(r.y)+3,6,10);ctx.fillStyle='#fff0a8';ctx.fillRect(px(r.x)+6,py(r.y)+2,3,3);});state.players.forEach(character);state.players.forEach(pl=>label(pl.name,pl.x,pl.y,pl.color));drawHUD();}
+function render(){ctx.clearRect(0,0,canvas.width,canvas.height);if(!state.started){drawStart();return;} const minX=Math.floor(state.camera.x-25),maxX=Math.ceil(state.camera.x+25),minY=Math.floor(state.camera.y-17),maxY=Math.ceil(state.camera.y+17);for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawTile(x,y,map[y]?.[x]);state.players.forEach(character);state.players.forEach(pl=>label(pl.name,pl.x,pl.y,pl.color));drawHUD();}
 let last=performance.now();function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);render();requestAnimationFrame(loop);}requestAnimationFrame(loop);
 window.advanceTime=(ms)=>{const steps=Math.max(1,Math.round(ms/(1000/60)));for(let i=0;i<steps;i++)update(1/60);render();};
 window.render_game_to_text=()=>JSON.stringify({coordinates:'tile origin top-left; x east, y south',mode:state.started?'adventure':'title',phase:state.phase,seconds:Math.floor(state.time),player:{x:+p.x.toFixed(1),y:+p.y.toFixed(1),archetype:p.archetype},relics:state.relics,discoveries:[...state.discoveries],evolved:[...state.evolved],finalObjective:state.finalOpen,nearby:nearest(p,landmarks,4)?.name||null});

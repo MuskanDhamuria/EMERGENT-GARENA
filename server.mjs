@@ -13,18 +13,14 @@ import { Server } from 'socket.io';
  */
 const PORT = Number(process.env.PORT || 8787);
 const OBSERVATION_MS = 30_000;
-// Server coordinates map to client tiles via x + 48, z + 38. These limits
-// therefore end exactly at the visible, impassable pixel-world rim.
-// These exactly match the visible CSD tree belt in scene.js.  They are
-// deliberately asymmetric because the authored boundary is one tile thicker
-// at the west/north edge; players are stopped, never teleported.
-const WORLD_MIN_X = -41, WORLD_MAX_X = 42;
-const WORLD_MIN_Z = -30, WORLD_MAX_Z = 29;
+// Server coordinates map to the authored 60 x 34 CSD map via x + 30, z + 17.
+// The bounds are the map edge, matching the client exactly.
+const WORLD_MIN_X = -29, WORLD_MAX_X = 28;
+const WORLD_MIN_Z = -16, WORLD_MAX_Z = 15;
 const MAX_PLAYERS = 4;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
-// These compact coordinates map to the client village via x + 48, z + 38.
-// Keeping all four spawn points in that village prevents a network-join snap.
-const SPAWNS = [[0, 2], [3, 2], [1, 4], [4, 4]];
+// These compact coordinates map to the clear ground beside the CSD camp.
+const SPAWNS = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
 const rooms = new Map();
 
 const contentTypes = {
@@ -46,9 +42,9 @@ const FEATURES = new Set([
 ]);
 const ARCHETYPES = ['Explorer', 'Collector', 'Guardian', 'Loner'];
 const RELICS = [
-  ['moss-compass', -10, -12], ['sun-shard', 12, -4], ['moon-bell', 19, 11],
-  ['river-pearl', -3, 18], ['root-key', -17, 8], ['cave-amber', 6, 3],
-  ['ember-stone', 22, -15], ['star-seed', -22, 16], ['temple-sigil', 2, -21],
+  ['moss-compass', -23, -10], ['sun-shard', 13, 8], ['moon-bell', 18, 0],
+  ['river-pearl', -4, 10], ['root-key', -18, 8], ['cave-amber', 6, 3],
+  ['ember-stone', 22, -11], ['star-seed', -22, 14], ['temple-sigil', 0, -11],
 ];
 const EVOLUTION_LIBRARY = {
   Explorer: [

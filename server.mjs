@@ -87,7 +87,9 @@ function resetRoomForRoster(room, reason) {
   room.entities = ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null }));
   for (const [index, player] of activePlayers(room).entries()) {
     const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [] });
-    player.relicIds.clear(); player.privateRules = [];
+    player.visited = new Set(['starting-village']); player.relicIds.clear(); player.interactions = {};
+    player.movement = 0; player.movementSamples = 0; player.nearSeconds = 0; player.aloneSeconds = 0;
+    player.riskEvents = 0; player.rescues = 0; player.follows = 0; player.privateRules = [];
   }
   room.director = { narration: reason, source: 'server', at: now() };
 }
@@ -109,7 +111,7 @@ function archetypeScores(player) { return { Explorer: player.visited.size * 3 + 
 function calculateAssignments(room) {
   const players = activePlayers(room); if (players.length !== MAX_PLAYERS) return [];
   let best = { score: -Infinity, choices: [] };
-  function search(index, unused, choices, score) { if (index === players.length) { if (score > best.score) best = { score, choices: [...choices] }; return; } for (const type of unused) search(index + 1, unused.filter((x) => x !== type), [...choices, [players[index].id, type]], score + archetypeScores(players[index])[type]); }
+  function search(index, unused, choices, score) { if (index === players.length) { if (score > best.score) best = { score, choices: [...choices] }; return; } for (const type of unused) search(index + 1, unused.filter((x) => x !== type), [...choices, { playerId: players[index].id, archetype: type }], score + archetypeScores(players[index])[type]); }
   search(0, ARCHETYPES, [], 0); return best.choices;
 }
 function canAssign(room) { return room.players.size === MAX_PLAYERS && room.phase === 'observing' && room.observationEndsAt && now() >= room.observationEndsAt; }

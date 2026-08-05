@@ -38,7 +38,10 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'guardian-shrine', type: 'shrine', x: 14, z: -2, role: 'Guardian', terrain: 'guardian-bridge', label: 'Awakened Shrine' }),
   Object.freeze({ id: 'spirit-portal', type: 'spirit-portal', x: -3, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Spirit Portal' }),
   Object.freeze({ id: 'final-altar', type: 'altar', x: 19, z: 9, role: 'Collector', label: 'Relic Altar', feature: 'ancient-temple' }),
-  Object.freeze({ id: 'final-gate', type: 'final-gate', x: 20, z: 10, role: 'Loner', label: 'Final Gate', feature: 'final-gate' }),
+  // This is deliberately beside the altar, on a walkable tile.  The former
+  // position at (20, 10) was surrounded by collision tiles, making the final
+  // Loner interaction impossible despite its 3.25-unit interaction radius.
+  Object.freeze({ id: 'final-gate', type: 'final-gate', x: 19, z: 6, role: 'Loner', label: 'Final Gate', feature: 'final-gate' }),
 ]);
 
 export const EVOLUTION_LIBRARY = Object.freeze({

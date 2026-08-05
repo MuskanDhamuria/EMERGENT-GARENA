@@ -83,9 +83,15 @@ export function createSession() {
   }
   function interact() {
     if (!gameReady() || !state.mine) return;
+    if (!['evolving', 'finale'].includes(state.world?.phase)) {
+      note('Roles are still awakening. Interactions unlock when the observation ends.', 4);
+      return;
+    }
     const entity = nearest(state.mine, activeEntities()), action = finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
-    socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }); note(`You reach for ${entity.label || action.replaceAll('-', ' ')}.`, 2);
+    socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
+      note(reply?.ok ? `You used ${entity.label || action.replaceAll('-', ' ')}.` : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
+    });
   }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;

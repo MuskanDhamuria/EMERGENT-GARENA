@@ -9,7 +9,7 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, chooseStoryOption, joinRoom, update } = session;
+const { state, gameReady, interact, joinRoom, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -38,7 +38,6 @@ function showLanternGate(error = '') {
 addEventListener('keydown', (event) => {
   keys[event.key.toLowerCase()] = true;
   if (event.key.toLowerCase() === 'e') { event.preventDefault(); interact(); }
-  if (event.key === '1' || event.key === '2') { event.preventDefault(); chooseStoryOption(event.key); }
   if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
@@ -66,6 +65,5 @@ window.render_game_to_text = () => JSON.stringify({
   director: {
     mood: state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId || null,
     activeRules: (state.world?.directorRules?.activeRules || []).map((rule) => ({ card: rule.card, label: rule.label || rule.title || rule.message, expiresAt: rule.expiresAt || null })),
-    storyChoice: (state.world?.directorRules?.activeRules || []).find((rule) => rule.card === 'story_choice')?.prompt || null,
   },
 });

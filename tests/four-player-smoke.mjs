@@ -67,21 +67,23 @@ try {
   const apply = (card, payload) => api('/api/mcp/director-card', { roomCode, card, payload });
   await apply('private_hint', { playerId: first.id, message: 'A silver leaf points toward the old path.' });
   await apply('unlock_shortcut', { shortcutId: 'moss_trail' });
-  await apply('story_choice', { choiceId: 'shrine_or_vault' });
-  await waitFor(async () => (await pages[0].evaluate(() => JSON.parse(window.render_game_to_text()))).director.storyChoice, 'story choice to render for players');
-  await Promise.all(pages.slice(0, 3).map(async (page) => { await page.locator('#game').click({ position: { x: 480, y: 320 } }); await page.keyboard.press('1'); }));
-  const afterChoice = await waitFor(async () => {
+  await apply('story_turn', { turnId: 'shrine_or_vault', optionId: 'shrine' });
+  const afterTurn = await waitFor(async () => {
     const payload = await api(`/api/mcp/world-state?roomCode=${roomCode}`);
     return payload.state.world.unlocked.includes('healing-shrine') ? payload.state : null;
-  }, 'three player votes to resolve the story choice');
-  assert.equal(afterChoice.directorRules.history.some((rule) => rule.card === 'story_choice' && rule.selectedOptionId === 'shrine'), true);
+  }, 'AI Director to resolve its story turn');
+  assert.equal(afterTurn.directorRules.history.some((rule) => rule.card === 'story_turn' && rule.selectedOptionId === 'shrine'), true);
+  const historyLength = afterTurn.directorRules.history.length;
+  await pages[0].keyboard.press('1'); await sleep(150);
+  const afterPlayerKey = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
+  assert.equal(afterPlayerKey.directorRules.history.length, historyLength, 'Player input must not alter an AI-resolved story turn.');
   await apply('role_request', { requestId: 'explorer_scout' });
   await apply('cooperation_request', { roles: ['Explorer', 'Guardian'], title: 'Ward the Trail', message: 'Scout the path, then keep the party safe.' });
   await apply('world_mood', { moodId: 'mist' });
   await apply('temporary_boon', { playerId: second.id, boonId: 'swift_step' });
   await apply('temporary_obstacle', { obstacleId: 'fallen_leaves' });
 
-  for (const player of afterChoice.players) await api('/api/mcp/evolve', { roomCode, playerId: player.id });
+  for (const player of afterTurn.players) await api('/api/mcp/evolve', { roomCode, playerId: player.id });
   const finale = await api('/api/mcp/finale', { roomCode });
   assert.equal(finale.ok, true);
   await apply('finale_variant', { variantId: 'echo_accord' });

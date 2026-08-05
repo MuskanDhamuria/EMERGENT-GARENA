@@ -12,7 +12,7 @@ export const DIRECTOR_CARD_TYPES = Object.freeze([
   'world_mood',
   'temporary_boon',
   'temporary_obstacle',
-  'story_choice',
+  'story_turn',
   'finale_variant',
 ]);
 
@@ -51,7 +51,9 @@ export const OBSTACLES = Object.freeze({
   fallen_leaves: Object.freeze({ label: 'Fallen Leaves', description: 'A path is obscured, but never closed.' }),
 });
 
-export const STORY_CHOICES = Object.freeze({
+// A story turn is selected and resolved by the AI Director. It intentionally
+// exposes no player voting or arbitrary feature selection surface.
+export const STORY_TURNS = Object.freeze({
   shrine_or_vault: Object.freeze({
     prompt: 'Which memory should Everdawn protect first?',
     options: Object.freeze([
@@ -82,7 +84,9 @@ export const DIRECTOR_RULE_CARDS = Object.freeze({
   world_mood: Object.freeze({ audience: 'party', phases: ['evolving', 'finale'], durationMs: 60_000 }),
   temporary_boon: Object.freeze({ audience: 'one player', phases: ['evolving', 'finale'], durationMs: 45_000 }),
   temporary_obstacle: Object.freeze({ audience: 'party', phases: ['evolving', 'finale'], durationMs: 45_000 }),
-  story_choice: Object.freeze({ audience: 'party', phases: ['evolving', 'finale'], durationMs: 90_000 }),
+  // The Director chooses the branch immediately. Players see the consequence,
+  // but never vote on or override the AI's authored turn.
+  story_turn: Object.freeze({ audience: 'party', phases: ['evolving', 'finale'], durationMs: 0 }),
   finale_variant: Object.freeze({ audience: 'party', phases: ['finale'], durationMs: 0 }),
 });
 
@@ -174,10 +178,10 @@ export function validateDirectorDirective(world, room, directive) {
   }
   if (card === 'world_mood' && !WORLD_MOODS[payload.moodId]) return result(false, { error: 'Unknown world mood.' });
   if (card === 'temporary_obstacle' && !OBSTACLES[payload.obstacleId]) return result(false, { error: 'Unknown safe obstacle.' });
-  if (card === 'story_choice') {
-    const choice = STORY_CHOICES[payload.choiceId];
-    if (!choice) return result(false, { error: 'Unknown story choice.' });
-    if (payload.optionId && !choice.options.some((option) => option.id === payload.optionId)) return result(false, { error: 'That option does not belong to this story choice.' });
+  if (card === 'story_turn') {
+    const turn = STORY_TURNS[payload.turnId];
+    if (!turn) return result(false, { error: 'Unknown story turn.' });
+    if (!turn.options.some((option) => option.id === payload.optionId)) return result(false, { error: 'The AI must select one valid story option.' });
   }
   if (card === 'finale_variant' && (!room.finalObjective || room.finalObjective.status !== 'active' || !FINALE_VARIANTS[payload.variantId])) return result(false, { error: 'An active finale and a known finale variant are required.' });
   return context;
@@ -260,16 +264,14 @@ export function applyDirectorDirective(world, room, directive, options = {}) {
     event = publicNarration(world, room, 'director-safe-obstacle', `${obstacle.label}: ${obstacle.description}`, { ruleId: rule.id, obstacleId: payload.obstacleId });
   }
 
-  if (card === 'story_choice') {
-    const choice = STORY_CHOICES[payload.choiceId];
-    const selected = payload.optionId ? choice.options.find((option) => option.id === payload.optionId) : null;
-    if (selected) {
-      if (!knownFeature(selected.feature)) return result(false, { error: 'Story choice points to an unavailable world feature.' });
-      unlockResult = world.unlock(room, selected.feature, `${choice.prompt} The party chose: ${selected.label}.`);
-      if (!unlockResult.ok) return unlockResult;
-    }
-    rule = recordRule(room, card, { choiceId: payload.choiceId, prompt: choice.prompt, options: choice.options, selectedOptionId: selected?.id || null, votes: {}, source }, durationMs, now);
-    event = publicNarration(world, room, 'director-story-choice', selected ? `${choice.prompt} ${selected.label}.` : choice.prompt, { ruleId: rule.id, choiceId: payload.choiceId });
+  if (card === 'story_turn') {
+    const turn = STORY_TURNS[payload.turnId];
+    const selected = turn.options.find((option) => option.id === payload.optionId);
+    if (!knownFeature(selected.feature)) return result(false, { error: 'Story turn points to an unavailable world feature.' });
+    unlockResult = world.unlock(room, selected.feature, `${turn.prompt} The Director chose: ${selected.label}.`);
+    if (!unlockResult.ok) return unlockResult;
+    rule = recordRule(room, card, { turnId: payload.turnId, selectedOptionId: selected.id, label: selected.label, feature: selected.feature, source }, durationMs, now);
+    event = publicNarration(world, room, 'director-story-turn', `${turn.prompt} The Director chose: ${selected.label}.`, { ruleId: rule.id, turnId: payload.turnId, optionId: selected.id });
   }
 
   if (card === 'finale_variant') {
@@ -285,31 +287,6 @@ export function applyDirectorDirective(world, room, directive, options = {}) {
   return result(true, { card, rule, event, unlock: unlockResult?.feature || null });
 }
 
-/**
- * Records a player's vote on the currently active story choice. Three matching
- * votes resolve it, so one player cannot steer the shared world alone.
- */
-export function chooseStoryOption(world, room, playerId, optionId, now = stamp()) {
-  const player = world.getPlayer(room, String(playerId || ''));
-  if (!player || !assignedGame(room)) return result(false, { error: 'Only a current player in an active four-player game may vote.' });
-  expireDirectorRules(room, now);
-  const rule = activeState(room).activeRules.find((item) => item.card === 'story_choice' && !item.selectedOptionId);
-  if (!rule) return result(false, { error: 'There is no active story choice.' });
-  const option = rule.options?.find((item) => item.id === optionId);
-  if (!option) return result(false, { error: 'Choose one of the two story options.' });
-  rule.votes ||= {}; rule.votes[player.id] = option.id;
-  const votes = Object.values(rule.votes);
-  const votesForOption = votes.filter((vote) => vote === option.id).length;
-  if (votesForOption < 3) {
-    return result(true, { resolved: false, votesForOption, votesNeeded: 3, optionId: option.id });
-  }
-  const unlockResult = world.unlock(room, option.feature, `${rule.prompt} The party chose: ${option.label}.`);
-  if (!unlockResult.ok) return unlockResult;
-  rule.selectedOptionId = option.id; rule.completedAt = now; rule.expiresAt = now;
-  world.event(room, 'director-story-resolved', `The party chose: ${option.label}.`, { ruleId: rule.id, optionId: option.id });
-  return result(true, { resolved: true, optionId: option.id, feature: unlockResult.feature });
-}
-
 /** Factory form for dependency injection in routes, sockets, or a game tick. */
 export function createDirectorRules(world, options = {}) {
   return Object.freeze({
@@ -317,6 +294,5 @@ export function createDirectorRules(world, options = {}) {
     validate: (room, directive) => validateDirectorDirective(world, room, directive),
     apply: (room, directive) => applyDirectorDirective(world, room, directive, options),
     expire: (room, now) => expireDirectorRules(room, now),
-    chooseStoryOption: (room, playerId, optionId, now) => chooseStoryOption(world, room, playerId, optionId, now),
   });
 }

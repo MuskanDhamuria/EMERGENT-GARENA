@@ -93,14 +93,6 @@ export function createSession() {
       note(reply?.ok ? `You used ${entity.label || action.replaceAll('-', ' ')}.` : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
     });
   }
-  function chooseStoryOption(index) {
-    const choice = state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'story_choice' && !rule.selectedOptionId);
-    const option = choice?.options?.[Number(index) - 1];
-    if (!option) { note('There is no story choice to answer.', 3); return; }
-    socket.emit('choose-story-option', { optionId: option.id }, (reply) => {
-      note(reply?.ok ? (reply.resolved ? `The party chose ${option.label}.` : `${option.label}: ${reply.votesForOption}/3 voices.`) : (reply?.error || 'Your choice could not be heard.'), 5);
-    });
-  }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
@@ -118,5 +110,5 @@ export function createSession() {
   socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, interact, chooseStoryOption, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, interact, update };
 }

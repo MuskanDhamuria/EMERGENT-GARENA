@@ -16,6 +16,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
+import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 const REQUIRED_PLAYERS = MAX_PLAYERS;
@@ -189,6 +190,23 @@ server.registerTool('narrate_event', {
     const state = await requireReadyRoom(roomCode);
     if (privateTo && !playerIn(state, privateTo)) return toolError('Private narration must target a current player.');
     return toolResult(await gameRequest('/api/mcp/narrate', { method: 'POST', body: { roomCode, message: text, privateTo } }));
+  }
+  catch (error) { return toolError(error.message); }
+});
+
+server.registerTool('apply_director_card', {
+  title: 'Apply one safe AI Director rule card',
+  description: 'Make one pre-authored, server-validated change to a ready four-player world. The AI cannot submit code, coordinates, arbitrary abilities, or new rules: it can only choose a whitelisted card and its documented preset values. Use world state and telemetry first; prefer one legible intervention, then wait for players to respond.',
+  inputSchema: {
+    roomCode: roomCodeSchema,
+    card: z.enum(DIRECTOR_CARD_TYPES),
+    payload: z.record(z.unknown()).default({}),
+  },
+}, async ({ roomCode, card, payload }) => {
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (!['evolving', 'finale'].includes(state.phase)) return toolError('Director cards are available only after all four roles have awakened.');
+    return toolResult(await gameRequest('/api/mcp/director-card', { method: 'POST', body: { roomCode, card, payload } }));
   }
   catch (error) { return toolError(error.message); }
 });

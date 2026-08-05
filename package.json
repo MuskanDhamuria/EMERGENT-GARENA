@@ -10,7 +10,8 @@
     "agent:gemini": "node gemini-mcp-agent.mjs",
     "build": "vite build",
     "preview": "vite preview",
-    "serve": "node server.mjs"
+    "serve": "node server.mjs",
+    "test:game": "node tests/four-player-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",
@@ -20,6 +21,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "vite": "^6.0.0"
   }
 }

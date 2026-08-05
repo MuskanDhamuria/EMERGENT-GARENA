@@ -9,7 +9,7 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, update } = session;
+const { state, gameReady, interact, chooseStoryOption, joinRoom, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -38,6 +38,7 @@ function showLanternGate(error = '') {
 addEventListener('keydown', (event) => {
   keys[event.key.toLowerCase()] = true;
   if (event.key.toLowerCase() === 'e') { event.preventDefault(); interact(); }
+  if (event.key === '1' || event.key === '2') { event.preventDefault(); chooseStoryOption(event.key); }
   if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
@@ -50,10 +51,21 @@ function loop(now) {
 }
 requestAnimationFrame(loop);
 
+window.advanceTime = (milliseconds) => {
+  const steps = Math.max(1, Math.round(Number(milliseconds || 0) / (1000 / 60)));
+  for (let step = 0; step < steps; step += 1) update(1 / 60, movementInput());
+  render();
+};
+
 window.render_game_to_text = () => JSON.stringify({
   mode: state.joined ? (gameReady() ? 'adventure' : 'lobby') : 'title',
   room: state.network.roomCode, playerCount: state.players.length,
   phase: state.world?.phase || 'unjoined',
   player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), archetype: state.mine.archetype },
   relics: state.world?.relics?.filter((relic) => !relic.collectedBy).map((relic) => relic.id) || [],
+  director: {
+    mood: state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId || null,
+    activeRules: (state.world?.directorRules?.activeRules || []).map((rule) => ({ card: rule.card, label: rule.label || rule.title || rule.message, expiresAt: rule.expiresAt || null })),
+    storyChoice: (state.world?.directorRules?.activeRules || []).find((rule) => rule.card === 'story_choice')?.prompt || null,
+  },
 });

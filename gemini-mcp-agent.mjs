@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
+import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 
 function loadDotEnv() {
   if (!existsSync('.env')) return;
@@ -62,6 +63,7 @@ const actions = {
   assign_archetypes: { description: 'Only if phase is observing and the observation timer is zero. Assign every player exactly once, using all four distinct archetypes when four players exist.', args: { assignments: '[{playerId, archetype, evidence}]' } },
   issue_asymmetric_rule: { description: 'Evolve one player only after archetypes exist. It reveals that player’s next validated evolution; use a player id from state.', args: { playerId: 'string' } },
   unlock_world_feature: { description: 'Reveal one feature from the allowed list only when it follows the observed group identity. Features: hidden-cave, secret-path, invisible-bridge, forgotten-ruins, relic-vault, evolving-artifacts, treasure-cache, healing-shrine, protective-barrier, revival-monument, spirit-realm, illusion-passage, hidden-portal, ancient-temple, final-gate.', args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
+  apply_director_card: { description: 'Use exactly one authored intervention card after roles awaken. Cards and payload presets: private_hint {playerId,message}; unlock_shortcut {shortcutId:moss_trail|lantern_path|warden_way|veil_passage}; role_request {requestId:explorer_scout|collector_recover|guardian_watch|loner_omen}; cooperation_request {roles:[2-4 roles],title,message}; world_mood {moodId:dawn|mist|storm|starlight}; temporary_boon {playerId,boonId:guiding_light|swift_step|shared_sight}; temporary_obstacle {obstacleId:mist_bank|echo_current|fallen_leaves}; story_choice {choiceId:shrine_or_vault|path_or_veil}; finale_variant {variantId:lantern_rite|echo_accord|wardens_promise}. Never invent other values.', args: { card: 'string', payload: 'object with only that card\'s documented presets' } },
   create_finale: { description: 'Only after every active player has at least one evolution and no finale exists.', args: {} },
 };
 
@@ -105,6 +107,10 @@ function validateDecision(decision, state) {
     return ['evolving', 'finale'].includes(state.phase) && FEATURES.has(args.feature) && validText(args.message, 3)
       && validPrivateAudience(state, args.privateTo) && !publicDuplicate ? null : 'That world unlock is not currently valid.';
   }
+  if (decision.action === 'apply_director_card') {
+    return ['evolving', 'finale'].includes(state.phase) && DIRECTOR_CARD_TYPES.includes(args.card)
+      && args.payload && typeof args.payload === 'object' && !Array.isArray(args.payload) ? null : 'That director card is not currently valid.';
+  }
   if (decision.action === 'create_finale') {
     return state.phase === 'evolving' && !state.finalObjective
       && players.every((player) => player.archetype && (player.evolutions || []).length > 0) ? null : 'The four-player finale is not ready.';
@@ -122,7 +128,7 @@ function prompt(roomCode, telemetry, world) {
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,
     `Authoritative world state: ${JSON.stringify(world)}`,
     `Allowed actions: ${JSON.stringify(actions)}`,
-    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
+    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|apply_director_card|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
   ].join('\n');
 }
 

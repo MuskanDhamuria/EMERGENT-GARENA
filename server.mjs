@@ -5,14 +5,16 @@ import { extname, join, normalize } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { Server } from 'socket.io';
 import { ARCHETYPES, ENTITY_DEFINITIONS, EVOLUTION_LIBRARY, FEATURES, MAX_PLAYERS, ROLE_ABILITIES, TERRAIN_OVERLAYS } from './shared/game-content.js';
+import { createDirectorRules } from './server/director-rules.mjs';
 import { createMcpRouter } from './server/mcp-router.mjs';
 import { attachSocketGateway } from './server/socket-gateway.mjs';
 
 // The server owns all game rules. The browser only renders the state below and
 // sends intent; it cannot walk through a role gate or collect an invalid relic.
 const PORT = Number(process.env.PORT || 8787);
-const OBSERVATION_MS = 30_000;
-const GM_ASSIGNMENT_GRACE_MS = 12_000;
+function configuredDuration(name, fallback, minimum) { const value = Number(process.env[name]); return Number.isFinite(value) ? Math.max(minimum, value) : fallback; }
+const OBSERVATION_MS = configuredDuration('GAME_TEST_OBSERVATION_MS', 30_000, 100);
+const GM_ASSIGNMENT_GRACE_MS = configuredDuration('GAME_TEST_GM_ASSIGNMENT_GRACE_MS', 12_000, 0);
 const WORLD_MIN_X = -29, WORLD_MAX_X = 28, WORLD_MIN_Z = -16, WORLD_MAX_Z = 15;
 const MAP_WIDTH = 60, MAP_OFFSET_X = 30, MAP_OFFSET_Z = 17;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
@@ -71,7 +73,7 @@ function createRoom(code) {
     code, createdAt, phase: 'waiting-for-four', observationEndsAt: null, players: new Map(),
     entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })),
     world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, events: [], finalObjective: null,
-    archetypesAssignedAt: null, gmActiveUntil: 0,
+    archetypesAssignedAt: null, gmActiveUntil: 0, directorState: { activeRules: [], history: [], sequence: 0 },
     director: { narration: 'Four lanterns are needed before this shared tale can begin.', source: 'server', at: createdAt },
   };
 }
@@ -84,6 +86,7 @@ function createPlayer(id, name, index) {
 function resetRoomForRoster(room, reason) {
   room.phase = 'waiting-for-four'; room.observationEndsAt = null; room.archetypesAssignedAt = null; room.finalObjective = null;
   room.world = { unlocked: new Set(['starting-village']), privateUnlocks: new Map() };
+  room.directorState = { activeRules: [], history: [], sequence: 0 };
   room.entities = ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null }));
   for (const [index, player] of activePlayers(room).entries()) {
     const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [] });
@@ -192,12 +195,15 @@ function entityVisibleTo(entity, viewer, room) {
 }
 function serializeRoom(room, viewerId = null) {
   advanceRoom(room); const viewer = viewerId && getPlayer(room, viewerId); const privateUnlocks = viewer ? [...(room.world.privateUnlocks.get(viewer.id) || [])] : [];
+  const directorRules = room.directorState || { activeRules: [], history: [] };
+  const visibleRules = (directorRules.activeRules || []).filter((rule) => !rule.playerId || !viewerId || rule.playerId === viewerId);
   const entities = room.entities.filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, label, role, terrain, collectedBy, feature }) => ({ id, type, x, z, label, requiredRole: role, terrain, collectedBy, feature }));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
   return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null,
     players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, x: p.x, z: p.z, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions })),
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
-    world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
+    world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director,
+    directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
 }
 function broadcastState(room) { for (const player of activePlayers(room)) io.to(player.id).emit('world-state', serializeRoom(room, player.id)); }
 function recordTelemetry(room, player, payload = {}, positionIsAuthoritative = false) {
@@ -213,7 +219,10 @@ function recordTelemetry(room, player, payload = {}, positionIsAuthoritative = f
   player.x = next.x; player.z = next.z; player.locationId = locationFor(next.x, next.z); player.visited.add(player.locationId); player.lastTelemetryAt = now();
 }
 function tickRoom(room, delta) {
-  if (['observing', 'evolving', 'finale'].includes(room.phase)) for (const player of activePlayers(room)) { const magnitude = Math.hypot(player.inputX, player.inputZ); if (magnitude) recordTelemetry(room, player, { x: player.x + player.inputX / magnitude * 8 * delta, z: player.z + player.inputZ / magnitude * 8 * delta }, true); const closest = closestDistance(room, player); if (closest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta; }
+  world.directorRules.expire(room);
+  const activeRules = room.directorState?.activeRules || [];
+  const hasObstacle = activeRules.some((rule) => rule.card === 'temporary_obstacle');
+  if (['observing', 'evolving', 'finale'].includes(room.phase)) for (const player of activePlayers(room)) { const magnitude = Math.hypot(player.inputX, player.inputZ); if (magnitude) { const swiftStep = activeRules.some((rule) => rule.card === 'temporary_boon' && rule.playerId === player.id && rule.boonId === 'swift_step'); const speed = 8 * (swiftStep ? 1.35 : 1) * (hasObstacle ? 0.82 : 1); recordTelemetry(room, player, { x: player.x + player.inputX / magnitude * speed * delta, z: player.z + player.inputZ / magnitude * speed * delta }, true); } const closest = closestDistance(room, player); if (closest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta; }
   advanceRoom(room);
 }
 function advanceRoom(room) {
@@ -225,7 +234,8 @@ function advanceRoom(room) {
   }
 }
 
-const world = { rooms, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact };
+const world = { rooms, observationMs: OBSERVATION_MS, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact };
+world.directorRules = createDirectorRules(world);
 const handleMcpApi = createMcpRouter(world);
 
 const server = createServer(async (request, response) => {

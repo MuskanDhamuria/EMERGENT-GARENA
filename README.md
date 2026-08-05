@@ -2,6 +2,8 @@
 
 Everdawn is the playable pixel-art stage for **Emergent**: a shared adventure with no preset player roles or quest. A server-authoritative Game Master observes group behaviour, assigns distinct identities, evolves the world, and builds a cooperative ending around that group.
 
+For a quick map of which file owns which part of the game, see [TEAM_GUIDE.md](TEAM_GUIDE.md). Role content, special terrain, entities, and action IDs live together in `shared/game-content.js`.
+
 ## Run the game
 
 ```powershell

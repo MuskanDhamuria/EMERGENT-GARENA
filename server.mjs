@@ -4,62 +4,20 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { Server } from 'socket.io';
+import { ARCHETYPES, ENTITY_DEFINITIONS, EVOLUTION_LIBRARY, FEATURES, MAX_PLAYERS, ROLE_ABILITIES, TERRAIN_OVERLAYS } from './shared/game-content.js';
+import { createMcpRouter } from './server/mcp-router.mjs';
+import { attachSocketGateway } from './server/socket-gateway.mjs';
 
 // The server owns all game rules. The browser only renders the state below and
 // sends intent; it cannot walk through a role gate or collect an invalid relic.
 const PORT = Number(process.env.PORT || 8787);
 const OBSERVATION_MS = 30_000;
 const GM_ASSIGNMENT_GRACE_MS = 12_000;
-const MAX_PLAYERS = 4;
 const WORLD_MIN_X = -29, WORLD_MAX_X = 28, WORLD_MIN_Z = -16, WORLD_MAX_Z = 15;
 const MAP_WIDTH = 60, MAP_OFFSET_X = 30, MAP_OFFSET_Z = 17;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
 const SPAWNS = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
-const ARCHETYPES = ['Explorer', 'Collector', 'Guardian', 'Loner'];
 const rooms = new Map();
-
-const CAPABILITIES = {
-  Explorer: ['hidden-paths', 'temple-sight'],
-  Collector: ['water-travel', 'relic-lore'],
-  Guardian: ['bridge-ward', 'shrine-rite'],
-  Loner: ['spirit-sight', 'spirit-walk'],
-};
-
-// These are deliberately small, authored overlays on top of the supplied map.
-// `blocksEveryoneElse` means a normal grass/collision check is not enough: only
-// the matching role can enter this part of the world.
-const TERRAIN_OVERLAYS = [
-  { id: 'echo-water', kind: 'water', role: 'Collector', label: 'Echo Water', x: 8, z: 4, w: 8, h: 6, blocksEveryoneElse: true },
-  { id: 'moss-trail', kind: 'hidden-path', role: 'Explorer', label: 'Moss Trail', x: -22, z: -11, w: 6, h: 4, blocksEveryoneElse: true },
-  { id: 'guardian-bridge', kind: 'bridge', role: 'Guardian', label: 'Warden Bridge', x: 9, z: -3, w: 7, h: 2, blocksEveryoneElse: true },
-  { id: 'spirit-path', kind: 'spirit', role: 'Loner', label: 'Veil Path', x: -6, z: 8, w: 6, h: 5, blocksEveryoneElse: true },
-];
-
-// Every client-visible object has a server id, exact position, interaction and
-// access rule. Never trust an arbitrary target id supplied by a client.
-const ENTITY_DEFINITIONS = [
-  { id: 'river-pearl', type: 'relic', x: 12, z: 7, role: 'Collector', terrain: 'echo-water', label: 'River Pearl' },
-  { id: 'drowned-idol', type: 'relic', x: 10, z: 5, role: 'Collector', terrain: 'echo-water', label: 'Drowned Idol' },
-  { id: 'vault-amber', type: 'relic', x: 14, z: 8, role: 'Collector', terrain: 'echo-water', label: 'Vault Amber' },
-  { id: 'hidden-temple-entrance', type: 'temple-entrance', x: -19, z: -9, role: 'Explorer', terrain: 'moss-trail', label: 'Hidden Temple Entrance' },
-  { id: 'guardian-shrine', type: 'shrine', x: 14, z: -2, role: 'Guardian', terrain: 'guardian-bridge', label: 'Awakened Shrine' },
-  { id: 'spirit-portal', type: 'spirit-portal', x: -3, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Spirit Portal' },
-  { id: 'final-altar', type: 'altar', x: 19, z: 9, role: 'Collector', label: 'Relic Altar', feature: 'ancient-temple' },
-  { id: 'final-gate', type: 'final-gate', x: 20, z: 10, role: 'Loner', label: 'Final Gate', feature: 'final-gate' },
-];
-
-const FEATURES = new Set([
-  'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
-  'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
-  'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
-  'hidden-portal', 'ancient-temple', 'final-gate',
-]);
-const EVOLUTION_LIBRARY = {
-  Explorer: [['hidden-cave', 'The Explorer has mapped the Moss Trail and revealed the temple entrance.']],
-  Collector: [['relic-vault', 'The Collector has learned the language of the Echo Water relics.']],
-  Guardian: [['healing-shrine', 'The Guardian has awakened the shrine beyond the Warden Bridge.']],
-  Loner: [['spirit-realm', 'The Loner can now read the paths behind the veil.']],
-};
 
 let collisionTiles = [];
 try {
@@ -235,7 +193,7 @@ function serializeRoom(room, viewerId = null) {
   const entities = room.entities.filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, label, role, terrain, collectedBy, feature }) => ({ id, type, x, z, label, requiredRole: role, terrain, collectedBy, feature }));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
   return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null,
-    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, x: p.x, z: p.z, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? CAPABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions })),
+    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, x: p.x, z: p.z, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions })),
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
     world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
 }
@@ -264,28 +222,8 @@ function advanceRoom(room) {
   }
 }
 
-async function readBody(request) { let body = ''; for await (const chunk of request) { body += chunk; if (body.length > 50_000) throw new Error('Request body too large.'); } try { return JSON.parse(body || '{}'); } catch { throw new Error('Invalid JSON body.'); } }
-function endpointRoom(payload) { return rooms.get(String(payload.roomCode || '').toUpperCase()); }
-async function handleMcpApi(request, response, pathname) {
-  let payload; try { payload = request.method === 'GET' ? Object.fromEntries(new URL(request.url, 'http://localhost').searchParams) : await readBody(request); } catch (error) { sendJson(response, 400, { ok: false, error: error.message }); return; }
-  if (pathname === '/api/mcp/rooms') { sendJson(response, 200, { ok: true, rooms: [...rooms.values()].map((room) => ({ roomCode: room.code, phase: room.phase, playerCount: room.players.size })) }); return; }
-  const room = endpointRoom(payload); if (!room) { sendJson(response, 404, { ok: false, error: 'Unknown room.' }); return; }
-  if (pathname === '/api/mcp/world-state') { sendJson(response, 200, { ok: true, state: serializeRoom(room) }); return; }
-  if (pathname === '/api/mcp/telemetry') { sendJson(response, 200, { ok: true, telemetry: roomTelemetry(room) }); return; }
-  if (room.players.size !== MAX_PLAYERS) { sendJson(response, 400, { ok: false, error: 'Game Master actions require exactly four connected players.' }); return; }
-  let result;
-  if (pathname === '/api/mcp/narrate') { const message = cleanText(payload.message, '', 280); if (!message) result = { ok: false, error: 'A narration message is required.' }; else if (payload.privateTo && !getPlayer(room, payload.privateTo)) result = { ok: false, error: 'Unknown private audience.' }; else { markGmActive(room); result = { ok: true, event: event(room, 'gm-narration', message, payload.privateTo ? { privateTo: payload.privateTo } : {}) }; } }
-  else if (pathname === '/api/mcp/assign-archetypes') { markGmActive(room); result = assignArchetypes(room, payload.assignments, 'MCP Game Master'); }
-  else if (pathname === '/api/mcp/unlock') {
-    if (!['evolving', 'finale'].includes(room.phase)) result = { ok: false, error: 'World features unlock only after roles are assigned.' };
-    else if (!payload.privateTo && room.world.unlocked.has(payload.feature)) result = { ok: false, error: 'That public feature is already unlocked.' };
-    else { markGmActive(room); result = unlock(room, payload.feature, cleanText(payload.message), payload.privateTo ? { privateTo: payload.privateTo } : {}); }
-  }
-  else if (pathname === '/api/mcp/evolve') { markGmActive(room); result = evolve(room, payload.playerId, 'MCP Game Master'); }
-  else if (pathname === '/api/mcp/finale') { markGmActive(room); const objective = createFinalObjective(room, 'MCP Game Master'); result = objective ? { ok: true, objective } : { ok: false, error: 'The finale needs exactly four assigned and evolved roles.' }; }
-  else { sendJson(response, 404, { ok: false, error: 'Unknown MCP endpoint.' }); return; }
-  broadcastState(room); sendJson(response, result.ok ? 200 : 400, result);
-}
+const world = { rooms, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact };
+const handleMcpApi = createMcpRouter(world);
 
 const server = createServer(async (request, response) => {
   const pathname = (request.url || '/').split('?')[0]; if (pathname.startsWith('/api/mcp/')) { await handleMcpApi(request, response, pathname); return; }
@@ -312,6 +250,11 @@ io.on('connection', (socket) => {
   socket.on('request-world-state', () => { const room = rooms.get(socket.data.roomCode); if (room) socket.emit('world-state', serializeRoom(room, socket.id)); });
   socket.on('disconnect', () => { const room = rooms.get(socket.data.roomCode); if (!room) return; const player = room.players.get(socket.id); room.players.delete(socket.id); if (!room.players.size) { rooms.delete(room.code); return; } resetRoomForRoster(room, 'A lantern went out. Four players are needed to begin a new shared tale.'); event(room, 'player-left', `${player?.name || 'A wanderer'} left the world. The adventure is waiting for four lanterns again.`); broadcastState(room); });
 });
+// The gateway is registered from its own transport module.  Remove the legacy
+// inline listener before accepting any connection; it remains below temporarily
+// only until the next rules-module extraction.
+io.removeAllListeners('connection');
+attachSocketGateway(io, world);
 let lastTick = now(); setInterval(() => { const stamp = now(), delta = Math.min(0.2, (stamp - lastTick) / 1000); lastTick = stamp; for (const room of rooms.values()) { tickRoom(room, delta); broadcastState(room); } }, 100);
 const lan = Object.values(networkInterfaces()).flat().find((item) => item?.family === 'IPv4' && !item.internal)?.address;
 server.listen(PORT, '0.0.0.0', () => { console.log(`Emergent server running at http://127.0.0.1:${PORT}`); if (lan) console.log(`LAN: http://${lan}:${PORT}`); });

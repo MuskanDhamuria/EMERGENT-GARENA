@@ -3,6 +3,7 @@
 // nor the server should define a second version of these rules.
 
 export const MAX_PLAYERS = 4;
+export const OBSERVATION_MS = 30_000;
 
 export const ARCHETYPES = Object.freeze(['Explorer', 'Collector', 'Guardian', 'Loner']);
 

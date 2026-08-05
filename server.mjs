@@ -206,8 +206,9 @@ function recordTelemetry(room, player, payload = {}, positionIsAuthoritative = f
   const z = positionIsAuthoritative ? clamp(payload.z ?? payload.position?.z, WORLD_MIN_Z, WORLD_MAX_Z) : player.z;
   const next = canEnterTile(player, x, z) ? { x, z } : { x: player.x, z: player.z };
   const travelled = Math.min(2, Math.hypot(next.x - player.x, next.z - player.z)); if (travelled) { player.movement += travelled; player.movementSamples += 1; }
+  // Discovery is derived exclusively from the server-accepted position.  Do not
+  // accept client-reported visited locations: they feed role assignment scores.
   player.x = next.x; player.z = next.z; player.locationId = locationFor(next.x, next.z); player.visited.add(player.locationId); player.lastTelemetryAt = now();
-  for (const location of Array.isArray(payload.visitedLocations) ? payload.visitedLocations : []) if (typeof location === 'string' && location.length <= 48) player.visited.add(cleanText(location));
 }
 function tickRoom(room, delta) {
   if (['observing', 'evolving', 'finale'].includes(room.phase)) for (const player of activePlayers(room)) { const magnitude = Math.hypot(player.inputX, player.inputZ); if (magnitude) recordTelemetry(room, player, { x: player.x + player.inputX / magnitude * 8 * delta, z: player.z + player.inputZ / magnitude * 8 * delta }, true); const closest = closestDistance(room, player); if (closest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta; }
@@ -233,27 +234,6 @@ const server = createServer(async (request, response) => {
   try { response.writeHead(200, { 'Content-Type': contentTypes[extname(filePath)] || 'application/octet-stream' }); response.end(await readFile(filePath)); } catch { response.writeHead(500); response.end('Unable to read application file.'); }
 });
 const io = new Server(server, { cors: { origin: true } });
-io.on('connection', (socket) => {
-  socket.on('join-room', ({ roomCode, name } = {}, callback = () => {}) => {
-    const code = String(roomCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6), cleanName = cleanText(name, '', 16);
-    if (code.length < 4 || !cleanName) { callback({ ok: false, error: 'Enter a 4–6 character room code and a name.' }); return; }
-    const room = rooms.get(code) || createRoom(code); if (!rooms.has(code)) rooms.set(code, room);
-    if (room.players.size >= MAX_PLAYERS) { callback({ ok: false, error: 'This adventure already has four players.' }); return; }
-    if (room.phase !== 'waiting-for-four' && room.players.size) { callback({ ok: false, error: 'This adventure is already in progress.' }); return; }
-    socket.join(code); socket.data.roomCode = code; const player = createPlayer(socket.id, cleanName, room.players.size); room.players.set(socket.id, player);
-    event(room, 'player-joined', `${player.name} lit a lantern (${room.players.size}/4).`); if (room.players.size === MAX_PLAYERS) beginObservation(room);
-    callback({ ok: true, code, playerId: socket.id, requiredPlayers: MAX_PLAYERS, observationSeconds: room.observationEndsAt ? OBSERVATION_MS / 1000 : null }); broadcastState(room);
-  });
-  socket.on('move', ({ x, z } = {}) => { const room = rooms.get(socket.data.roomCode), player = room && getPlayer(room, socket.id); if (player && ['observing', 'evolving', 'finale'].includes(room.phase)) { player.inputX = clamp(x, -1, 1); player.inputZ = clamp(z, -1, 1); } });
-  socket.on('player-telemetry', (payload = {}) => { const room = rooms.get(socket.data.roomCode), player = room && getPlayer(room, socket.id); if (!player) return; recordTelemetry(room, player, payload); broadcastState(room); });
-  socket.on('interact', ({ type, targetId } = {}, callback = () => {}) => { const room = rooms.get(socket.data.roomCode), player = room && getPlayer(room, socket.id); const result = room && player ? interact(room, player, type, targetId) : { ok: false, error: 'Join a room first.' }; callback(result); if (room) broadcastState(room); });
-  socket.on('request-world-state', () => { const room = rooms.get(socket.data.roomCode); if (room) socket.emit('world-state', serializeRoom(room, socket.id)); });
-  socket.on('disconnect', () => { const room = rooms.get(socket.data.roomCode); if (!room) return; const player = room.players.get(socket.id); room.players.delete(socket.id); if (!room.players.size) { rooms.delete(room.code); return; } resetRoomForRoster(room, 'A lantern went out. Four players are needed to begin a new shared tale.'); event(room, 'player-left', `${player?.name || 'A wanderer'} left the world. The adventure is waiting for four lanterns again.`); broadcastState(room); });
-});
-// The gateway is registered from its own transport module.  Remove the legacy
-// inline listener before accepting any connection; it remains below temporarily
-// only until the next rules-module extraction.
-io.removeAllListeners('connection');
 attachSocketGateway(io, world);
 let lastTick = now(); setInterval(() => { const stamp = now(), delta = Math.min(0.2, (stamp - lastTick) / 1000); lastTick = stamp; for (const room of rooms.values()) { tickRoom(room, delta); broadcastState(room); } }, 100);
 const lan = Object.values(networkInterfaces()).flat().find((item) => item?.family === 'IPv4' && !item.internal)?.address;

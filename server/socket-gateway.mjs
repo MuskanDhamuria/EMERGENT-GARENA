@@ -1,3 +1,5 @@
+import { MAX_PLAYERS, OBSERVATION_MS } from '../shared/game-content.js';
+
 // Socket.IO adapter.  It owns connection lifecycle only; game decisions are
 // delegated to the supplied world API.
 export function attachSocketGateway(io, world) {
@@ -6,11 +8,11 @@ export function attachSocketGateway(io, world) {
       const code = String(roomCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6), cleanName = world.cleanText(name, '', 16);
       if (code.length < 4 || !cleanName) { callback({ ok: false, error: 'Enter a 4–6 character room code and a name.' }); return; }
       const room = world.rooms.get(code) || world.createRoom(code); if (!world.rooms.has(code)) world.rooms.set(code, room);
-      if (room.players.size >= 4) { callback({ ok: false, error: 'This adventure already has four players.' }); return; }
+      if (room.players.size >= MAX_PLAYERS) { callback({ ok: false, error: `This adventure already has ${MAX_PLAYERS} players.` }); return; }
       if (room.phase !== 'waiting-for-four' && room.players.size) { callback({ ok: false, error: 'This adventure is already in progress.' }); return; }
       socket.join(code); socket.data.roomCode = code; const player = world.createPlayer(socket.id, cleanName, room.players.size); room.players.set(socket.id, player);
-      world.event(room, 'player-joined', `${player.name} lit a lantern (${room.players.size}/4).`); if (room.players.size === 4) world.beginObservation(room);
-      callback({ ok: true, code, playerId: socket.id, requiredPlayers: 4, observationSeconds: room.observationEndsAt ? 30 : null }); world.broadcastState(room);
+      world.event(room, 'player-joined', `${player.name} lit a lantern (${room.players.size}/${MAX_PLAYERS}).`); if (room.players.size === MAX_PLAYERS) world.beginObservation(room);
+      callback({ ok: true, code, playerId: socket.id, requiredPlayers: MAX_PLAYERS, observationSeconds: room.observationEndsAt ? OBSERVATION_MS / 1000 : null }); world.broadcastState(room);
     });
     socket.on('move', ({ x, z } = {}) => { const room = world.rooms.get(socket.data.roomCode), player = room && world.getPlayer(room, socket.id); if (player && ['observing', 'evolving', 'finale'].includes(room.phase)) { player.inputX = world.clamp(x, -1, 1); player.inputZ = world.clamp(z, -1, 1); } });
     socket.on('player-telemetry', (payload = {}) => { const room = world.rooms.get(socket.data.roomCode), player = room && world.getPlayer(room, socket.id); if (!player) return; world.recordTelemetry(room, player, payload); world.broadcastState(room); });

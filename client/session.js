@@ -1,5 +1,5 @@
 import { io } from 'socket.io-client';
-import { ENTITY_ACTIONS, FEATURE_FALLBACK_ENTITIES } from '../shared/game-content.js';
+import { ENTITY_ACTIONS, FEATURE_FALLBACK_ENTITIES, MAX_PLAYERS } from '../shared/game-content.js';
 
 // Owns browser-side state and server communication.  This module never draws
 // pixels; it turns player input into server intent and exposes render-ready data.
@@ -30,7 +30,7 @@ export function createSession() {
   }
   function note(text, duration = 4) { state.notice = text; state.noticeTimer = duration; }
   function roomPlayerCount() { return state.world?.players?.length || 0; }
-  function gameReady() { return state.network.connected && roomPlayerCount() === 4; }
+  function gameReady() { return state.network.connected && roomPlayerCount() === MAX_PLAYERS; }
   function features() {
     return new Set([...(state.world?.world?.unlocked || state.world?.unlockedFeatures || []), ...(state.world?.world?.privateUnlocks || state.world?.yourPrivateUnlocks || []), ...(state.mine?.evolutions || [])]);
   }
@@ -71,7 +71,7 @@ export function createSession() {
     if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y });
     state.privateRule = (world.yourPrivateRules || []).at(-1) || null;
     if (world.director?.narration) state.publicEvent = world.director.narration;
-    if (!gameReady() && state.joined) state.notice = `Waiting for all four lanterns — ${roomPlayerCount()}/4 joined.`;
+    if (!gameReady() && state.joined) state.notice = `Waiting for all ${MAX_PLAYERS} lanterns — ${roomPlayerCount()}/${MAX_PLAYERS} joined.`;
   }
   function joinRoom(name, roomCode, onRejected) {
     state.network.error = ''; socket.connect();

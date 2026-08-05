@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 
 function loadDotEnv() {
   if (!existsSync('.env')) return;
@@ -64,13 +65,7 @@ const actions = {
   create_finale: { description: 'Only after every active player has at least one evolution and no finale exists.', args: {} },
 };
 
-const REQUIRED_PLAYERS = 4;
-const features = new Set([
-  'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
-  'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
-  'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
-  'hidden-portal', 'ancient-temple', 'final-gate',
-]);
+const REQUIRED_PLAYERS = MAX_PLAYERS;
 
 function validText(value, min = 1, max = 280) {
   return typeof value === 'string' && value.trim().length >= min && value.trim().length <= max;
@@ -95,7 +90,7 @@ function validateDecision(decision, state) {
     const ids = entries?.map((entry) => entry.playerId) || [];
     const roles = entries?.map((entry) => entry.archetype) || [];
     const ready = state.phase === 'observing' && Number(state.observationSecondsRemaining) <= 0;
-    const allFourRoles = ['Explorer', 'Collector', 'Guardian', 'Loner'].every((role) => roles.includes(role));
+    const allFourRoles = ARCHETYPES.every((role) => roles.includes(role));
     return ready && !players.some((player) => player.archetype) && entries?.length === REQUIRED_PLAYERS
       && new Set(ids).size === REQUIRED_PLAYERS && new Set(roles).size === REQUIRED_PLAYERS
       && ids.every((id) => players.some((player) => player.id === id)) && allFourRoles
@@ -107,7 +102,7 @@ function validateDecision(decision, state) {
   }
   if (decision.action === 'unlock_world_feature') {
     const publicDuplicate = !args.privateTo && (state.world?.unlocked || []).includes(args.feature);
-    return ['evolving', 'finale'].includes(state.phase) && features.has(args.feature) && validText(args.message, 3)
+    return ['evolving', 'finale'].includes(state.phase) && FEATURES.has(args.feature) && validText(args.message, 3)
       && validPrivateAudience(state, args.privateTo) && !publicDuplicate ? null : 'That world unlock is not currently valid.';
   }
   if (decision.action === 'create_finale') {

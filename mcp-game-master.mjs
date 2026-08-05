@@ -15,19 +15,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
-const REQUIRED_PLAYERS = 4;
+const REQUIRED_PLAYERS = MAX_PLAYERS;
 const roomCodeSchema = z.string().trim().regex(/^[A-Za-z0-9]{4,6}$/, 'Use a 4–6 character room code.').transform((value) => value.toUpperCase());
 const playerIdSchema = z.string().trim().min(1).max(128);
-const archetypeSchema = z.enum(['Explorer', 'Collector', 'Guardian', 'Loner']);
-const archetypes = ['Explorer', 'Collector', 'Guardian', 'Loner'];
-const featureSchema = z.enum([
-  'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
-  'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
-  'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
-  'hidden-portal', 'ancient-temple', 'final-gate',
-]);
+const archetypeSchema = z.enum(ARCHETYPES);
+const archetypes = ARCHETYPES;
+const featureSchema = z.enum([...FEATURES]);
 
 function toolResult(payload) {
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], structuredContent: payload };

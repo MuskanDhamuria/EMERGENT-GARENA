@@ -10,7 +10,7 @@ npm.cmd run build
 npm.cmd run api
 ```
 
-Open [http://127.0.0.1:8787](http://127.0.0.1:8787) in up to four browser windows, enter the same room code, and choose different names. The server observes the room for 30 seconds before assigning the unique Explorer, Collector, Guardian, and Loner identities.
+Open [http://127.0.0.1:8787](http://127.0.0.1:8787) in exactly four browser windows, enter the same room code, and choose different names. There is no solo mode: a room remains in its lobby until all four players are connected. The 30-second observation period then begins, before the Game Master assigns the unique Explorer, Collector, Guardian, and Loner identities.
 
 For visual iteration only, use `npm.cmd run dev` and open the Vite address it prints. Use the API server for shared rooms and agent behaviour.
 
@@ -30,22 +30,22 @@ npm.cmd run api
 npm.cmd run agent:gemini
 ```
 
-The bridge starts its own MCP stdio child process, lists active rooms through MCP, reads authoritative state and telemetry through MCP, asks Gemini for one safe decision, then executes that decision through an MCP tool. Do not run `npm.cmd run mcp` separately when using `agent:gemini`.
+The bridge starts its own MCP stdio child process, lists only rooms with exactly four connected players, reads authoritative state and telemetry through MCP, asks Gemini for one safe decision, validates its preconditions, then executes that decision through an MCP tool. Do not run `npm.cmd run mcp` separately when using `agent:gemini`.
 
 The MCP server exposes validated tools for an AI Game Master to:
 
 - read room telemetry and world state;
-- assign one unique archetype to every current player;
+- assign all four unique archetypes to the four current players after observation;
 - narrate publicly or privately;
 - reveal safe, whitelisted world features, including private paths;
 - evolve an archetype; and
 - create the session-specific finale.
 
-The MCP process cannot alter the game client or execute arbitrary code. The game server validates every tool result, remains authoritative for player state, and broadcasts the resulting world changes to the room.
+The MCP process cannot alter the game client or execute arbitrary code. The game server validates every tool result, remains authoritative for player state, and broadcasts the resulting world changes to the room. It is a local-development control plane, not authentication: keep the game server and MCP process on a trusted network.
 
 ## Demo flow
 
-1. Four players join the same lantern room with no assigned role.
+1. Exactly four players join the same lantern room with no assigned role; the session does not begin with fewer players.
 2. They choose naturally: explore apart, gather relics, shadow another player, or take risks.
 3. The server scores those behaviours and awakens four unique identities after 30 seconds.
 4. Continued play evolves identities and reveals caves, bridges, vaults, shrines, private spirit paths, and portals.

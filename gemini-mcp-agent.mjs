@@ -64,12 +64,65 @@ const actions = {
   create_finale: { description: 'Only after every active player has at least one evolution and no finale exists.', args: {} },
 };
 
+const REQUIRED_PLAYERS = 4;
+const features = new Set([
+  'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
+  'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
+  'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
+  'hidden-portal', 'ancient-temple', 'final-gate',
+]);
+
+function validText(value, min = 1, max = 280) {
+  return typeof value === 'string' && value.trim().length >= min && value.trim().length <= max;
+}
+
+function validPrivateAudience(state, playerId) {
+  return playerId === undefined || state.players.some((player) => player.id === playerId);
+}
+
+// Keep model output from becoming a request merely because it is valid JSON.
+// The MCP server repeats these checks immediately before its own request, so a
+// room changing between this read and the call remains safe.
+function validateDecision(decision, state) {
+  if (!decision || typeof decision !== 'object' || !Object.hasOwn(actions, decision.action)) return 'The model selected an unavailable action.';
+  if (!Array.isArray(state.players) || state.players.length !== REQUIRED_PLAYERS) return 'This room no longer has exactly four connected players.';
+  const args = decision.args && typeof decision.args === 'object' && !Array.isArray(decision.args) ? decision.args : {};
+  const players = state.players;
+  if (decision.action === 'wait') return null;
+  if (decision.action === 'narrate_event') return validText(args.text, 3) && validPrivateAudience(state, args.privateTo) ? null : 'Narration needs valid text and an optional current-player audience.';
+  if (decision.action === 'assign_archetypes') {
+    const entries = args.assignments;
+    const ids = entries?.map((entry) => entry.playerId) || [];
+    const roles = entries?.map((entry) => entry.archetype) || [];
+    const ready = state.phase === 'observing' && Number(state.observationSecondsRemaining) <= 0;
+    const allFourRoles = ['Explorer', 'Collector', 'Guardian', 'Loner'].every((role) => roles.includes(role));
+    return ready && !players.some((player) => player.archetype) && entries?.length === REQUIRED_PLAYERS
+      && new Set(ids).size === REQUIRED_PLAYERS && new Set(roles).size === REQUIRED_PLAYERS
+      && ids.every((id) => players.some((player) => player.id === id)) && allFourRoles
+      && entries.every((entry) => validText(entry.evidence, 8, 180)) ? null : 'Archetype assignment is not currently valid for this room.';
+  }
+  if (decision.action === 'issue_asymmetric_rule') {
+    const player = players.find((item) => item.id === args.playerId);
+    return ['evolving', 'finale'].includes(state.phase) && player?.archetype && (player.evolutions || []).length < 1 ? null : 'That evolution is not currently valid.';
+  }
+  if (decision.action === 'unlock_world_feature') {
+    const publicDuplicate = !args.privateTo && (state.world?.unlocked || []).includes(args.feature);
+    return ['evolving', 'finale'].includes(state.phase) && features.has(args.feature) && validText(args.message, 3)
+      && validPrivateAudience(state, args.privateTo) && !publicDuplicate ? null : 'That world unlock is not currently valid.';
+  }
+  if (decision.action === 'create_finale') {
+    return state.phase === 'evolving' && !state.finalObjective
+      && players.every((player) => player.archetype && (player.evolutions || []).length > 0) ? null : 'The four-player finale is not ready.';
+  }
+  return 'The model decision could not be validated.';
+}
+
 function prompt(roomCode, telemetry, world) {
   return [
-    'You are the living Game Master of Emergent, a cooperative adventure that discovers rules from behaviour.',
+    'You are the living Game Master of Emergent, a four-player-only cooperative adventure that discovers rules from behaviour.',
     'Never invent game mechanics. You can only choose one action from the provided action list. The MCP server validates every action again.',
     'The central ethic: observe first; make a small, legible change; narrate why; let players react; observe again. Preserve asymmetric information when it is meaningful.',
-    'Do not assign roles before observation ends. Do not evolve a player twice if the state says their evolution already exists. Prefer wait if no change is warranted.',
+    'Act only while exactly four connected players are shown. Do not assign roles before observation ends. Do not evolve a player beyond its available evolution steps. Prefer wait if no change is warranted.',
     `Room: ${roomCode}`,
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,
     `Authoritative world state: ${JSON.stringify(world)}`,
@@ -108,17 +161,21 @@ async function askGemini(instruction) {
 async function decideRoom(client, roomCode) {
   const telemetry = await call(client, 'get_player_telemetry', { roomCode });
   const world = await call(client, 'get_world_state', { roomCode });
+  const state = world.state || world;
+  if (!Array.isArray(state.players) || state.players.length !== REQUIRED_PLAYERS) return 'waiting - room is not ready with four connected players';
   const decision = await askGemini(prompt(roomCode, telemetry, world));
-  if (!Object.hasOwn(actions, decision.action)) throw new Error(`Gemini selected an unavailable action: ${decision.action}`);
+  const rejection = validateDecision(decision, state);
+  if (rejection) return `waiting - ${rejection}`;
   if (decision.action === 'wait') return `waiting — ${String(decision.reason || 'the room is still revealing itself').slice(0, 140)}`;
   const result = await call(client, decision.action, { roomCode, ...(decision.args || {}) });
   return `${decision.action} — ${String(decision.reason || 'a new pattern was recognised').slice(0, 140)} (${result.ok === false ? result.error : 'applied'})`;
 }
 
 async function activeRooms(client) {
-  if (requestedRoom) return [requestedRoom];
   const result = await call(client, 'list_active_rooms');
-  return (result.rooms || []).map((room) => room.roomCode).filter(Boolean);
+  return (result.rooms || [])
+    .filter((room) => room.roomCode && room.playerCount === REQUIRED_PLAYERS && (!requestedRoom || room.roomCode === requestedRoom))
+    .map((room) => room.roomCode);
 }
 
 async function main() {

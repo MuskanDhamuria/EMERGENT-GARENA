@@ -2,10 +2,12 @@
 /**
  * Emergent Game Master MCP server.
  *
- * This process is deliberately a thin, capability-safe bridge. An AI can read
- * room context and ask for a small set of pre-built changes, but it cannot run
- * code, write game files, choose arbitrary socket events, or talk to clients
- * directly. The authoritative game server validates every request again.
+ * This process is deliberately a narrow local control-plane bridge. An AI can
+ * read room context and ask for a small set of pre-built changes, but it cannot
+ * run code, write game files, choose arbitrary socket events, or talk to
+ * clients directly. The authoritative game server validates every request
+ * again. This is not an authentication boundary: do not expose its HTTP API
+ * or this MCP process to an untrusted network.
  *
  * Start the game server first, then run: npm run mcp
  * Configure an MCP client with: node /absolute/path/to/mcp-game-master.mjs
@@ -15,9 +17,11 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
+const REQUIRED_PLAYERS = 4;
 const roomCodeSchema = z.string().trim().regex(/^[A-Za-z0-9]{4,6}$/, 'Use a 4–6 character room code.').transform((value) => value.toUpperCase());
 const playerIdSchema = z.string().trim().min(1).max(128);
 const archetypeSchema = z.enum(['Explorer', 'Collector', 'Guardian', 'Loner']);
+const archetypes = ['Explorer', 'Collector', 'Guardian', 'Loner'];
 const featureSchema = z.enum([
   'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
   'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
@@ -54,6 +58,23 @@ async function gameRequest(path, { method = 'GET', body } = {}) {
 
 function unique(values) { return new Set(values).size === values.length; }
 
+async function roomState(roomCode) {
+  const result = await gameRequest(`/api/mcp/world-state?roomCode=${encodeURIComponent(roomCode)}`);
+  return result.state || result;
+}
+
+async function requireReadyRoom(roomCode) {
+  const state = await roomState(roomCode);
+  if (!Array.isArray(state.players) || state.players.length !== REQUIRED_PLAYERS) {
+    throw new Error(`Game Master actions require exactly ${REQUIRED_PLAYERS} connected players; this room has ${state.players?.length || 0}.`);
+  }
+  return state;
+}
+
+function playerIn(state, playerId) {
+  return state.players.find((player) => player.id === playerId);
+}
+
 const server = new McpServer({
   name: 'emergent-game-master',
   version: '1.0.0',
@@ -61,7 +82,7 @@ const server = new McpServer({
 
 server.registerTool('list_active_rooms', {
   title: 'List active Emergent rooms',
-  description: 'List live room codes and their current phase. Use this only to choose a room to observe; read telemetry before making a decision.',
+  description: 'List live room codes, phases, and player counts. Only rooms with exactly four connected players are eligible for Game Master actions.',
   inputSchema: {},
 }, async () => {
   try { return toolResult(await gameRequest('/api/mcp/rooms')); }
@@ -88,19 +109,28 @@ server.registerTool('get_player_telemetry', {
 
 server.registerTool('assign_archetypes', {
   title: 'Assign permanent archetypes',
-  description: 'Make the first identity decision after the observation period. Each archetype is unique and permanent. Assign only players currently in this room, include evidence grounded in telemetry, and do not use this tool again once assignments exist.',
+  description: 'Make the first identity decision only after the four-player observation period. Every connected player must receive exactly one of the four permanent archetypes. Include telemetry-grounded evidence and never reassign roles.',
   inputSchema: {
     roomCode: roomCodeSchema,
     assignments: z.array(z.object({
       playerId: playerIdSchema,
       archetype: archetypeSchema,
       evidence: z.string().trim().min(8).max(180),
-    })).min(1).max(4),
+    })).length(REQUIRED_PLAYERS),
   },
 }, async ({ roomCode, assignments }) => {
-  if (!unique(assignments.map((item) => item.playerId))) return toolError('Each player can receive only one archetype.');
-  if (!unique(assignments.map((item) => item.archetype))) return toolError('Archetypes are unique: assign each at most once.');
   try {
+    const state = await requireReadyRoom(roomCode);
+    if (state.phase !== 'observing' || Number(state.observationSecondsRemaining) > 0) {
+      return toolError('Archetypes may only be assigned after the four-player observation period ends.');
+    }
+    if (state.players.some((player) => player.archetype)) return toolError('Archetypes have already been assigned.');
+    if (!unique(assignments.map((item) => item.playerId)) || !unique(assignments.map((item) => item.archetype))) {
+      return toolError('Each of the four players and each archetype must appear exactly once.');
+    }
+    if (!assignments.every((item) => playerIn(state, item.playerId)) || !archetypes.every((archetype) => assignments.some((item) => item.archetype === archetype))) {
+      return toolError('Assignments must cover the four currently connected players and all four archetypes.');
+    }
     // Evidence stays in the model's audit trail; only the authoritative identity
     // pair reaches the game server.
     const requestAssignments = assignments.map(({ playerId, archetype }) => ({ playerId, archetype }));
@@ -111,7 +141,7 @@ server.registerTool('assign_archetypes', {
 
 server.registerTool('unlock_world_feature', {
   title: 'Reveal a physical world evolution',
-  description: 'Reveal one validated, visible map change. The game server chooses its safe placement and refuses duplicate or unavailable features. A private unlock is visible only to one player, enabling asymmetric information.',
+  description: 'Reveal one validated map change after all four roles exist. The game server chooses placement. A private unlock must target one current player and is visible only to that player.',
   inputSchema: {
     roomCode: roomCodeSchema,
     feature: featureSchema,
@@ -119,7 +149,16 @@ server.registerTool('unlock_world_feature', {
     privateTo: playerIdSchema.optional(),
   },
 }, async ({ roomCode, feature, message, privateTo }) => {
-  try { return toolResult(await gameRequest('/api/mcp/unlock', { method: 'POST', body: { roomCode, feature, message, privateTo } })); }
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (!['evolving', 'finale'].includes(state.phase)) return toolError('World features unlock only after all four archetypes are assigned.');
+    if (privateTo && !playerIn(state, privateTo)) return toolError('Private world changes must target a current player.');
+    // The telemetry endpoint intentionally does not disclose another player's
+    // private unlocks. Public duplicates can be rejected here; private ones are
+    // left to the authoritative server for the intended recipient.
+    if (!privateTo && (state.world?.unlocked || []).includes(feature)) return toolError('That public feature is already unlocked.');
+    return toolResult(await gameRequest('/api/mcp/unlock', { method: 'POST', body: { roomCode, feature, message, privateTo } }));
+  }
   catch (error) { return toolError(error.message); }
 });
 
@@ -131,31 +170,48 @@ server.registerTool('issue_asymmetric_rule', {
     playerId: playerIdSchema,
   },
 }, async ({ roomCode, playerId }) => {
-  try { return toolResult(await gameRequest('/api/mcp/evolve', { method: 'POST', body: { roomCode, playerId } })); }
+  try {
+    const state = await requireReadyRoom(roomCode);
+    const player = playerIn(state, playerId);
+    if (!['evolving', 'finale'].includes(state.phase) || !player?.archetype) return toolError('Only a currently assigned player in an evolving four-player room can evolve.');
+    if ((player.evolutions || []).length >= 1) return toolError('This player has reached the current evolution limit.');
+    return toolResult(await gameRequest('/api/mcp/evolve', { method: 'POST', body: { roomCode, playerId } }));
+  }
   catch (error) { return toolError(error.message); }
 });
 
 server.registerTool('narrate_event', {
   title: 'Narrate a Game Master event',
-  description: 'Send concise, atmospheric narration that explains a visible change or gives a clue. This cannot impersonate a player or contain HTML/script content.',
+  description: 'Send concise, atmospheric narration to a ready four-player room. This cannot impersonate a player or contain HTML/script content; private narration must target a current player.',
   inputSchema: {
     roomCode: roomCodeSchema,
     text: z.string().trim().min(3).max(280),
     privateTo: playerIdSchema.optional(),
   },
 }, async ({ roomCode, text, privateTo }) => {
-  try { return toolResult(await gameRequest('/api/mcp/narrate', { method: 'POST', body: { roomCode, message: text, privateTo } })); }
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (privateTo && !playerIn(state, privateTo)) return toolError('Private narration must target a current player.');
+    return toolResult(await gameRequest('/api/mcp/narrate', { method: 'POST', body: { roomCode, message: text, privateTo } }));
+  }
   catch (error) { return toolError(error.message); }
 });
 
 server.registerTool('create_finale', {
   title: 'Create the cooperative finale',
-  description: 'After every active archetype has evolved, ask the authoritative server to create the feasible, session-specific cooperative finale from the real archetypes and abilities developed this match. The model cannot invent objectives the game does not support.',
+  description: 'Only after all four assigned players have evolved, create the feasible cooperative finale from the real roles and abilities developed in this match. The model cannot invent unsupported objectives.',
   inputSchema: {
     roomCode: roomCodeSchema,
   },
 }, async ({ roomCode }) => {
-  try { return toolResult(await gameRequest('/api/mcp/finale', { method: 'POST', body: { roomCode } })); }
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (state.finalObjective) return toolError('This room already has a finale.');
+    if (state.phase !== 'evolving' || !state.players.every((player) => player.archetype && (player.evolutions || []).length > 0)) {
+      return toolError('Create the finale only after every assigned player has at least one evolution.');
+    }
+    return toolResult(await gameRequest('/api/mcp/finale', { method: 'POST', body: { roomCode } }));
+  }
   catch (error) { return toolError(error.message); }
 });
 

@@ -1,8 +1,7 @@
 import { io } from 'socket.io-client';
 
-// Everdawn uses the 32px world art from the original CSD prototype.  We render it
-// at 16px logical tiles with smoothing disabled, so the shared game stays crisp
-// while using proper authored terrain, water, trees and village art.
+// The browser is deliberately a view/controller only.  The room server owns
+// positions, collisions, roles, relic ownership, abilities and finale state.
 const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 640;
@@ -11,260 +10,346 @@ document.body.appendChild(canvas);
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
+const T = 20, W = 60, H = 34;
+const C = { grass: '#72bd58', path: '#d8be80', water: '#49afd0', ink: '#27324a', gold: '#f7d25c', purple: '#9b75c9' };
 const art = {};
+let authoredForest = null;
+
 function loadArt(name, source) {
   const image = new Image();
   image.src = source;
   image.addEventListener('load', () => { art[name] = image; render(); });
-  return image;
 }
 loadArt('camping', '/game-art/camping-32.png');
-let authoredForest=null;
-fetch('/game-art/forest.json').then(response=>response.ok?response.json():null).then(layout=>{authoredForest=layout;render();}).catch(()=>{});
+fetch('/game-art/forest.json').then((response) => response.ok ? response.json() : null).then((layout) => {
+  authoredForest = layout;
+  render();
+}).catch(() => {});
 
-// The CSD forest is an authored 60 x 34 tile world.  It is rendered whole,
-// not stamped into a different map, so its routes and edge treatment remain
-// visually coherent.
-const T = 20, W = 60, H = 34;
-const C = { grass:'#72bd58', grass2:'#62ae50', path:'#d8be80', water:'#49afd0', water2:'#68c8dd', deep:'#2780b8', tree:'#2f7a42', tree2:'#57a94f', trunk:'#92592e', cliff:'#746c78', cliff2:'#a4948b', stone:'#c1aa82', roof:'#c9554d', wall:'#f5d99c', ink:'#27324a', pink:'#fa8c9b', gold:'#f7d25c', purple:'#9b75c9' };
-const OBSERVATION_SECONDS = 30;
-
-const map = Array.from({length:H}, (_,y) => Array.from({length:W}, (_,x) => ({kind:'grass', zone:''})));
 const state = {
-  started:false, time:0, paused:false, phase:'observing', notice:'The Game Master is quietly watching...',
-  noticeTimer:0, camera:{x:30,y:17}, relics:0, discoveries:new Set(['Starting Village']), evolved:new Set(),
-  finalOpen:false, complete:false, demo:false, frame:0, nextEvolutionAt:48, lastWhisper:0,
-  network:{connected:false, attempted:false, playerId:null, roomCode:null, lastState:0, lastTelemetry:0},
-  privateRule:null, publicEvent:null, finalObjective:null, serverRelics:[], unlockedFeatures:new Set(),
-  players:[
-    {name:'Mus', x:24, y:17, color:'#ef5b64', dir:2, score:{explore:0,collect:0,guard:0,lone:0}, archetype:null, lead:true},
-    {name:'Lio', x:26, y:17, color:'#4b86db', dir:0, score:{explore:5,collect:1,guard:1,lone:0}, archetype:null, bot:'explore'},
-    {name:'Nia', x:25, y:19, color:'#f3c650', dir:3, score:{explore:1,collect:5,guard:2,lone:0}, archetype:null, bot:'collect'},
-    {name:'Orr', x:27, y:19, color:'#8a6cc8', dir:1, score:{explore:1,collect:0,guard:4,lone:4}, archetype:null, bot:'guard'}
-  ]
+  joined: false,
+  notice: 'Light a lantern to join a four-player expedition.',
+  noticeTimer: 0,
+  camera: { x: 25, y: 17 },
+  frame: 0,
+  network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '' },
+  world: null,
+  players: [],
+  mine: null,
+  privateRule: null,
+  publicEvent: null,
 };
-const p = state.players[0];
 
-// Multiplayer is optional: a solo browser tab remains a complete local demo, while
-// a room served by server.mjs supplies the shared truth and Game Master decisions.
-const socket = io({ autoConnect:false, timeout:2500, reconnectionAttempts:1 });
-function cssColor(color, fallback) { return typeof color==='string' ? color : Number.isFinite(color) ? `#${Math.max(0, color).toString(16).padStart(6,'0').slice(-6)}` : fallback; }
-function playerWorldPosition(player) {
-  // Server space is centred on the 60 x 34 authored CSD map.
-  return Math.abs(Number(player.x)) <= 40 && Math.abs(Number(player.z ?? player.y)) <= 40
-    ? { x:30 + Number(player.x), y:17 + Number(player.z ?? player.y) }
-    : { x:Number(player.x), y:Number(player.y ?? player.z) };
-}
-function applyWorldState(world) {
-  if (!world || !Array.isArray(world.players)) return;
-  state.network.lastState=performance.now(); state.network.roomCode=world.code || state.network.roomCode;
-  const mine=world.players.find(pl=>pl.id===state.network.playerId);
-  if (mine) {
-    const q=playerWorldPosition(mine); Object.assign(p,{name:mine.name||p.name,color:cssColor(mine.color,p.color),health:mine.health,dead:mine.dead,artifactCount:mine.relicCount ?? mine.artifactCount});
-    if(!Number.isFinite(p.targetX)){p.x=q.x;p.y=q.y;} p.targetX=q.x;p.targetY=q.y;
-    if (mine.archetype) p.archetype=mine.archetype;
-    for(const feature of mine.evolutions||[]) state.unlockedFeatures.add(feature);
-  }
-  const strangers=world.players.filter(pl=>pl.id!==state.network.playerId).map((pl,index)=>{
-    const q=playerWorldPosition(pl); return {id:pl.id,name:pl.name||`Wanderer ${index+1}`,x:q.x,y:q.y,color:cssColor(pl.color,['#4b86db','#f3c650','#8a6cc8'][index%3]),dir:2,archetype:null,remote:true,health:pl.health,dead:pl.dead};
-  });
-  state.players=[p,...strangers];
-  state.phase=world.phase||state.phase; state.serverRelics=world.relics||state.serverRelics;
-  for(const feature of world.world?.unlocked||[]) state.unlockedFeatures.add(feature);
-  if (world.director?.reason) state.publicEvent=world.director.reason;
-  if (world.finalObjective) { state.finalObjective=world.finalObjective; state.finalOpen=true; state.phase='finale'; }
-  const privateRules=world.yourPrivateRules||[];
-  state.privateRule=privateRules.length ? {...privateRules[privateRules.length-1],body:privateRules[privateRules.length-1].message} : null;
-}
-function connectToRoom(name, roomCode) {
-  state.network.attempted=true;
-  socket.connect();
-  const soloFallback=setTimeout(()=>{ if(!state.network.connected && !state.started){ state.demo=true; state.started=true; note('No lanterns answered. The Game Master will watch this solitary tale.',6); } },3200);
-  socket.once('connect',()=>socket.emit('join-room',{name,roomCode},reply=>{
-    clearTimeout(soloFallback);
-    if(!reply?.ok) { state.network.attempted=false; showLanternGate(); return; }
-    state.network.connected=true; state.network.playerId=reply.playerId; state.network.roomCode=reply.code; state.started=true;
-    note(`Lanterns gather in ${reply.code}. The Game Master is listening.`,5);
-  }));
-}
-socket.on('world-state',applyWorldState);
-socket.on('gm-event',event=>{ if(event?.message){state.publicEvent=event.message;note(event.message,6);} if(event?.type==='finale-created'&&event.objective){state.finalObjective=event.objective;state.finalOpen=true;state.phase='finale';} });
-socket.on('gm-private',event=>{ if(event?.message){state.privateRule={title:event.type==='private-unlock'?'A PATH ONLY YOU CAN SEE':'A LAW ONLY YOU CAN HEAR',body:event.message};note(event.message,8);} if(event?.feature)state.unlockedFeatures.add(event.feature); });
-socket.on('gm-rule',rule=>{
-  if(rule?.participants?.includes(state.network.playerId)) { state.privateRule=rule; note(`A private law finds you: ${rule.title}. ${rule.body}`,9); }
-  else { state.publicEvent='The Game Master changed the world for someone else.'; note('The air shifts. Someone has received a private law.',5); }
-});
-socket.on('archetype-assigned',event=>{
-  if(event?.playerId===state.network.playerId) { p.archetype=event.archetype; note(`“I have seen your nature.” You awaken as the ${event.archetype}.`,7); }
-  else note('A distant lantern changes colour. Another story has awakened.',4);
-});
-socket.on('world-evolved',event=>{ if(event?.message) { state.publicEvent=event.message; note(event.message,7); } });
-socket.on('feed',message=>{ if(message) state.publicEvent=message; });
-socket.on('disconnect',()=>{ if(state.network.connected){state.network.connected=false;note('The shared tale went quiet. Your local world remains.',5);} });
-
-function rect(x,y,w,h,kind) { for(let j=y;j<y+h;j++) for(let i=x;i<x+w;i++) if(i>=0&&j>=0&&i<W&&j<H) map[j][i] = {kind, zone:map[j][i].zone}; }
-function zone(x,y,w,h,name) { for(let j=y;j<y+h;j++) for(let i=x;i<x+w;i++) if(map[j]?.[i]) map[j][i].zone=name; }
-function path(x,y,w,h) { rect(x,y,w,h,'path'); }
-function water(x,y,w,h) { rect(x,y,w,h,'water'); }
-function trees(x,y,w,h) { for(let j=y;j<y+h;j++) for(let i=x;i<x+w;i++) if((i*13+j*7)%3!==0) map[j][i]={kind:'tree',zone:map[j][i].zone}; }
-function cliffs(x,y,w,h) { rect(x,y,w,h,'cliff'); }
-
-// The playable world is the CSD map itself.  Discovery names are logical
-// regions for the Game Master; no procedural terrain is painted over it.
-zone(0,0,W,H,'Everdawn');
-zone(13,11,13,12,'Starting Village'); zone(1,1,18,13,'Whispering Forest');
-zone(3,3,8,7,'Secret Grove'); zone(34,20,25,13,'Lake of Glass');
-zone(43,1,15,11,'Crystal Cave'); zone(48,4,7,6,'Hidden Cave');
-zone(24,2,12,8,'Forgotten Ruins'); zone(42,13,14,8,'Sacred Shrine');
-zone(20,24,13,8,'Small Graveyard'); zone(4,23,14,9,'Mountain Pass');
-zone(7,13,9,9,'Abandoned Camp'); zone(48,24,10,8,'Ancient Temple');
-
-const relicNodes=[{x:7,y:7,name:'Grove Dewdrop',type:'explorer',taken:false},{x:43,y:25,name:'Crystal Shard',type:'collector',taken:false},{x:48,y:17,name:'Sanctuary Bell',type:'guardian',taken:false},{x:26,y:28,name:'Moonstone',type:'loner',taken:false},{x:30,y:6,name:'Sun Tablet',type:'collector',taken:false}];
-const landmarks=[
- {x:20,y:17,name:'Starting Village',kind:'village'}, {x:7,y:7,name:'Whispering Forest',kind:'forest'}, {x:5,y:5,name:'Secret Grove',kind:'grove'}, {x:43,y:25,name:'Lake of Glass',kind:'lake'}, {x:8,y:27,name:'Mountain Pass',kind:'mountain'}, {x:12,y:17,name:'Abandoned Camp',kind:'camp'}, {x:50,y:6,name:'Crystal Cave',kind:'cave'}, {x:30,y:6,name:'Forgotten Ruins',kind:'ruin'}, {x:48,y:17,name:'Sacred Shrine',kind:'shrine'}, {x:26,y:28,name:'Small Graveyard',kind:'grave'}, {x:53,y:28,name:'Ancient Temple',kind:'temple'}
+const FEATURE_ENTITIES = {
+  'hidden-cave': { id: 'hidden-cave', x: 50, y: 6, kind: 'cave', label: 'Hidden Cave' },
+  'invisible-bridge': { id: 'invisible-bridge', x: 43, y: 24, kind: 'bridge', label: 'Glasswater Bridge' },
+  'forgotten-ruins': { id: 'forgotten-ruins', x: 30, y: 6, kind: 'ruins', label: 'Forgotten Ruins' },
+  'relic-vault': { id: 'relic-vault', x: 30, y: 7, kind: 'vault', label: 'Relic Vault' },
+  'evolving-artifacts': { id: 'evolving-artifacts', x: 32, y: 7, kind: 'relic', label: 'Evolving Artifacts' },
+  'treasure-cache': { id: 'treasure-cache', x: 29, y: 8, kind: 'vault', label: 'Treasure Cache' },
+  'healing-shrine': { id: 'healing-shrine', x: 48, y: 17, kind: 'shrine', label: 'Healing Shrine', action: 'shrine' },
+  'protective-barrier': { id: 'protective-barrier', x: 46, y: 17, kind: 'barrier', label: 'Protective Barrier' },
+  'revival-monument': { id: 'revival-monument', x: 47, y: 19, kind: 'shrine', label: 'Revival Monument', action: 'shrine' },
+  'spirit-realm': { id: 'spirit-realm', x: 26, y: 28, kind: 'gate', label: 'Spirit Realm', action: 'spirit-gate' },
+  'illusion-passage': { id: 'illusion-passage', x: 25, y: 27, kind: 'gate', label: 'Illusion Passage', action: 'spirit-gate' },
+  'hidden-portal': { id: 'hidden-portal', x: 27, y: 28, kind: 'gate', label: 'Hidden Portal', action: 'spirit-gate' },
+  'ancient-temple': { id: 'temple-entrance', x: 53, y: 28, kind: 'temple', label: 'Ancient Temple Entrance', action: 'temple-entrance' },
+  'final-gate': { id: 'altar', x: 51, y: 28, kind: 'altar', label: 'Temple Altar', action: 'altar' },
+};
+const LANDMARKS = [
+  { x: 20, y: 17, label: 'Starting Village' }, { x: 7, y: 7, label: 'Whispering Forest' },
+  { x: 43, y: 25, label: 'Lake of Glass' }, { x: 50, y: 6, label: 'Crystal Cave' },
+  { x: 48, y: 17, label: 'Sacred Shrine' }, { x: 26, y: 28, label: 'Small Graveyard' },
+  { x: 53, y: 28, label: 'Ancient Temple' },
 ];
 
-function nearest(a, list, radius=2) { return list.find(o => Math.hypot(a.x-o.x,a.y-o.y)<radius); }
-function tileAt(x,y) { return map[Math.max(0,Math.min(H-1,Math.round(y)))][Math.max(0,Math.min(W-1,Math.round(x)))]; }
-// Inside edge of the visible CSD forest belt. These coordinates map directly
-// to the server's compact min/max bounds, so touching an edge only blocks
-// motion â€” it cannot snap a player elsewhere.
-const BOUNDS={minX:1,maxX:58,minY:1,maxY:32};
-function passable(x,y) {
- const tx=Math.round(x),ty=Math.round(y);
- if(tx<BOUNDS.minX||tx>BOUNDS.maxX||ty<BOUNDS.minY||ty>BOUNDS.maxY) return false;
- const collision=authoredForest?.layers?.find(layer=>layer.name==='LAYER WITH COLLISION');
- return !collision || collision.data?.[ty*W+tx]===0;
+const socket = io({ autoConnect: false, timeout: 5_000, reconnectionAttempts: 3 });
+const keys = {};
+
+function cssColor(color, fallback = '#fff') {
+  return typeof color === 'string' ? color : Number.isFinite(color)
+    ? `#${Math.max(0, color).toString(16).padStart(6, '0').slice(-6)}` : fallback;
 }
-function note(text, duration=4) { state.notice=text; state.noticeTimer=duration; }
-function discover(land) { if (!state.discoveries.has(land.name)) { state.discoveries.add(land.name); p.score.explore += 3; note(`✦ ${land.name} discovered — curiosity is noted.`); } }
-function collect(r) { r.taken=true; state.relics++; p.score.collect += 4; note(`✦ You found ${r.name}. The world remembers what you treasure.`); evolveCheck(); }
-function unlockWorld(archetype) {
- const changes={
-  Explorer:()=>rect(60,12,6,2,'path'),
-  Collector:()=>rect(86,39,4,3,'path'),
-  Guardian:()=>{ rect(15,53,10,2,'path'); },
-  Loner:()=>rect(47,66,3,3,'path')
- };
- changes[archetype]?.();
+function mapPoint(item = {}) {
+  if (Number.isFinite(item.tileX) && Number.isFinite(item.tileY)) return { x: item.tileX, y: item.tileY };
+  if (Number.isFinite(item.mapX) && Number.isFinite(item.mapY)) return { x: item.mapX, y: item.mapY };
+  return { x: Number(item.x || 0) + 30, y: Number(item.z ?? item.y ?? 0) + 17 };
 }
-function evolve(archetype) {
- if(state.evolved.has(archetype)) return;
- state.evolved.add(archetype); unlockWorld(archetype);
- const unlock={Explorer:'A mossy passage has opened to the Hidden Cave.',Collector:'A relic vault has surfaced among the Forgotten Ruins.',Guardian:'A radiant bridge now spans the Lake of Glass.',Loner:'A spirit portal shimmers beside the graveyard.'};
- note(`✦ ${archetype} has evolved. ${unlock[archetype]}`,6);
- if(state.evolved.size===4) finalObjective();
+function note(text, duration = 4) { state.notice = text; state.noticeTimer = duration; }
+function roomPlayerCount() { return state.world?.players?.length || 0; }
+function gameReady() { return state.network.connected && roomPlayerCount() === 4; }
+function features() {
+  const publicFeatures = state.world?.world?.unlocked || state.world?.unlockedFeatures || [];
+  const privateFeatures = state.world?.world?.privateUnlocks || state.world?.yourPrivateUnlocks || [];
+  return new Set([...publicFeatures, ...privateFeatures, ...(state.mine?.evolutions || [])]);
 }
-function evolveCheck() {
- if(state.phase!=='evolving' || !p.archetype) return;
- const unlock={Explorer:'A mossy door opens in the northern forest.',Collector:'A relic vault rises near the forgotten ruins.',Guardian:'A healing shrine glows beside the lake.',Loner:'A spirit portal shimmers in the graveyard.'};
- const order=['Explorer','Collector','Guardian','Loner'];
- const needed=order.find(a=>!state.evolved.has(a));
- if(needed && (p.score.explore+p.score.collect+p.score.guard+p.score.lone)>=8+state.evolved.size*3) evolve(needed);
- }
+function abilities() {
+  const fromPlayer = state.mine?.capabilities || state.mine?.abilities || state.mine?.abilityIds || [];
+  const fromWorld = state.world?.world?.yourAbilities || state.world?.yourAbilities || [];
+  return [...new Set([...fromPlayer, ...fromWorld, ...features()])];
+}
+function relics() { return Array.isArray(state.world?.relics) ? state.world.relics : []; }
+function serverEntities() {
+  const supplied = state.world?.world?.entities || state.world?.entities || [];
+  const normalized = supplied.filter(Boolean).map((entity, index) => ({
+    ...entity, id: entity.id || `entity-${index}`, ...mapPoint(entity),
+    label: entity.label || entity.name || entity.id || 'World feature', kind: entity.kind || entity.type || 'feature',
+  }));
+  if (normalized.length) return normalized;
+  return [...features()].map((feature) => FEATURE_ENTITIES[feature]).filter(Boolean);
+}
+function activeEntities() {
+  const relicEntities = relics().filter((relic) => !relic.collectedBy).map((relic) => ({
+    ...relic, ...mapPoint(relic), kind: 'relic', label: relic.name || relic.id.replaceAll('-', ' '), action: 'relic', targetId: relic.id,
+  }));
+  // The server exposes `relics` as a convenient subset of `entities`; render a
+  // relic once, using that subset for the collector compass as well.
+  return [...relicEntities, ...serverEntities().filter((entity) => entity.kind !== 'relic' && entity.type !== 'relic')];
+}
+
+function applyWorldState(world) {
+  if (!world || !Array.isArray(world.players)) return;
+  state.world = world;
+  state.network.roomCode = world.code || state.network.roomCode;
+  const previous = new Map(state.players.map((player) => [player.id, player]));
+  state.players = world.players.map((player, index) => {
+    const target = mapPoint(player);
+    const old = previous.get(player.id);
+    return {
+      ...player, x: old?.x ?? target.x, y: old?.y ?? target.y, targetX: target.x, targetY: target.y,
+      color: cssColor(player.color, ['#2563eb', '#db2777', '#f59e0b', '#16a34a'][index % 4]),
+    };
+  });
+  state.mine = state.players.find((player) => player.id === state.network.playerId) || null;
+  const sourceMine = world.players.find((player) => player.id === state.network.playerId);
+  if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y });
+  const privateRules = world.yourPrivateRules || [];
+  state.privateRule = privateRules.at(-1) || null;
+  if (world.director?.narration) state.publicEvent = world.director.narration;
+  if (!gameReady() && state.joined) state.notice = `Waiting for all four lanterns — ${roomPlayerCount()}/4 joined.`;
+}
+
+function joinRoom(name, roomCode) {
+  state.network.error = '';
+  socket.connect();
+  socket.once('connect', () => socket.emit('join-room', { name, roomCode }, (reply) => {
+    if (!reply?.ok) {
+      state.network.error = reply?.error || 'Unable to join this room.';
+      socket.disconnect();
+      showLanternGate();
+      return;
+    }
+    state.joined = true;
+    state.network.connected = true;
+    state.network.playerId = reply.playerId;
+    state.network.roomCode = reply.code;
+    note('Your lantern is lit. Waiting for exactly four players.', 8);
+    socket.emit('request-world-state');
+  }));
+}
+
+socket.on('connect_error', () => { state.network.error = 'Unable to reach the game server.'; });
+socket.on('world-state', applyWorldState);
+socket.on('gm-event', (event) => {
+  if (event?.message) { state.publicEvent = event.message; note(event.message, 6); }
+});
+socket.on('gm-private', (event) => {
+  if (event?.message) { state.privateRule = event; note(event.message, 7); }
+});
+socket.on('gm-rule', (rule) => { if (rule?.participants?.includes(state.network.playerId)) state.privateRule = rule; });
+socket.on('disconnect', () => {
+  state.network.connected = false;
+  if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10);
+});
+
+function nearest(point, list, radius = 3.25) {
+  return list.filter(Boolean).map((item) => ({ item, distance: Math.hypot(point.x - item.x, point.y - item.y) }))
+    .filter(({ distance }) => distance <= radius).sort((a, b) => a.distance - b.distance)[0]?.item || null;
+}
+function finalAction(entity) {
+  if (!entity) return null;
+  if (entity.action) return entity.action;
+  const id = String(entity.id || '');
+  const authoritativeActions = {
+    'hidden-temple-entrance': 'discover-temple',
+    'guardian-shrine': 'activate-shrine',
+    'spirit-portal': 'enter-spirit-realm',
+    'final-altar': 'offer-relics',
+    'final-gate': 'open-final-gate',
+  };
+  if (authoritativeActions[id]) return authoritativeActions[id];
+  const kind = String(entity.kind || entity.type || '').toLowerCase();
+  if (kind.includes('relic')) return 'relic';
+  if (kind.includes('shrine')) return 'activate-shrine';
+  if (kind.includes('temple') || kind.includes('entrance')) return 'discover-temple';
+  if (kind.includes('altar')) return 'offer-relics';
+  if (kind.includes('gate') || kind.includes('spirit')) return 'open-final-gate';
+  return entity.interaction || null;
+}
 function interact() {
- if(!state.started || state.complete) return;
- if(state.network.connected) {
-   const serverRelic=(state.serverRelics||[]).filter(r=>!r.collectedBy).map(r=>({...r,...playerWorldPosition(r)})).sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y))[0];
-   const landmark=nearest(p,landmarks,3.5);
-   if(serverRelic&&Math.hypot(serverRelic.x-p.x,serverRelic.y-p.y)<4) socket.emit('interact',{type:'relic',targetId:serverRelic.id});
-   else if(landmark) { const type=landmark.kind==='temple'?'discover-temple':landmark.kind==='shrine'?'activate-shrine':'object'; socket.emit('interact',{type,targetId:landmark.name}); note(`You study ${landmark.name}. The Game Master notices.`,3); }
-   else socket.emit('interact',{type:'object'});
-   return;
- }
- const r=nearest(p,relicNodes.filter(n=>!n.taken),3.25); if(r) { collect(r); return; }
- const l=nearest(p,landmarks,3.25); if(l) { discover(l); if(l.kind==='shrine') p.score.guard+=3; if(l.kind==='grave') p.score.lone+=3; evolveCheck(); return; }
- if(state.finalOpen && Math.hypot(p.x-53,p.y-28)<4) { state.complete=true; note('The Temple welcomes the four stories you have written. Everdawn remembers.',99); }
- note('Wildflowers rustle in the warm breeze.');
+  if (!gameReady() || !state.mine) return;
+  const entity = nearest(state.mine, activeEntities());
+  let action = finalAction(entity);
+  if (!action && state.world?.finalObjective?.status === 'active') {
+    const roleAction = { Explorer: 'temple-entrance', Collector: 'altar', Guardian: 'shrine', Loner: 'spirit-gate' }[state.mine.archetype];
+    const fallback = Object.values(FEATURE_ENTITIES).find((item) => item.action === roleAction);
+    if (fallback && Math.hypot(state.mine.x - fallback.x, state.mine.y - fallback.y) <= 3.5) action = roleAction;
+  }
+  if (!action) { note('Move near a relic, shrine, temple entrance, altar, or spirit gate.', 3); return; }
+  socket.emit('interact', { type: action, targetId: entity?.targetId || entity?.id });
+  note(`You reach for ${entity?.label || action.replaceAll('-', ' ')}.`, 2);
 }
 
-function assignArchetypes() {
- if(state.phase!=='observing') return;
- const types=['Explorer','Collector','Guardian','Loner'];
- state.players.forEach((pl,i)=> { if(pl===p) { const s=pl.score; pl.archetype=types[[s.explore,s.collect,s.guard,s.lone].indexOf(Math.max(s.explore,s.collect,s.guard,s.lone))]; } else pl.archetype=types[i===1?0:i===2?1:i===3?2:3]; });
- // ensure the player keeps their best role while all four roles are represented
- const used=new Set(); state.players.forEach(pl=>{ if(used.has(pl.archetype)) { pl.archetype=types.find(t=>!used.has(t)); } used.add(pl.archetype); });
- state.phase='evolving'; note(`“I've observed your curiosity.” Mus has awakened as the ${p.archetype}. The living world responds.`,7);
-}
-function finalObjective() { state.finalOpen=true; state.phase='finale'; note('“The Ancient Temple has awakened.” Find its hidden entrance and carry the four stories within.',8); }
+addEventListener('keydown', (event) => {
+  keys[event.key.toLowerCase()] = true;
+  if (event.key.toLowerCase() === 'e') { event.preventDefault(); interact(); }
+  if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
+});
+addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
+canvas.addEventListener('click', () => { if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
 
-const keys={}; addEventListener('keydown',e=>{ keys[e.key.toLowerCase()]=true; if(e.key.toLowerCase()==='e') interact(); if(e.key.toLowerCase()==='p'&&!state.network.connected) { state.time=OBSERVATION_SECONDS; assignArchetypes(); } if(e.key.toLowerCase()==='f') document.fullscreenElement?document.exitFullscreen():canvas.requestFullscreen(); });
-addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
-canvas.addEventListener('click',()=>{ if(!state.started&&!state.network.attempted) showLanternGate(); });
-
-function showLanternGate(){
- if(document.getElementById('lantern-gate')) return;
- const gate=document.createElement('form'); gate.id='lantern-gate';
- gate.innerHTML='<div class="gate-card"><div class="gate-title">LIGHT A LANTERN</div><p>Enter a shared tale. The world will decide what you become.</p><label>NAME<input name="name" maxlength="16" required value="Wanderer"></label><label>ROOM CODE<input name="room" maxlength="6" required value="DAWN"></label><button>ENTER THE WORLD</button><button type="button" class="alone">WANDER ALONE</button><small>No roles. No quest log. Only what the world notices.</small></div>';
- document.body.appendChild(gate);
- gate.querySelector('input[name="name"]').focus();
- gate.addEventListener('submit',event=>{event.preventDefault(); const data=new FormData(gate); gate.remove(); connectToRoom(String(data.get('name')),String(data.get('room')).toUpperCase());});
- gate.querySelector('.alone').addEventListener('click',()=>{gate.remove();state.demo=true;state.started=true;note('A lone lantern enters Everdawn. The Game Master is quietly watching.',6);});
+function showLanternGate() {
+  if (document.getElementById('lantern-gate')) return;
+  const gate = document.createElement('form');
+  gate.id = 'lantern-gate';
+  gate.innerHTML = `<div class="gate-card"><div class="gate-title">LIGHT A LANTERN</div><p>This world begins only when exactly four players have gathered.</p><label>NAME<input name="name" maxlength="16" required value="Wanderer"></label><label>ROOM CODE<input name="room" maxlength="6" required value="DAWN"></label><button>JOIN THE EXPEDITION</button><small>There is no solo mode. Invite three fellow wanderers to the same room code.</small></div>`;
+  document.body.appendChild(gate);
+  gate.querySelector('input[name="name"]').focus();
+  gate.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const data = new FormData(gate);
+    gate.remove();
+    joinRoom(String(data.get('name')), String(data.get('room')).toUpperCase());
+  });
 }
 
 function update(dt) {
- if(!state.started||state.complete) return;
- state.time+=dt; state.frame+=dt*10; if(state.noticeTimer>0) state.noticeTimer-=dt;
- if(state.network.connected&&Number.isFinite(p.targetX)){const ease=Math.min(1,dt*14);p.x+=(p.targetX-p.x)*ease;p.y+=(p.targetY-p.y)*ease;}
- if(!state.network.connected && state.phase==='observing' && state.time>=OBSERVATION_SECONDS) assignArchetypes();
- let dx=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0), dy=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0);
- if(dx||dy) { const d=Math.hypot(dx,dy), sprint=keys.shift||keys[' ']; dx/=d;dy/=d; p.dir=Math.abs(dx)>Math.abs(dy)?(dx>0?1:3):(dy>0?2:0); if(state.network.connected){ socket.emit('move',{x:dx*(sprint?1.35:1),z:dy*(sprint?1.35:1)}); } else { const speed=sprint?13:8.2, nx=p.x+dx*dt*speed,ny=p.y+dy*dt*speed; if(passable(nx,p.y))p.x=nx;if(passable(p.x,ny))p.y=ny; p.score.explore+=dt*(sprint?.42:.30); } }
- else if(state.network.connected) socket.emit('move',{x:0,z:0});
- if(state.network.connected && performance.now()-state.network.lastTelemetry>550) { const landmark=nearest(p,landmarks,4); socket.emit('player-telemetry',{x:p.x-30,z:p.y-17,locationId:landmark?.name?.toLowerCase().replaceAll(' ','-')}); state.network.lastTelemetry=performance.now(); }
- // The three companions visibly roam according to their observed tendencies.
- if(!state.network.connected) state.players.slice(1).forEach((b,i)=>{ const a=state.time*.35+i*2; const targets=[[29,16],[22,20],[32,20]][i]; const nx=targets[0]+Math.cos(a)*(2+i*.4),ny=targets[1]+Math.sin(a*.7)*(2+i*.35); if(passable(nx,ny)){b.x=nx;b.y=ny;} });
- const l=nearest(p,landmarks,2.4); if(l) discover(l);
- if(state.phase==='observing' && state.time-state.lastWhisper>18){ state.lastWhisper=state.time; const whispers=['“You followed a road no map marked.”','“The relics are answering your footsteps.”','“The others learn from the space between you.”','“What you repeat becomes your legend.”']; note(whispers[Math.floor(state.time/18)%whispers.length],4); }
- state.camera.x=Math.max(24,Math.min(36,state.camera.x+(p.x-state.camera.x)*Math.min(1,dt*5))); state.camera.y=Math.max(16,Math.min(18,state.camera.y+(p.y-state.camera.y)*Math.min(1,dt*5)));
- if(!state.network.connected&&state.phase==='evolving' && state.time>=state.nextEvolutionAt && state.evolved.size<4) { evolve(['Explorer','Collector','Guardian','Loner'].find(a=>!state.evolved.has(a))); state.nextEvolutionAt+=12; }
+  state.frame += dt * 10;
+  if (state.noticeTimer > 0) state.noticeTimer -= dt;
+  for (const player of state.players) {
+    const ease = Math.min(1, dt * 14);
+    player.x += (player.targetX - player.x) * ease;
+    player.y += (player.targetY - player.y) * ease;
+  }
+  const mine = state.mine;
+  if (gameReady() && mine) {
+    let dx = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
+    let dz = (keys.s || keys.arrowdown ? 1 : 0) - (keys.w || keys.arrowup ? 1 : 0);
+    if (dx || dz) {
+      const magnitude = Math.hypot(dx, dz); dx /= magnitude; dz /= magnitude;
+      socket.emit('move', { x: dx, z: dz });
+    } else socket.emit('move', { x: 0, z: 0 });
+    if (performance.now() - state.network.lastTelemetry > 500) {
+      const landmark = nearest(mine, LANDMARKS, 4);
+      socket.emit('player-telemetry', { x: mine.x - 30, z: mine.y - 17, locationId: landmark?.label?.toLowerCase().replaceAll(' ', '-') });
+      state.network.lastTelemetry = performance.now();
+    }
+  }
+  if (mine) {
+    state.camera.x += (mine.x - state.camera.x) * Math.min(1, dt * 5);
+    state.camera.y += (mine.y - state.camera.y) * Math.min(1, dt * 5);
+  }
 }
 
-function px(x){return Math.floor(x*T-(state.camera.x*T-canvas.width/2));} function py(y){return Math.floor(y*T-(state.camera.y*T-canvas.height/2));}
-function fill(color,x,y,w=T,h=T){ctx.fillStyle=color;ctx.fillRect(px(x),py(y),w,h)}
-function sheetTile(sheet, gid, X, Y, width=T, height=T) {
- const image=art[sheet]; if(!image) return false;
- const tile=gid-1, columns=Math.floor(image.width/32);
- ctx.drawImage(image,(tile%columns)*32,Math.floor(tile/columns)*32,32,32,X,Y,width,height);
- return true;
+function px(x) { return Math.floor(x * T - (state.camera.x * T - canvas.width / 2)); }
+function py(y) { return Math.floor(y * T - (state.camera.y * T - canvas.height / 2)); }
+function panel(x, y, w, h) { ctx.fillStyle = 'rgba(29,47,68,.9)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = '#f5dd8a'; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2); }
+function sheetTile(gid, X, Y) {
+  const image = art.camping;
+  if (!image) return false;
+  const tile = gid - 1, columns = Math.floor(image.width / 32);
+  ctx.drawImage(image, (tile % columns) * 32, Math.floor(tile / columns) * 32, 32, 32, X, Y, T, T);
+  return true;
 }
-function drawCsdMap(x,y,X,Y) {
- if(!authoredForest || x<0 || y<0 || x>=W || y>=H) return false;
- const index=y*W+x;
- for(const layer of authoredForest.layers||[]) { const gid=layer.data?.[index]||0; if(gid) sheetTile('camping',gid,X,Y); }
- return true;
+function drawTile(x, y) {
+  const X = px(x), Y = py(y), index = y * W + x;
+  if (!authoredForest || x < 0 || y < 0 || x >= W || y >= H) { ctx.fillStyle = C.grass; ctx.fillRect(X, Y, T, T); return; }
+  for (const layer of authoredForest.layers || []) { const gid = layer.data?.[index] || 0; if (gid) sheetTile(gid, X, Y); }
 }
-function drawTile(x,y,t) {
- drawCsdMap(x,y,px(x),py(y));
+function drawEntity(entity) {
+  const X = px(entity.x), Y = py(entity.y), kind = String(entity.kind || '').toLowerCase();
+  if (kind.includes('relic')) {
+    ctx.fillStyle = C.gold; ctx.fillRect(X + 6, Y + 4, 8, 12); ctx.fillStyle = '#fff4b5'; ctx.fillRect(X + 8, Y + 2, 4, 5);
+  } else if (kind.includes('gate') || kind.includes('spirit')) {
+    ctx.fillStyle = '#4f376f'; ctx.fillRect(X + 3, Y + 2, 14, 16); ctx.fillStyle = '#d9b4ff'; ctx.fillRect(X + 6, Y + 5, 8, 11);
+  } else if (kind.includes('shrine')) {
+    ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 3, Y + 7, 14, 10); ctx.fillStyle = C.purple; ctx.fillRect(X + 7, Y + 1, 6, 9);
+  } else if (kind.includes('temple') || kind.includes('altar')) {
+    ctx.fillStyle = '#b9a882'; ctx.fillRect(X, Y + 5, 20, 15); ctx.fillStyle = kind.includes('altar') ? C.gold : '#706879'; ctx.fillRect(X + 7, Y + 8, 6, 12);
+  } else if (kind.includes('bridge')) {
+    ctx.fillStyle = '#7d5536'; ctx.fillRect(X, Y + 7, 20, 7);
+  } else if (kind.includes('vault')) {
+    ctx.fillStyle = '#7b607f'; ctx.fillRect(X + 1, Y + 6, 18, 11); ctx.fillStyle = C.gold; ctx.fillRect(X + 3, Y + 3, 14, 6);
+  } else {
+    ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 4, Y + 4, 12, 12);
+  }
 }
-function bridge(x,y,w){fill('#7d5536',x,y,w*T,8);ctx.fillStyle='#c49a62';for(let i=0;i<w;i++)ctx.fillRect(px(x+i)+1,py(y)+1,14,5)}
-function flower(x,y){ctx.fillStyle='#f9e3ef';ctx.fillRect(px(x)+5,py(y)+5,5,5);ctx.fillStyle=C.pink;ctx.fillRect(px(x)+6,py(y)+4,3,7);}
-function ruin(r){const X=px(r.x),Y=py(r.y);ctx.fillStyle='#917d73';ctx.fillRect(X+3,Y+3,8,13);ctx.fillStyle='#d1b99a';ctx.fillRect(X+4,Y+2,6,3);ctx.fillStyle='#655e69';ctx.fillRect(X+5,Y+8,2,5);}
-function shrine(){const X=px(82),Y=py(53);ctx.fillStyle='#d8d4bd';ctx.fillRect(X+2,Y+6,12,10);ctx.fillStyle='#a887bd';ctx.fillRect(X+5,Y,6,8);ctx.fillStyle='#f7db82';ctx.fillRect(X+7,Y+3,2,3);}
-function temple(){const X=px(82),Y=py(65);ctx.fillStyle='#b9a882';ctx.fillRect(X,Y+7,48,30);ctx.fillStyle='#d2bd8e';ctx.fillRect(X+4,Y+3,40,9);ctx.fillStyle='#706879';ctx.fillRect(X+19,Y+18,10,19); if(state.finalOpen){ctx.fillStyle='#7c5ab0';ctx.fillRect(X+21,Y+21,6,14);}}
-function evolutionObjects(){
- const has=(...features)=>features.some(feature=>state.unlockedFeatures.has(feature));
- if(state.evolved.has('Explorer')||has('hidden-cave','secret-path','invisible-bridge')){const X=px(64),Y=py(12);ctx.fillStyle='#b8df71';ctx.fillRect(X+2,Y+3,12,10);ctx.fillStyle='#385a42';ctx.fillRect(X+5,Y+5,6,8);}
- if(state.evolved.has('Collector')||has('relic-vault','evolving-artifacts','treasure-cache')){const X=px(87),Y=py(40);ctx.fillStyle='#7b607f';ctx.fillRect(X,Y+5,18,11);ctx.fillStyle='#f0c866';ctx.fillRect(X+2,Y+3,14,6);ctx.fillStyle='#fff2a0';ctx.fillRect(X+7,Y+6,3,3);}
- if(state.evolved.has('Guardian')||has('healing-shrine','protective-barrier','revival-monument')){const X=px(17),Y=py(53);ctx.fillStyle='#9169c4';ctx.fillRect(X+4,Y,8,16);ctx.fillStyle='#bfe9e1';ctx.fillRect(X+6,Y+2,4,9);ctx.fillStyle='#ffe99c';ctx.fillRect(X+7,Y+4,2,2);}
- if(state.evolved.has('Loner')||has('spirit-realm','illusion-passage','hidden-portal')){const X=px(48),Y=py(67);ctx.fillStyle='#4f376f';ctx.fillRect(X+3,Y+2,10,14);ctx.fillStyle='#b483e0';ctx.fillRect(X+5,Y+4,6,10);ctx.fillStyle='#e8ceff';ctx.fillRect(X+7,Y+6,2,6);}
+function drawTerrain(area) {
+  const point = mapPoint(area);
+  const width = Math.max(1, Number(area.w) || 1) * T;
+  const height = Math.max(1, Number(area.h) || 1) * T;
+  const kind = String(area.kind || '').toLowerCase();
+  if (kind.includes('water')) {
+    ctx.fillStyle = 'rgba(57, 161, 211, .72)'; ctx.fillRect(px(point.x), py(point.y), width, height);
+    ctx.fillStyle = 'rgba(210, 246, 255, .55)';
+    for (let x = 3; x < width; x += 12) ctx.fillRect(px(point.x) + x, py(point.y) + 5 + (x % 8), 7, 2);
+  } else if (kind.includes('bridge')) {
+    ctx.fillStyle = '#7d5536'; ctx.fillRect(px(point.x), py(point.y) + 6, width, Math.max(7, height - 10));
+  } else if (kind.includes('spirit')) {
+    ctx.fillStyle = 'rgba(123, 80, 175, .42)'; ctx.fillRect(px(point.x), py(point.y), width, height);
+  } else if (kind.includes('path')) {
+    ctx.fillStyle = 'rgba(208, 194, 112, .58)'; ctx.fillRect(px(point.x), py(point.y), width, height);
+  }
 }
-function character(pl){const X=px(pl.x),Y=py(pl.y);const bob=(keys.w||keys.a||keys.s||keys.d)&&pl===p?Math.sin(state.frame)*1:0;ctx.fillStyle='#27324a';ctx.fillRect(X+4,Y+4+bob,8,10);ctx.fillStyle=pl.color;ctx.fillRect(X+5,Y+5+bob,6,7);ctx.fillStyle='#f3c28b';ctx.fillRect(X+5,Y+1+bob,6,5);ctx.fillStyle='#fff';ctx.fillRect(X+6,Y+3+bob,1,1); if(pl===p){ctx.strokeStyle='#fff5b4';ctx.strokeRect(X+1,Y+1,14,15);} }
-function label(txt,x,y,color='#fff7d5'){ctx.font='bold 10px monospace';ctx.textAlign='center';ctx.fillStyle='#253047';ctx.fillText(txt,px(x)+1,py(y)-7+1);ctx.fillStyle=color;ctx.fillText(txt,px(x),py(y)-7);}
+function character(player) {
+  const X = px(player.x), Y = py(player.y), bob = player === state.mine && (keys.w || keys.a || keys.s || keys.d) ? Math.sin(state.frame) : 0;
+  ctx.fillStyle = C.ink; ctx.fillRect(X + 4, Y + 4 + bob, 10, 11);
+  ctx.fillStyle = player.color; ctx.fillRect(X + 5, Y + 5 + bob, 8, 8);
+  ctx.fillStyle = '#f3c28b'; ctx.fillRect(X + 5, Y + 1 + bob, 8, 5);
+  if (player === state.mine) { ctx.strokeStyle = '#fff5b4'; ctx.strokeRect(X + 1, Y + 1, 16, 16); }
+}
+function label(text, x, y, color = '#fff7d5') { ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = C.ink; ctx.fillText(text, px(x) + 1, py(y) - 7 + 1); ctx.fillStyle = color; ctx.fillText(text, px(x), py(y) - 7); }
+function wrap(text, x, y, max, line) { const words = String(text || '').split(' '); let current = '', yy = y; for (const word of words) { if (ctx.measureText(`${current}${word}`).width > max) { ctx.fillText(current, x, yy); current = `${word} `; yy += line; } else current += `${word} `; } ctx.fillText(current, x, yy); }
 
-function panel(x,y,w,h){ctx.fillStyle='rgba(29,47,68,.88)';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#f5dd8a';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,w-2,h-2);}
-function drawHUD(){
- panel(14,14,300,58);ctx.textAlign='left';ctx.font='bold 13px monospace';ctx.fillStyle='#fff2bd';ctx.fillText('EVERDAWN',27,35);ctx.font='11px monospace';ctx.fillStyle='#d2f0cf';
- const timer=state.phase==='observing'?`A presence is watching · ${Math.max(0,OBSERVATION_SECONDS-Math.floor(state.time))}s`:`YOUR STORY · ${p.archetype||'still unread'}`;ctx.fillText(timer,27,55);
- const target=relicNodes.filter(r=>!r.taken).sort((a,b)=>Math.hypot(p.x-a.x,p.y-a.y)-Math.hypot(p.x-b.x,p.y-b.y))[0];
- if(target){panel(325,14,265,43);const dx=target.x-p.x,dy=target.y-p.y,arrow=Math.abs(dx)>Math.abs(dy)?(dx>0?'→':'←'):(dy>0?'↓':'↑');ctx.textAlign='left';ctx.font='bold 10px monospace';ctx.fillStyle='#fff2bd';ctx.fillText(`RELIC SIGNAL  ${arrow}  ${target.name}`,338,40);}
- panel(760,14,186,98);ctx.textAlign='left';ctx.font='bold 10px monospace';ctx.fillStyle='#fff2bd';ctx.fillText(state.network.connected?`LANTERNS · ${state.network.roomCode}`:'NEARBY LANTERNS',774,34);state.players.forEach((pl,i)=>{ctx.fillStyle=pl.color;ctx.fillRect(775,43+i*15,7,7);ctx.fillStyle='#fff';ctx.fillText(`${pl.name}  ${pl===p?(pl.archetype||'unread'):'their story is hidden'}`,788,50+i*15);});
- if(state.privateRule){panel(14,84,340,74);ctx.textAlign='left';ctx.font='bold 10px monospace';ctx.fillStyle='#f4c7ff';ctx.fillText('A LAW ONLY YOU CAN HEAR',27,104);ctx.fillStyle='#fff7d5';ctx.font='bold 11px monospace';ctx.fillText(state.privateRule.title||'Private Vision',27,122);ctx.font='10px monospace';wrap(state.privateRule.body||state.privateRule.counterplay||'',184,141,310,12);}
- if(state.noticeTimer>0||state.complete){panel(165,548,630,66);ctx.textAlign='center';ctx.font='bold 12px monospace';ctx.fillStyle='#fff7d5';wrap(state.notice,480,573,570,16);}
- if(state.phase==='finale'&&!state.complete){ctx.textAlign='center';ctx.font='bold 11px monospace';ctx.fillStyle='#fff2bd';ctx.fillText(state.finalObjective?.title||'FINAL CALLING · The Ancient Temple has awakened',480,94);}
+function drawHUD() {
+  const mine = state.mine;
+  panel(14, 14, 306, 62); ctx.textAlign = 'left'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EVERDAWN', 27, 35);
+  ctx.font = '11px monospace'; ctx.fillStyle = '#d2f0cf';
+  const status = !state.network.connected ? 'CONNECTING TO THE WORLD…' : !gameReady() ? `GATHERING LANTERNS · ${roomPlayerCount()}/4` : state.world?.phase === 'observing' ? `THE GM OBSERVES · ${state.world?.observationSecondsRemaining ?? '?'}s` : `YOUR ROLE · ${mine?.archetype || 'awakening'}`;
+  ctx.fillText(status, 27, 55);
+  panel(760, 14, 186, 104); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, 774, 34);
+  state.players.forEach((player, index) => { ctx.fillStyle = player.color; ctx.fillRect(775, 43 + index * 15, 7, 7); ctx.fillStyle = '#fff'; ctx.fillText(`${player.name} · ${player.archetype || 'observed'}`, 788, 50 + index * 15); });
+  const target = mine && relics().filter((relic) => !relic.collectedBy).map((relic) => ({ relic, ...mapPoint(relic) })).sort((a, b) => Math.hypot(mine.x - a.x, mine.y - a.y) - Math.hypot(mine.x - b.x, mine.y - b.y))[0];
+  if (target && mine) { panel(325, 14, 265, 43); const dx = target.x - mine.x, dy = target.y - mine.y; const arrow = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? '→' : '←') : (dy > 0 ? '↓' : '↑'); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(`RELIC SIGNAL ${arrow} ${target.relic.id.replaceAll('-', ' ')}`, 338, 40); }
+  if (mine?.archetype || abilities().length) { panel(14, 88, 365, 50); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#f4c7ff'; ctx.fillText(`ROLE · ${mine?.archetype || 'UNREAD'}`, 27, 108); ctx.fillStyle = '#fff7d5'; ctx.font = '10px monospace'; wrap(abilities().slice(0, 4).join(' · ') || 'Your unique ability will emerge from the Game Master.', 27, 125, 335, 12); }
+  if (state.privateRule) { panel(14, 146, 365, 58); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#f4c7ff'; ctx.fillText('A LAW ONLY YOU CAN HEAR', 27, 166); ctx.fillStyle = '#fff7d5'; wrap(state.privateRule.message || state.privateRule.body || state.privateRule.title || '', 27, 184, 335, 12); }
+  if (state.world?.finalObjective) { panel(575, 122, 371, 54); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(state.world.finalObjective.title || 'THE FINAL RITE', 588, 142); ctx.fillStyle = '#fff'; wrap(state.world.finalObjective.description || 'Complete each role’s rite.', 588, 159, 340, 12); }
+  if (state.noticeTimer > 0 || !gameReady()) { panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.notice, 480, 573, 570, 16); }
 }
-function wrap(txt,x,y,max,line){const words=txt.split(' ');let s='',yy=y;for(const word of words){if(ctx.measureText(s+word).width>max){ctx.fillText(s,x,yy);s=word+' ';yy+=line;}else s+=word+' ';}ctx.fillText(s,x,yy);}
-function drawStart(){ctx.fillStyle='#70b957';ctx.fillRect(0,0,960,640); for(let i=0;i<80;i++){ctx.fillStyle=i%2?'#57a94f':'#81c963';ctx.fillRect((i*79)%960,(i*131)%640,16,16);}ctx.textAlign='center';ctx.font='bold 54px monospace';ctx.fillStyle='#26304a';ctx.fillText('EVERDAWN',482,179);ctx.fillStyle='#fff3b8';ctx.fillText('EVERDAWN',480,175);ctx.font='bold 15px monospace';ctx.fillStyle='#fff9de';ctx.fillText('A living tale, shaped by the way you wander.',480,215); panel(245,264,470,128);ctx.font='bold 13px monospace';ctx.fillStyle='#f8de90';ctx.fillText('NO ONE HAS TOLD YOU WHAT THIS WORLD IS FOR.',480,296);ctx.font='11px monospace';ctx.fillStyle='#e4f1dc';ctx.fillText('It will learn from the choices you make together.',480,328);ctx.fillText('Some laws will be shared. Some will belong to only one of you.',480,353);ctx.font='bold 14px monospace';ctx.fillStyle='#ffef9c';ctx.fillText('CLICK TO LIGHT A LANTERN',480,445);}
-function render(){ctx.clearRect(0,0,canvas.width,canvas.height);if(!state.started){drawStart();return;} const minX=Math.floor(state.camera.x-25),maxX=Math.ceil(state.camera.x+25),minY=Math.floor(state.camera.y-17),maxY=Math.ceil(state.camera.y+17);for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawTile(x,y,map[y]?.[x]);state.players.forEach(character);state.players.forEach(pl=>label(pl.name,pl.x,pl.y,pl.color));drawHUD();}
-let last=performance.now();function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);render();requestAnimationFrame(loop);}requestAnimationFrame(loop);
-window.advanceTime=(ms)=>{const steps=Math.max(1,Math.round(ms/(1000/60)));for(let i=0;i<steps;i++)update(1/60);render();};
-window.render_game_to_text=()=>JSON.stringify({coordinates:'tile origin top-left; x east, y south',mode:state.started?'adventure':'title',phase:state.phase,seconds:Math.floor(state.time),player:{x:+p.x.toFixed(1),y:+p.y.toFixed(1),archetype:p.archetype},relics:state.relics,discoveries:[...state.discoveries],evolved:[...state.evolved],finalObjective:state.finalOpen,nearby:nearest(p,landmarks,4)?.name||null});
+function drawStart() {
+  ctx.fillStyle = '#70b957'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < 80; i++) { ctx.fillStyle = i % 2 ? '#57a94f' : '#81c963'; ctx.fillRect((i * 79) % 960, (i * 131) % 640, 16, 16); }
+  ctx.textAlign = 'center'; ctx.font = 'bold 54px monospace'; ctx.fillStyle = C.ink; ctx.fillText('EVERDAWN', 482, 179); ctx.fillStyle = '#fff3b8'; ctx.fillText('EVERDAWN', 480, 175);
+  ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#fff9de'; ctx.fillText('A four-player living tale.', 480, 215);
+  panel(245, 264, 470, 128); ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#f8de90'; ctx.fillText('THE WORLD OPENS ONLY FOR FOUR.', 480, 296); ctx.font = '11px monospace'; ctx.fillStyle = '#e4f1dc'; ctx.fillText('Each wanderer receives a distinct role and a unique ability.', 480, 328); ctx.fillText('No solo expedition. Bring three companions with the same room code.', 480, 353); ctx.font = 'bold 14px monospace'; ctx.fillStyle = '#ffef9c'; ctx.fillText('CLICK TO LIGHT A LANTERN', 480, 445);
+}
+function drawLobby() {
+  ctx.fillStyle = 'rgba(20, 42, 57, .74)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  panel(212, 214, 536, 188); ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('GATHERING THE EXPEDITION', 480, 255); ctx.font = 'bold 44px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${roomPlayerCount()} / 4`, 480, 315); ctx.font = '12px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText('The game begins exactly when four lanterns are present.', 480, 347); ctx.fillText(`Room code: ${state.network.roomCode || '—'}`, 480, 374);
+}
+function render() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!state.joined) { drawStart(); return; }
+  const minX = Math.floor(state.camera.x - 25), maxX = Math.ceil(state.camera.x + 25), minY = Math.floor(state.camera.y - 17), maxY = Math.ceil(state.camera.y + 17);
+  for (let y = minY; y <= maxY; y += 1) for (let x = minX; x <= maxX; x += 1) drawTile(x, y);
+  (state.world?.terrain || []).forEach(drawTerrain);
+  activeEntities().forEach(drawEntity);
+  state.players.forEach(character); state.players.forEach((player) => label(player.name, player.x, player.y, player.color));
+  drawHUD();
+  if (!gameReady()) drawLobby();
+}
+
+let last = performance.now();
+function loop(now) { const dt = Math.min(.05, (now - last) / 1000); last = now; update(dt); render(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+window.render_game_to_text = () => JSON.stringify({ mode: state.joined ? (gameReady() ? 'adventure' : 'lobby') : 'title', room: state.network.roomCode, playerCount: roomPlayerCount(), phase: state.world?.phase || 'unjoined', player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), archetype: state.mine.archetype }, relics: relics().filter((relic) => !relic.collectedBy).map((relic) => relic.id), abilities: abilities(), finalObjective: state.world?.finalObjective?.status || null });

@@ -8,7 +8,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const roomCode = 'DIR001';
 const names = ['Ari', 'Bea', 'Cy', 'Dee'];
 const server = spawn(process.execPath, ['server.mjs'], {
-  env: { ...process.env, PORT: String(port), GAME_TEST_OBSERVATION_MS: '200', GAME_TEST_GM_ASSIGNMENT_GRACE_MS: '0' },
+  env: { ...process.env, PORT: String(port), GAME_TEST_OBSERVATION_MS: '200', GAME_TEST_GM_ASSIGNMENT_GRACE_MS: '0', GAME_TEST_EMERGENT_ANALYSIS_MS: '100', GAME_TEST_EMERGENT_GUARDIAN_SECONDS: '0.2' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
@@ -62,8 +62,21 @@ try {
   }, 'four roles to awaken');
   assert.equal(state.players.length, 4);
   assert.deepEqual(new Set(state.players.map((player) => player.archetype)), new Set(['Explorer', 'Collector', 'Guardian', 'Loner']));
+  const socialRuleState = await waitFor(async () => {
+    const payload = await api(`/api/mcp/world-state?roomCode=${roomCode}`);
+    return payload.state.emergentRules?.activeRules?.some((rule) => rule.type === 'guardian_protection') ? payload.state : null;
+  }, 'a behaviour-derived guardian rule');
+  assert.equal(socialRuleState.emergentRules.activeRules.some((rule) => rule.type === 'guardian_protection'), true);
 
   const [first, second, third, fourth] = state.players;
+  const explorer = state.players.find((player) => player.archetype === 'Explorer');
+  await api('/api/mcp/emergent-rule', { roomCode, directive: { triggerId: 'guardian_cohesion', effectId: 'shared_marker', visibility: 'shared', markerId: 'warden_ring', durationSeconds: 30, title: 'Warden Constellation', message: 'The group\'s shelter reveals a new shared landmark.' } });
+  const customLaw = await waitFor(async () => {
+    const payload = await api(`/api/mcp/world-state?roomCode=${roomCode}`);
+    return payload.state.emergentRules?.activeRules?.some((rule) => rule.title === 'Warden Constellation') ? payload.state : null;
+  }, 'the AI-created emergent law');
+  assert.equal(customLaw.emergentRules.markers.some((marker) => marker.label === 'Warden Ring'), true);
+  assert.equal(explorer.archetype, 'Explorer');
   const apply = (card, payload) => api('/api/mcp/director-card', { roomCode, card, payload });
   await apply('private_hint', { playerId: first.id, message: 'A silver leaf points toward the old path.' });
   await apply('unlock_shortcut', { shortcutId: 'moss_trail' });

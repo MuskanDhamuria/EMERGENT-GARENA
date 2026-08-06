@@ -41,7 +41,8 @@ The MCP server exposes validated tools for an AI Game Master to:
 - narrate publicly or privately;
 - reveal safe, whitelisted world features, including private paths;
 - evolve an archetype; and
-- create the session-specific finale.
+- create the session-specific finale; and
+- bind observed behaviour to a compatible, reversible emergent-rule primitive.
 
 The MCP process cannot alter the game client or execute arbitrary code. The game server validates every tool result, remains authoritative for player state, and broadcasts the resulting world changes to the room. It is a local-development control plane, not authentication: keep the game server and MCP process on a trusted network.
 

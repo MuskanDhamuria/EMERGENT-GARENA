@@ -12,6 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
+import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 
 function loadDotEnv() {
   if (!existsSync('.env')) return;
@@ -63,6 +64,7 @@ const actions = {
   assign_archetypes: { description: 'Only if phase is observing and the observation timer is zero. Assign every player exactly once, using all four distinct archetypes when four players exist.', args: { assignments: '[{playerId, archetype, evidence}]' } },
   issue_asymmetric_rule: { description: 'Evolve one player only after archetypes exist. It reveals that player’s next validated evolution; use a player id from state.', args: { playerId: 'string' } },
   unlock_world_feature: { description: 'Reveal one feature from the allowed list only when it follows the observed group identity. Features: hidden-cave, secret-path, invisible-bridge, forgotten-ruins, relic-vault, evolving-artifacts, treasure-cache, healing-shrine, protective-barrier, revival-monument, spirit-realm, illusion-passage, hidden-portal, ancient-temple, final-gate.', args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
+  create_emergent_rule: { description: `Create one novel, reversible law from observed behaviour. The server selects players from evidence and rejects incompatible combinations. Triggers: ${EMERGENT_TRIGGER_IDS.join('|')}. Effects: ${EMERGENT_EFFECT_IDS.join('|')}. Visibility: shared|participants|private. Markers when required: ${Object.keys(EMERGENT_MARKERS).join('|')}. Provide title, message, optional markerId, optional durationSeconds 10-120. Use only after its trigger is visibly evidenced in telemetry/world state.`, args: { triggerId: 'string', effectId: 'string', visibility: 'shared|participants|private', markerId: 'optional string', durationSeconds: 'optional number', title: 'string', message: 'string' } },
   apply_director_card: { description: 'Use exactly one authored intervention card after roles awaken. Cards and payload presets: private_hint {playerId,message}; unlock_shortcut {shortcutId:moss_trail|lantern_path|warden_way|veil_passage}; role_request {requestId:explorer_scout|collector_recover|guardian_watch|loner_omen}; cooperation_request {roles:[2-4 roles],title,message}; world_mood {moodId:dawn|mist|storm|starlight}; temporary_boon {playerId,boonId:guiding_light|swift_step|shared_sight}; temporary_obstacle {obstacleId:mist_bank|echo_current|fallen_leaves}; story_turn {turnId:shrine_or_vault|path_or_veil,optionId:the AI-selected option}; finale_variant {variantId:lantern_rite|echo_accord|wardens_promise}. The AI resolves story turns immediately; players cannot vote. Never invent other values.', args: { card: 'string', payload: 'object with only that card\'s documented presets' } },
   create_finale: { description: 'Only after every active player has at least one evolution and no finale exists.', args: {} },
 };
@@ -107,6 +109,24 @@ function validateDecision(decision, state) {
     return ['evolving', 'finale'].includes(state.phase) && FEATURES.has(args.feature) && validText(args.message, 3)
       && validPrivateAudience(state, args.privateTo) && !publicDuplicate ? null : 'That world unlock is not currently valid.';
   }
+  if (decision.action === 'create_emergent_rule') {
+    const compatible = {
+      tether_energy: ['exclusive_pair'], private_marker: ['explorer_travel', 'loner_isolation'],
+      shared_marker: EMERGENT_TRIGGER_IDS, group_altar: ['collector_relics'], recovery_aura: ['guardian_cohesion'],
+      movement_boon: ['explorer_travel', 'loner_isolation'],
+    };
+    const allowedVisibility = {
+      tether_energy: ['shared', 'participants'], private_marker: ['private'], shared_marker: ['shared', 'participants'],
+      group_altar: ['shared', 'participants'], recovery_aura: ['shared', 'participants'], movement_boon: ['private', 'participants'],
+    };
+    const markerNeeded = ['private_marker', 'shared_marker'].includes(args.effectId);
+    return ['evolving', 'finale'].includes(state.phase) && compatible[args.effectId]?.includes(args.triggerId)
+      && allowedVisibility[args.effectId]?.includes(args.visibility || 'shared')
+      && validText(args.title, 3, 64) && validText(args.message, 3, 280)
+      && (!markerNeeded || Object.hasOwn(EMERGENT_MARKERS, args.markerId))
+      && (!args.durationSeconds || (Number.isFinite(args.durationSeconds) && args.durationSeconds >= 10 && args.durationSeconds <= 120))
+      ? null : 'That emergent-law combination is not currently valid.';
+  }
   if (decision.action === 'apply_director_card') {
     return ['evolving', 'finale'].includes(state.phase) && DIRECTOR_CARD_TYPES.includes(args.card)
       && args.payload && typeof args.payload === 'object' && !Array.isArray(args.payload) ? null : 'That director card is not currently valid.';
@@ -121,14 +141,14 @@ function validateDecision(decision, state) {
 function prompt(roomCode, telemetry, world) {
   return [
     'You are the living Game Master of Emergent, a four-player-only cooperative adventure that discovers rules from behaviour.',
-    'Never invent game mechanics. You can only choose one action from the provided action list. The MCP server validates every action again.',
+    'Never invent code, roles, coordinates, raw stat values, or effects outside the safe primitive catalog. You can choose one action from the provided action list, including a compatible behaviour-to-effect combination. The MCP server validates every action again.',
     'The central ethic: observe first; make a small, legible change; narrate why; let players react; observe again. Preserve asymmetric information when it is meaningful.',
     'Act only while exactly four connected players are shown. Do not assign roles before observation ends. Do not evolve a player beyond its available evolution steps. Prefer wait if no change is warranted.',
     `Room: ${roomCode}`,
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,
     `Authoritative world state: ${JSON.stringify(world)}`,
     `Allowed actions: ${JSON.stringify(actions)}`,
-    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|apply_director_card|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
+    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|create_emergent_rule|apply_director_card|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
   ].join('\n');
 }
 

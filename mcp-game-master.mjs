@@ -17,6 +17,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
+import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 const REQUIRED_PLAYERS = MAX_PLAYERS;
@@ -207,6 +208,28 @@ server.registerTool('apply_director_card', {
     const state = await requireReadyRoom(roomCode);
     if (!['evolving', 'finale'].includes(state.phase)) return toolError('Director cards are available only after all four roles have awakened.');
     return toolResult(await gameRequest('/api/mcp/director-card', { method: 'POST', body: { roomCode, card, payload } }));
+  }
+  catch (error) { return toolError(error.message); }
+});
+
+server.registerTool('create_emergent_rule', {
+  title: 'Create a behaviour-derived world law',
+  description: 'Bind a currently observed group behaviour to one compatible, reversible effect. This is how the AI extends the game beyond its initial examples. Roles, coordinates, raw stat values, and code are never accepted; the game server selects targets from evidence and validates every combination.',
+  inputSchema: {
+    roomCode: roomCodeSchema,
+    triggerId: z.enum(EMERGENT_TRIGGER_IDS),
+    effectId: z.enum(EMERGENT_EFFECT_IDS),
+    visibility: z.enum(['shared', 'participants', 'private']).default('shared'),
+    markerId: z.enum(Object.keys(EMERGENT_MARKERS)).optional(),
+    durationSeconds: z.number().finite().min(10).max(120).optional(),
+    title: z.string().trim().min(3).max(64),
+    message: z.string().trim().min(3).max(280),
+  },
+}, async ({ roomCode, ...directive }) => {
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (!['evolving', 'finale'].includes(state.phase)) return toolError('Emergent laws are available only after all four fixed roles have awakened.');
+    return toolResult(await gameRequest('/api/mcp/emergent-rule', { method: 'POST', body: { roomCode, directive } }));
   }
   catch (error) { return toolError(error.message); }
 });

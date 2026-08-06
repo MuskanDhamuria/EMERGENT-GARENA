@@ -11,6 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "serve": "node server.mjs",
+    "test:emergent": "node tests/emergent-rules.mjs",
     "test:game": "node tests/four-player-smoke.mjs"
   },
   "dependencies": {

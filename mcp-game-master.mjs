@@ -15,8 +15,9 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
+import { ARCHETYPES, FEATURES, MAX_PLAYERS, WORLD_EVOLUTIONS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
+import { FINALE_COMPLICATIONS } from './server/finale-system.mjs';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 const REQUIRED_PLAYERS = MAX_PLAYERS;
@@ -25,6 +26,7 @@ const playerIdSchema = z.string().trim().min(1).max(128);
 const archetypeSchema = z.enum(ARCHETYPES);
 const archetypes = ARCHETYPES;
 const featureSchema = z.enum([...FEATURES]);
+const evolutionSchema = z.enum(WORLD_EVOLUTIONS.map((item) => item.id));
 
 function toolResult(payload) {
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
@@ -159,6 +161,25 @@ server.registerTool('unlock_world_feature', {
   catch (error) { return toolError(error.message); }
 });
 
+server.registerTool('evolve_world', {
+  title: 'Write the next physical world evolution',
+  description: 'When the 45–60 second evolution timer reaches zero, choose exactly one unused evolution using current archetypes, post-assignment behaviour, prior evolutions and match progress. Narrate observed behaviour and the physical change without using unlock language.',
+  inputSchema: {
+    roomCode: roomCodeSchema,
+    evolutionId: evolutionSchema,
+    narration: z.string().trim().min(20).max(280),
+  },
+}, async ({ roomCode, evolutionId, narration }) => {
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (!['evolving', 'finale'].includes(state.phase) || Number(state.evolutionSecondsRemaining) > 0) return toolError('The world is still observing the players.');
+    if ((state.worldEvolutions || []).some((item) => item.id === evolutionId)) return toolError('That evolution already occurred in this match.');
+    const definition = WORLD_EVOLUTIONS.find((item) => item.id === evolutionId);
+    if (!state.players.some((player) => player.archetype === definition?.archetype)) return toolError('The matching archetype is not present.');
+    return toolResult(await gameRequest('/api/mcp/world-evolution', { method: 'POST', body: { roomCode, evolutionId, narration } }));
+  } catch (error) { return toolError(error.message); }
+});
+
 server.registerTool('issue_asymmetric_rule', {
   title: 'Evolve an identity into an asymmetric ability',
   description: 'Advance one player’s permanent archetype by exactly one pre-implemented evolution. The authoritative game server selects the next ability and makes it physical in the world; Loner evolutions deliberately contain private information.',
@@ -216,15 +237,21 @@ server.registerTool('create_finale', {
   description: 'Only after all four assigned players have evolved, create the feasible cooperative finale from the real roles and abilities developed in this match. The model cannot invent unsupported objectives.',
   inputSchema: {
     roomCode: roomCodeSchema,
+    destinationEvolutionId: evolutionSchema.optional(),
+    roleEvolutionIds: z.object({ Explorer:evolutionSchema, Collector:evolutionSchema, Guardian:evolutionSchema, Loner:evolutionSchema }).optional(),
+    complicationId: z.enum(FINALE_COMPLICATIONS.map((item)=>item.id)).optional(),
   },
-}, async ({ roomCode }) => {
+}, async ({ roomCode, destinationEvolutionId, roleEvolutionIds, complicationId }) => {
   try {
     const state = await requireReadyRoom(roomCode);
     if (state.finalObjective) return toolError('This room already has a finale.');
-    if (state.phase !== 'evolving' || !state.players.every((player) => player.archetype && (player.evolutions || []).length > 0)) {
-      return toolError('Create the finale only after every assigned player has at least one evolution.');
+    if (state.phase !== 'evolving' || !state.finaleEligible) {
+      return toolError('Create the finale only after every calling has changed the world and the minimum match time has passed.');
     }
-    return toolResult(await gameRequest('/api/mcp/finale', { method: 'POST', body: { roomCode } }));
+    const evolved = new Set((state.worldEvolutions || []).map((item)=>item.id));
+    if (destinationEvolutionId && !evolved.has(destinationEvolutionId)) return toolError('The destination did not evolve in this match.');
+    if (roleEvolutionIds && Object.values(roleEvolutionIds).some((id)=>!evolved.has(id))) return toolError('Every role step must reference an evolved landmark.');
+    return toolResult(await gameRequest('/api/mcp/finale', { method: 'POST', body: { roomCode, destinationEvolutionId, roleEvolutionIds, complicationId } }));
   }
   catch (error) { return toolError(error.message); }
 });

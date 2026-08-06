@@ -8,7 +8,7 @@ const baseUrl = `http://127.0.0.1:${port}`;
 const roomCode = 'DIR001';
 const names = ['Ari', 'Bea', 'Cy', 'Dee'];
 const server = spawn(process.execPath, ['server.mjs'], {
-  env: { ...process.env, PORT: String(port), GAME_TEST_OBSERVATION_MS: '200', GAME_TEST_GM_ASSIGNMENT_GRACE_MS: '0' },
+  env: { ...process.env, PORT: String(port), GAME_TEST_OBSERVATION_MS: '200', GAME_TEST_GM_ASSIGNMENT_GRACE_MS: '0', GAME_TEST_EVOLUTION_MIN_MS: '100', GAME_TEST_EVOLUTION_MAX_MS: '100', GAME_TEST_EVOLUTION_GM_GRACE_MS: '5000', GAME_TEST_FINALE_MIN_MATCH_MS: '100', GAME_TEST_FINALE_GM_GRACE_MS: '5000', GAME_TEST_FINALE_RESET_MS: '5000' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 let serverLog = '';
@@ -83,7 +83,17 @@ try {
   await apply('temporary_boon', { playerId: second.id, boonId: 'swift_step' });
   await apply('temporary_obstacle', { obstacleId: 'fallen_leaves' });
 
-  for (const player of afterTurn.players) await api('/api/mcp/evolve', { roomCode, playerId: player.id });
+  const evolutionIds = ['hidden-cave-appears', 'crystal-mine-awakens', 'healing-shrine-awakens', 'spirit-portal-opens'];
+  for (const evolutionId of evolutionIds) {
+    await waitFor(async () => {
+      const current = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
+      return Number(current.evolutionSecondsRemaining) <= 0;
+    }, `evolution timer for ${evolutionId}`);
+    await api('/api/mcp/world-evolution', { roomCode, evolutionId, narration: `The Game Master has observed a new pattern. The sleeping world responds. ${evolutionId.replaceAll('-', ' ')} takes physical form.` });
+  }
+  const evolved = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
+  assert.deepEqual(evolved.worldEvolutions.map((item) => item.id), evolutionIds);
+  assert.equal(new Set(evolved.worldEvolutions.map((item) => item.id)).size, evolutionIds.length);
   const finale = await api('/api/mcp/finale', { roomCode });
   assert.equal(finale.ok, true);
   await apply('finale_variant', { variantId: 'echo_accord' });

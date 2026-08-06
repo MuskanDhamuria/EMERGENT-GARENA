@@ -10,8 +10,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
+import { ARCHETYPES, FEATURES, MAX_PLAYERS, WORLD_EVOLUTIONS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
+import { FINALE_COMPLICATIONS } from './server/finale-system.mjs';
 
 function loadDotEnv() {
   if (!existsSync('.env')) return;
@@ -61,10 +62,11 @@ const actions = {
   wait: { description: 'No action is warranted; return a short atmospheric reason.', args: {} },
   narrate_event: { description: 'Narrate one concise public or private clue that reflects a visible change or observed behaviour.', args: { text: 'string', privateTo: 'optional player id' } },
   assign_archetypes: { description: 'Only if phase is observing and the observation timer is zero. Assign every player exactly once, using all four distinct archetypes when four players exist.', args: { assignments: '[{playerId, archetype, evidence}]' } },
+  evolve_world: { description: 'Only when evolutionSecondsRemaining is zero. Choose exactly one unused physical evolution supported by the matching archetype and post-assignment behaviour. Narration must describe what you observed and what physically changes; never say unlocked.', args: { evolutionId: `one of: ${WORLD_EVOLUTIONS.map((item) => item.id).join('|')}`, narration: '20–280 character atmospheric narration' } },
   issue_asymmetric_rule: { description: 'Evolve one player only after archetypes exist. It reveals that player’s next validated evolution; use a player id from state.', args: { playerId: 'string' } },
   unlock_world_feature: { description: 'Reveal one feature from the allowed list only when it follows the observed group identity. Features: hidden-cave, secret-path, invisible-bridge, forgotten-ruins, relic-vault, evolving-artifacts, treasure-cache, healing-shrine, protective-barrier, revival-monument, spirit-realm, illusion-passage, hidden-portal, ancient-temple, final-gate.', args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
   apply_director_card: { description: 'Use exactly one authored intervention card after roles awaken. Cards and payload presets: private_hint {playerId,message}; unlock_shortcut {shortcutId:moss_trail|lantern_path|warden_way|veil_passage}; role_request {requestId:explorer_scout|collector_recover|guardian_watch|loner_omen}; cooperation_request {roles:[2-4 roles],title,message}; world_mood {moodId:dawn|mist|storm|starlight}; temporary_boon {playerId,boonId:guiding_light|swift_step|shared_sight}; temporary_obstacle {obstacleId:mist_bank|echo_current|fallen_leaves}; story_turn {turnId:shrine_or_vault|path_or_veil,optionId:the AI-selected option}; finale_variant {variantId:lantern_rite|echo_accord|wardens_promise}. The AI resolves story turns immediately; players cannot vote. Never invent other values.', args: { card: 'string', payload: 'object with only that card\'s documented presets' } },
-  create_finale: { description: 'Only after every active player has at least one evolution and no finale exists.', args: {} },
+  create_finale: { description: 'Only when finaleEligible is true. Compose exclusively from evolutionHistory: choose one evolved destination, one evolved landmark per role, and one compatible shared complication.', args: { destinationEvolutionId:'evolved id', roleEvolutionIds:'{Explorer,Collector,Guardian,Loner}: evolved ids matching those roles', complicationId:`one of ${FINALE_COMPLICATIONS.map((item)=>item.id).join('|')}` } },
 };
 
 const REQUIRED_PLAYERS = MAX_PLAYERS;
@@ -98,6 +100,14 @@ function validateDecision(decision, state) {
       && ids.every((id) => players.some((player) => player.id === id)) && allFourRoles
       && entries.every((entry) => validText(entry.evidence, 8, 180)) ? null : 'Archetype assignment is not currently valid for this room.';
   }
+  if (decision.action === 'evolve_world') {
+    const definition = WORLD_EVOLUTIONS.find((item) => item.id === args.evolutionId);
+    const unused = !(state.worldEvolutions || []).some((item) => item.id === args.evolutionId);
+    return ['evolving', 'finale'].includes(state.phase) && Number(state.evolutionSecondsRemaining) <= 0
+      && definition && unused && players.some((player) => player.archetype === definition.archetype)
+      && validText(args.narration, 20) && !/\bunlock(?:ed|s|ing)?\b/i.test(args.narration)
+      ? null : 'That world evolution is not currently valid.';
+  }
   if (decision.action === 'issue_asymmetric_rule') {
     const player = players.find((item) => item.id === args.playerId);
     return ['evolving', 'finale'].includes(state.phase) && player?.archetype && (player.evolutions || []).length < 1 ? null : 'That evolution is not currently valid.';
@@ -112,8 +122,10 @@ function validateDecision(decision, state) {
       && args.payload && typeof args.payload === 'object' && !Array.isArray(args.payload) ? null : 'That director card is not currently valid.';
   }
   if (decision.action === 'create_finale') {
-    return state.phase === 'evolving' && !state.finalObjective
-      && players.every((player) => player.archetype && (player.evolutions || []).length > 0) ? null : 'The four-player finale is not ready.';
+    const history=state.worldEvolutions||[];const byId=new Map(history.map((item)=>[item.id,item]));const ids=args.roleEvolutionIds;
+    return state.phase === 'evolving' && state.finaleEligible && !state.finalObjective && byId.has(args.destinationEvolutionId)
+      && ids && ARCHETYPES.every((role)=>byId.get(ids[role])?.archetype===role)
+      && FINALE_COMPLICATIONS.some((item)=>item.id===args.complicationId) ? null : 'The four-player finale composition is not ready or references inactive history.';
   }
   return 'The model decision could not be validated.';
 }
@@ -123,12 +135,13 @@ function prompt(roomCode, telemetry, world) {
     'You are the living Game Master of Emergent, a four-player-only cooperative adventure that discovers rules from behaviour.',
     'Never invent game mechanics. You can only choose one action from the provided action list. The MCP server validates every action again.',
     'The central ethic: observe first; make a small, legible change; narrate why; let players react; observe again. Preserve asymmetric information when it is meaningful.',
-    'Act only while exactly four connected players are shown. Do not assign roles before observation ends. Do not evolve a player beyond its available evolution steps. Prefer wait if no change is warranted.',
+    'Act only while exactly four connected players are shown. Do not assign roles before observation ends. After roles exist, wait until evolutionSecondsRemaining is zero, then choose exactly one unused evolve_world event. Base it on post-assignment telemetry, prior evolutions and progression. Never repeat an evolution.',
+    'Evolution narration must sound like authored adventure prose: observation, atmospheric response, then physical change. Never say a role unlocked a feature and never mention system mechanics.',
     `Room: ${roomCode}`,
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,
     `Authoritative world state: ${JSON.stringify(world)}`,
     `Allowed actions: ${JSON.stringify(actions)}`,
-    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|apply_director_card|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
+    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|evolve_world|issue_asymmetric_rule|unlock_world_feature|apply_director_card|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
   ].join('\n');
 }
 

@@ -4,10 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { Server } from 'socket.io';
-import { ARCHETYPES, ENTITY_DEFINITIONS, EVOLUTION_LIBRARY, FEATURES, MAX_PLAYERS, ROLE_ABILITIES, TERRAIN_OVERLAYS } from './shared/game-content.js';
+import { ARCHETYPES, ENTITY_DEFINITIONS, FEATURES, MAX_PLAYERS, ROLE_ABILITIES, TERRAIN_OVERLAYS, WORLD_EVOLUTIONS } from './shared/game-content.js';
 import { createDirectorRules } from './server/director-rules.mjs';
 import { createMcpRouter } from './server/mcp-router.mjs';
 import { attachSocketGateway } from './server/socket-gateway.mjs';
+import { createFinaleSystem } from './server/finale-system.mjs';
 
 // The server owns all game rules. The browser only renders the state below and
 // sends intent; it cannot walk through a role gate or collect an invalid relic.
@@ -15,11 +16,18 @@ const PORT = Number(process.env.PORT || 8787);
 function configuredDuration(name, fallback, minimum) { const value = Number(process.env[name]); return Number.isFinite(value) ? Math.max(minimum, value) : fallback; }
 const OBSERVATION_MS = configuredDuration('GAME_TEST_OBSERVATION_MS', 30_000, 100);
 const GM_ASSIGNMENT_GRACE_MS = configuredDuration('GAME_TEST_GM_ASSIGNMENT_GRACE_MS', 12_000, 0);
+const EVOLUTION_MIN_MS = configuredDuration('GAME_TEST_EVOLUTION_MIN_MS', 45_000, 100);
+const EVOLUTION_MAX_MS = configuredDuration('GAME_TEST_EVOLUTION_MAX_MS', 60_000, EVOLUTION_MIN_MS);
+const EVOLUTION_GM_GRACE_MS = configuredDuration('GAME_TEST_EVOLUTION_GM_GRACE_MS', 12_000, 0);
+const FINALE_MIN_MATCH_MS = configuredDuration('GAME_TEST_FINALE_MIN_MATCH_MS', 180_000, 100);
+const FINALE_GM_GRACE_MS = configuredDuration('GAME_TEST_FINALE_GM_GRACE_MS', 12_000, 0);
+const FINALE_RESET_MS = configuredDuration('GAME_TEST_FINALE_RESET_MS', 30_000, 100);
 const WORLD_MIN_X = -29, WORLD_MAX_X = 28, WORLD_MIN_Z = -16, WORLD_MAX_Z = 15;
 const MAP_WIDTH = 60, MAP_OFFSET_X = 30, MAP_OFFSET_Z = 17;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
 const SPAWNS = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
 const rooms = new Map();
+let finaleSystem;
 
 let collisionTiles = [];
 try {
@@ -71,9 +79,9 @@ function createRoom(code) {
   const createdAt = now();
   return {
     code, createdAt, phase: 'waiting-for-four', observationEndsAt: null, players: new Map(),
-    entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })),
+    entities: [...ENTITY_DEFINITIONS, ...WORLD_EVOLUTIONS.map((item) => item.entity)].map((entity) => ({ ...entity, collectedBy: null })),
     world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, events: [], finalObjective: null,
-    archetypesAssignedAt: null, gmActiveUntil: 0, directorState: { activeRules: [], history: [], sequence: 0 },
+    archetypesAssignedAt: null, nextEvolutionAt: null, worldEvolutions: [], finaleCompositionHistory: [], gmActiveUntil: 0, directorState: { activeRules: [], history: [], sequence: 0 },
     director: { narration: 'Four lanterns are needed before this shared tale can begin.', source: 'server', at: createdAt },
   };
 }
@@ -81,15 +89,15 @@ function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index];
   return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], x, z, inputX: 0, inputZ: 0,
     locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
-    nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], privateRules: [], lastTelemetryAt: now() };
+    nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
 }
 function resetRoomForRoster(room, reason) {
-  room.phase = 'waiting-for-four'; room.observationEndsAt = null; room.archetypesAssignedAt = null; room.finalObjective = null;
+  room.phase = 'waiting-for-four'; room.observationEndsAt = null; room.archetypesAssignedAt = null; room.nextEvolutionAt = null; room.worldEvolutions = []; room.finalObjective = null;
   room.world = { unlocked: new Set(['starting-village']), privateUnlocks: new Map() };
   room.directorState = { activeRules: [], history: [], sequence: 0 };
-  room.entities = ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null }));
+  room.entities = [...ENTITY_DEFINITIONS, ...WORLD_EVOLUTIONS.map((item) => item.entity)].map((entity) => ({ ...entity, collectedBy: null }));
   for (const [index, player] of activePlayers(room).entries()) {
-    const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [] });
+    const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], evolutionBaseline: null });
     player.visited = new Set(['starting-village']); player.relicIds.clear(); player.interactions = {};
     player.movement = 0; player.movementSamples = 0; player.nearSeconds = 0; player.aloneSeconds = 0;
     player.riskEvents = 0; player.rescues = 0; player.follows = 0; player.privateRules = [];
@@ -104,11 +112,13 @@ function beginObservation(room) {
 }
 function playerTelemetry(room, player) {
   const elapsed = Math.max(1, (now() - (room.observationEndsAt ? room.observationEndsAt - OBSERVATION_MS : room.createdAt)) / 1000);
+  const baseline = player.evolutionBaseline;
+  const postAssignment = baseline ? { distanceTravelled: Math.max(0, Math.round(player.movement - baseline.movement)), relicsCollected: Math.max(0, player.relicIds.size - baseline.relics), nearGroupSeconds: Math.max(0, Math.round(player.nearSeconds - baseline.near)), aloneSeconds: Math.max(0, Math.round(player.aloneSeconds - baseline.alone)), riskEvents: Math.max(0, player.riskEvents - baseline.risk), rescues: Math.max(0, player.rescues - baseline.rescues), interactions: Object.fromEntries(Object.entries(player.interactions).map(([key, value]) => [key, Math.max(0, value - (baseline.interactions[key] || 0))])) } : null;
   return { id: player.id, name: player.name, location: player.locationId, locationsDiscovered: player.visited.size, relicsCollected: player.relicIds.size,
     interactions: player.interactions, distanceTravelled: Math.round(player.movement), nearGroupSeconds: Math.round(player.nearSeconds), aloneSeconds: Math.round(player.aloneSeconds),
-    riskEvents: player.riskEvents, rescues: player.rescues, follows: player.follows, cohesion: Number((player.nearSeconds / elapsed).toFixed(2)) };
+    riskEvents: player.riskEvents, rescues: player.rescues, follows: player.follows, cohesion: Number((player.nearSeconds / elapsed).toFixed(2)), postAssignment };
 }
-function roomTelemetry(room) { return { roomCode: room.code, phase: room.phase, playerCount: room.players.size, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: activePlayers(room).map((p) => playerTelemetry(room, p)), relicsCollected: room.entities.filter((e) => e.type === 'relic' && e.collectedBy).length, unlockedFeatures: [...room.world.unlocked], finalObjective: room.finalObjective }; }
+function roomTelemetry(room) { return { roomCode: room.code, phase: room.phase, playerCount: room.players.size, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, evolutionSecondsRemaining: room.nextEvolutionAt ? Math.max(0, Math.ceil((room.nextEvolutionAt - now()) / 1000)) : null, worldEvolutions: room.worldEvolutions, players: activePlayers(room).map((p) => playerTelemetry(room, p)), relicsCollected: room.entities.filter((e) => e.type === 'relic' && e.collectedBy).length, unlockedFeatures: [...room.world.unlocked], finalObjective: room.finalObjective }; }
 function closestDistance(room, player) { return activePlayers(room).filter((p) => p.id !== player.id).reduce((best, p) => Math.min(best, distance(player, p)), Infinity); }
 function archetypeScores(player) { return { Explorer: player.visited.size * 3 + player.movement / 30 + player.riskEvents * 2, Collector: player.relicIds.size * 9 + (player.interactions.relic || 0) * 2, Guardian: player.nearSeconds / 3 + player.rescues * 8 + (player.interactions['activate-shrine'] || 0) * 2 + player.follows, Loner: player.aloneSeconds / 3 + player.visited.size + (player.interactions['enter-spirit-realm'] || 0) * 3 }; }
 function calculateAssignments(room) {
@@ -123,8 +133,8 @@ function assignArchetypes(room, assignments, source = 'server') {
   if (!Array.isArray(assignments) || assignments.length !== MAX_PLAYERS) return { ok: false, error: 'Exactly four distinct player assignments are required.' };
   const players = new Set(), roles = new Set();
   for (const item of assignments) if (!getPlayer(room, item?.playerId) || !ARCHETYPES.includes(item?.archetype) || players.has(item.playerId) || roles.has(item.archetype)) return { ok: false, error: 'Assignments must contain every current player and every unique role exactly once.' }; else { players.add(item.playerId); roles.add(item.archetype); }
-  for (const { playerId, archetype } of assignments) { const player = getPlayer(room, playerId); player.archetype = archetype; event(room, 'archetype-awakened', `${player.name} has awakened as the ${archetype}.`, { playerId, archetype }); }
-  room.phase = 'evolving'; room.archetypesAssignedAt = now(); room.director = { narration: 'Four distinct callings have awakened. Each opens a different way through Everdawn.', source, at: now() };
+  for (const { playerId, archetype } of assignments) { const player = getPlayer(room, playerId); player.archetype = archetype; player.evolutionBaseline = { movement: player.movement, visited: player.visited.size, relics: player.relicIds.size, near: player.nearSeconds, alone: player.aloneSeconds, risk: player.riskEvents, rescues: player.rescues, interactions: { ...player.interactions } }; event(room, 'archetype-awakened', `${player.name} has awakened as the ${archetype}.`, { playerId, archetype }); }
+  room.phase = 'evolving'; room.archetypesAssignedAt = now(); room.nextEvolutionAt = scheduleEvolution(); room.director = { narration: 'Four distinct callings have awakened. The sleeping world begins to listen.', source, at: now() };
   return { ok: true, assignments };
 }
 function markGmActive(room) { room.gmActiveUntil = now() + 45_000; }
@@ -135,60 +145,58 @@ function unlock(room, feature, message, options = {}) {
   else { const fresh = !room.world.unlocked.has(feature); room.world.unlocked.add(feature); if (fresh || message) event(room, 'world-unlocked', message || `${feature} is now accessible.`, { feature }); }
   return { ok: true, feature };
 }
+function scheduleEvolution() { return now() + EVOLUTION_MIN_MS + Math.floor(Math.random() * (EVOLUTION_MAX_MS - EVOLUTION_MIN_MS + 1)); }
+function evolutionReady(room) { return ['evolving', 'finale'].includes(room.phase) && room.nextEvolutionAt && now() >= room.nextEvolutionAt; }
+function evolveWorld(room, evolutionId, narration, source = 'AI Game Master') {
+  if (!evolutionReady(room)) return { ok: false, error: 'The world is still observing how the players respond.' };
+  const definition = WORLD_EVOLUTIONS.find((item) => item.id === evolutionId);
+  if (!definition) return { ok: false, error: 'Unknown world evolution.' };
+  if (room.worldEvolutions.some((item) => item.id === definition.id)) return { ok: false, error: 'That evolution already occurred in this match.' };
+  const player = activePlayers(room).find((item) => item.archetype === definition.archetype);
+  if (!player) return { ok: false, error: 'That evolution has no matching archetype.' };
+  const message = cleanText(narration, definition.narration, 280);
+  room.world.unlocked.add(definition.feature); player.evolutions.push(definition.feature);
+  const entry = { id: definition.id, archetype: definition.archetype, title: definition.title, feature: definition.feature, narration: message, at: now(), source };
+  room.worldEvolutions.push(entry); room.nextEvolutionAt = scheduleEvolution();
+  room.director = { narration: message, source, at: entry.at, evolutionId: definition.id };
+  event(room, 'world-evolution', message, { evolution: entry }); maybeCreateFinale(room, source);
+  return { ok: true, evolution: entry, nextEvolutionAt: room.nextEvolutionAt };
+}
 function evolve(room, playerId, source = 'server') {
-  const player = getPlayer(room, playerId); if (room.phase !== 'evolving' && room.phase !== 'finale') return { ok: false, error: 'The shared world has not started evolving.' };
-  if (!player?.archetype) return { ok: false, error: 'That player has no assigned role.' };
-  const step = EVOLUTION_LIBRARY[player.archetype][player.evolutions.length]; if (!step) return { ok: false, error: 'This role has already reached its available evolution.' };
-  const [feature, narration] = step; player.evolutions.push(feature); const privateTo = player.archetype === 'Loner' ? player.id : null;
-  const result = unlock(room, feature, narration, privateTo ? { privateTo } : {}); if (!result.ok) return result;
-  if (privateTo) player.privateRules.push({ id: feature, title: 'Private Vision', message: 'Only you can see the Veil Path and the Spirit Portal.' });
-  room.director = { narration, source, at: now() }; event(room, 'archetype-evolved', `${player.name}'s ${player.archetype} has evolved.`, { playerId, archetype: player.archetype, feature });
-  maybeCreateFinale(room, source); return { ok: true, playerId, archetype: player.archetype, feature };
+  const player = getPlayer(room, playerId); if (!player?.archetype) return { ok: false, error: 'That player has no assigned role.' };
+  const candidate = WORLD_EVOLUTIONS.find((item) => item.archetype === player.archetype && !room.worldEvolutions.some((used) => used.id === item.id));
+  return candidate ? evolveWorld(room, candidate.id, candidate.narration, source) : { ok: false, error: 'No unused evolution remains for that calling.' };
 }
-function maybeAutoEvolve(room, player, reason) {
-  // Natural evolution is activity-triggered. An active MCP Game Master has a
-  // short exclusive window, so the fallback never races a live GM decision.
-  if (room.gmActiveUntil > now() || player.evolutions.length) return;
-  const result = evolve(room, player.id, 'role-mastery'); if (result.ok) event(room, 'role-mastery', `${player.name} mastered the ${reason}.`, { playerId: player.id });
+function fallbackEvolution(room) {
+  const used = new Set(room.worldEvolutions.map((item) => item.id));
+  const candidates = WORLD_EVOLUTIONS.filter((item) => !used.has(item.id) && activePlayers(room).some((player) => player.archetype === item.archetype));
+  if (!candidates.length) { room.nextEvolutionAt = null; return null; }
+  const score = (item) => { const player = activePlayers(room).find((p) => p.archetype === item.archetype); const base = player.evolutionBaseline || {}; const proxy = { ...player, movement: player.movement - (base.movement || 0), visited: { size: Math.max(0, player.visited.size - (base.visited || 0)) }, nearSeconds: player.nearSeconds - (base.near || 0), aloneSeconds: player.aloneSeconds - (base.alone || 0), riskEvents: player.riskEvents - (base.risk || 0), rescues: player.rescues - (base.rescues || 0), relicIds: { size: player.relicIds.size - (base.relics || 0) }, interactions: Object.fromEntries(Object.entries(player.interactions).map(([key,value]) => [key, value - (base.interactions?.[key] || 0)])) }; return (archetypeScores(proxy)[item.archetype] || 0) - room.worldEvolutions.filter((e) => e.archetype === item.archetype).length * 8 + Math.random() * 3; };
+  const chosen = [...candidates].sort((a, b) => score(b) - score(a))[0];
+  return evolveWorld(room, chosen.id, chosen.narration, 'behaviour-model fallback');
 }
-function createFinalObjective(room, source = 'server') {
-  if (room.finalObjective) return room.finalObjective;
-  const players = activePlayers(room);
-  if (players.length !== MAX_PLAYERS || !players.every((p) => p.archetype && p.evolutions.length)) return null;
-  room.world.unlocked.add('ancient-temple'); room.world.unlocked.add('final-gate'); room.phase = 'finale';
-  room.finalObjective = { id: `temple-${room.createdAt}`, title: 'The Ancient Temple Has Awakened', description: 'Each of the four roles must perform its own rite.', createdAt: now(), source, status: 'active', required: players.map((p) => ({ playerId: p.id, archetype: p.archetype, task: ({ Explorer: 'discover the hidden temple entrance', Collector: 'offer three relics at the altar', Guardian: 'activate the awakened shrine', Loner: 'open the final gate' })[p.archetype], completed: false })) };
-  event(room, 'finale-created', 'The Ancient Temple has awakened. All four roles are needed at the final gate.', { objective: room.finalObjective }); return room.finalObjective;
-}
-function maybeCreateFinale(room, source) { if (activePlayers(room).length === MAX_PLAYERS && activePlayers(room).every((p) => p.archetype && p.evolutions.length)) createFinalObjective(room, source); }
-function completeObjectiveTask(room, player, type, entity) {
-  const objective = room.finalObjective; if (!objective || objective.status !== 'active') return { ok: true, finale: false };
-  const task = objective.required.find((entry) => entry.playerId === player.id); if (!task || task.completed) return { ok: true, finale: false };
-  const valid = (player.archetype === 'Explorer' && type === 'discover-temple' && entity.id === 'hidden-temple-entrance') || (player.archetype === 'Collector' && type === 'offer-relics' && entity.id === 'final-altar' && player.relicIds.size >= 3) || (player.archetype === 'Guardian' && type === 'activate-shrine' && entity.id === 'guardian-shrine') || (player.archetype === 'Loner' && type === 'open-final-gate' && entity.id === 'final-gate');
-  if (!valid) return { ok: false, error: 'That is not your valid finale rite yet.' };
-  task.completed = true; event(room, 'finale-progress', `${player.name} completed the ${player.archetype} rite.`, { playerId: player.id, archetype: player.archetype });
-  if (objective.required.every((entry) => entry.completed)) { objective.status = 'complete'; objective.completedAt = now(); event(room, 'finale-complete', 'The final gate opens. Everdawn remembers the four stories written here.', { objective }); }
-  return { ok: true, finale: true };
-}
+function createFinalObjective(room, source = 'server', proposal = {}) { const result = finaleSystem.compose(room, source, proposal); return result.ok ? result.objective : null; }
+function maybeCreateFinale() { /* The AI decision window is handled in advanceRoom. */ }
 function getEntity(room, targetId) { return room.entities.find((entity) => entity.id === targetId); }
 function interact(room, player, type, targetId) {
   if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until all four players have received their roles.' };
   const action = cleanText(type, '', 32), entity = getEntity(room, cleanText(targetId, '', 48));
-  if (!entity || !['relic', 'discover-temple', 'activate-shrine', 'enter-spirit-realm', 'offer-relics', 'open-final-gate'].includes(action)) return { ok: false, error: 'That interaction target is invalid.' };
+  if (!entity || !['relic', 'discover-temple', 'activate-shrine', 'enter-spirit-realm', 'offer-relics', 'open-final-gate', 'explore-evolution', 'finale-arrive', 'finale-role-step', 'finale-ritual'].includes(action)) return { ok: false, error: 'That interaction target is invalid.' };
   if (distance(player, entity) > 3.25) return { ok: false, error: 'Move closer to interact with that object.' };
+  if (action.startsWith('finale-')) return finaleSystem.interact(room, player, action, entity);
   if (!hasRole(player, entity.role)) return { ok: false, error: `Only the ${entity.role} can use ${entity.label}.` };
-  const expected = { relic: 'relic', 'discover-temple': 'temple-entrance', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' }[action];
+  const expected = { relic: 'relic', 'discover-temple': 'temple-entrance', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'offer-relics': 'altar', 'open-final-gate': 'final-gate', 'explore-evolution': 'world-evolution' }[action];
   if (entity.type !== expected) return { ok: false, error: 'That action does not match this object.' };
   if (entity.feature && !room.world.unlocked.has(entity.feature)) return { ok: false, error: 'That place has not awakened yet.' };
   if (entity.type === 'relic') { if (entity.collectedBy) return { ok: false, error: 'That relic was already claimed.' }; entity.collectedBy = player.id; player.relicIds.add(entity.id); }
   player.interactions[action] = (player.interactions[action] || 0) + 1;
-  const mastery = { relic: 'Echo Water relic', 'discover-temple': 'hidden route', 'activate-shrine': 'shrine rite', 'enter-spirit-realm': 'spirit path' }[action];
-  if (mastery) maybeAutoEvolve(room, player, mastery);
-  const finale = completeObjectiveTask(room, player, action, entity); if (!finale.ok) return finale;
-  const messages = { relic: `${player.name} collected ${entity.label}.`, 'discover-temple': `${player.name} found the hidden temple entrance.`, 'activate-shrine': `${player.name} awakened the shrine.`, 'enter-spirit-realm': `${player.name} stepped through the veil.`, 'offer-relics': `${player.name} offered relics at the altar.`, 'open-final-gate': `${player.name} turned the final gate's spirit key.` };
+  const messages = { relic: `${player.name} collected ${entity.label}.`, 'discover-temple': `${player.name} found the hidden temple entrance.`, 'activate-shrine': `${player.name} awakened the shrine.`, 'enter-spirit-realm': `${player.name} stepped through the veil.`, 'offer-relics': `${player.name} offered relics at the altar.`, 'open-final-gate': `${player.name} turned the final gate's spirit key.`, 'explore-evolution': `${player.name} explored the changed world at ${entity.label}.` };
   event(room, action === 'relic' ? 'relic-collected' : 'role-interaction', messages[action], { playerId: player.id, targetId: entity.id }); return { ok: true, targetId: entity.id };
 }
 function entityVisibleTo(entity, viewer, room) {
   if (!viewer) return true;
+  if (entity.finaleOnly) return true;
+  if (entity.type === 'world-evolution') return true;
   if (entity.type === 'relic') return viewer.archetype === 'Collector';
   if (entity.feature && !room.world.unlocked.has(entity.feature)) return false;
   return entity.role === viewer.archetype || !entity.role;
@@ -197,9 +205,9 @@ function serializeRoom(room, viewerId = null) {
   advanceRoom(room); const viewer = viewerId && getPlayer(room, viewerId); const privateUnlocks = viewer ? [...(room.world.privateUnlocks.get(viewer.id) || [])] : [];
   const directorRules = room.directorState || { activeRules: [], history: [] };
   const visibleRules = (directorRules.activeRules || []).filter((rule) => !rule.playerId || !viewerId || rule.playerId === viewerId);
-  const entities = room.entities.filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, label, role, terrain, collectedBy, feature }) => ({ id, type, x, z, label, requiredRole: role, terrain, collectedBy, feature }));
+  const entities = room.entities.filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, label, role, terrain, collectedBy, feature, interaction, transformed }) => ({ id, type, x, z, label, requiredRole: role, role, terrain, collectedBy, feature, interaction, action: interaction, transformed, dormant: Boolean(feature && !room.world.unlocked.has(feature)) }));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
-  return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null,
+  return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, nextEvolutionAt: room.nextEvolutionAt, evolutionSecondsRemaining: room.nextEvolutionAt ? Math.max(0, Math.ceil((room.nextEvolutionAt - now()) / 1000)) : null, finaleSecondsRemaining: room.archetypesAssignedAt ? Math.max(0, Math.ceil((room.archetypesAssignedAt + FINALE_MIN_MATCH_MS - now()) / 1000)) : null, finaleEligible: Boolean(finaleSystem?.eligibility(room).ok), worldEvolutions: room.worldEvolutions, evolutionHistory: room.worldEvolutions,
     players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, x: p.x, z: p.z, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions })),
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
     world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director,
@@ -232,9 +240,15 @@ function advanceRoom(room) {
     event(room, 'gm-narration', 'The observation ends. Four distinct callings awaken.');
     assignArchetypes(room, calculateAssignments(room), 'behaviour-model fallback');
   }
+  // Give the live AI one decision grace period, then guarantee that the world
+  // still evolves on schedule when no external Game Master is running.
+  if (evolutionReady(room) && now() >= room.nextEvolutionAt + EVOLUTION_GM_GRACE_MS) fallbackEvolution(room);
+  if (!room.finalObjective && room.archetypesAssignedAt && now() - room.archetypesAssignedAt >= FINALE_MIN_MATCH_MS + FINALE_GM_GRACE_MS && finaleSystem.eligibility(room).ok) finaleSystem.compose(room, 'behaviour-model fallback');
+  finaleSystem.advance(room);
 }
 
-const world = { rooms, observationMs: OBSERVATION_MS, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact };
+const world = { rooms, observationMs: OBSERVATION_MS, cleanText, clamp, getPlayer, playerTelemetry, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, evolveWorld, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact };
+finaleSystem = createFinaleSystem(world, { minimumMatchMs: FINALE_MIN_MATCH_MS, resetAfterMs: FINALE_RESET_MS });
 world.directorRules = createDirectorRules(world);
 const handleMcpApi = createMcpRouter(world);
 

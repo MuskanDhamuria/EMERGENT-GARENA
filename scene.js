@@ -9,10 +9,10 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, update } = session;
+const { state, gameReady, interact, aimAt, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
-const preview=new URLSearchParams(location.search).get('preview');if(preview==='shadow-forest')enableShadowForestPreview();else if(preview==='moon-shrine')enableMoonShrinePreview();
+const preview=new URLSearchParams(location.search).get('preview');if(preview==='shadow-forest')enableShadowForestPreview();else if(preview==='moon-shrine')enableMoonShrinePreview();else if(preview==='ghost-village')enableGhostVillagePreview();
 
 function movementInput() {
   let x = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
@@ -42,7 +42,8 @@ addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
-canvas.addEventListener('click', () => { if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
+canvas.addEventListener('mousemove',(event)=>{const rect=canvas.getBoundingClientRect();state.aimScreen={x:(event.clientX-rect.left)*canvas.width/rect.width,y:(event.clientY-rect.top)*canvas.height/rect.height};});
+canvas.addEventListener('click', (event) => { const rect=canvas.getBoundingClientRect(),x=(event.clientX-rect.left)*canvas.width/rect.width,y=(event.clientY-rect.top)*canvas.height/rect.height;if(aimAt(x,y,canvas.width,canvas.height))return;if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
 
 let last = performance.now();
 function loop(now) {

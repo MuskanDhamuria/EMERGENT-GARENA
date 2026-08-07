@@ -136,6 +136,7 @@ function prompt(roomCode, telemetry, world) {
     'Never invent game mechanics. You can only choose one action from the provided action list. The MCP server validates every action again.',
     'The central ethic: observe first; make a small, legible change; narrate why; let players react; observe again. Preserve asymmetric information when it is meaningful.',
     'Act only while exactly four connected players are shown. Do not assign roles before observation ends. After roles exist, wait until evolutionSecondsRemaining is zero, then choose exactly one unused evolve_world event. Base it on post-assignment telemetry, prior evolutions and progression. Never repeat an evolution.',
+    'The five Loner evolutions are separate portal destinations. Never reveal them together or follow a fixed sequence. At one valid evolution window, reveal at most one unused Loner portal, choosing it from that player’s postAssignment behaviour, completed interactions, earlier portals, and match progress. Observe again before choosing another portal in a later window.',
     'Evolution narration must sound like authored adventure prose: observation, atmospheric response, then physical change. Never say a role unlocked a feature and never mention system mechanics.',
     `Room: ${roomCode}`,
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,

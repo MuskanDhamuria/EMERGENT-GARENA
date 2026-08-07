@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
+import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 const REQUIRED_PLAYERS = MAX_PLAYERS;
@@ -191,6 +192,19 @@ server.registerTool('narrate_event', {
     const state = await requireReadyRoom(roomCode);
     if (privateTo && !playerIn(state, privateTo)) return toolError('Private narration must target a current player.');
     return toolResult(await gameRequest('/api/mcp/narrate', { method: 'POST', body: { roomCode, message: text, privateTo } }));
+  }
+  catch (error) { return toolError(error.message); }
+});
+
+server.registerTool('choose_guardian_trials', {
+  title: 'Choose two Guardian portal trials',
+  description: 'After observing the Guardian, choose exactly two distinct pre-authored sanctuary trials. The server locks this selection when the first portal is entered; the AI cannot invent a trial or alter completed progress.',
+  inputSchema: { roomCode: roomCodeSchema, playerId: playerIdSchema, trialIds: z.array(z.enum(GUARDIAN_TRIALS.map((trial) => trial.id))).length(2) },
+}, async ({ roomCode, playerId, trialIds }) => {
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (state.players.find((player) => player.id === playerId)?.archetype !== 'Guardian') return toolError('Choose trials only for the current Guardian.');
+    return toolResult(await gameRequest('/api/mcp/guardian-trials', { method: 'POST', body: { roomCode, playerId, trialIds } }));
   }
   catch (error) { return toolError(error.message); }
 });

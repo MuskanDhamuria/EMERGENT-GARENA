@@ -24,6 +24,7 @@ export function createMcpRouter(world) {
     else if (pathname === '/api/mcp/assign-archetypes') { world.markGmActive(room); result = world.assignArchetypes(room, payload.assignments, 'MCP Game Master'); }
     else if (pathname === '/api/mcp/unlock') result = !['evolving', 'finale'].includes(room.phase) ? { ok: false, error: 'World features unlock only after roles are assigned.' } : !payload.privateTo && room.world.unlocked.has(payload.feature) ? { ok: false, error: 'That public feature is already unlocked.' } : (world.markGmActive(room), world.unlock(room, payload.feature, world.cleanText(payload.message), payload.privateTo ? { privateTo: payload.privateTo } : {}));
     else if (pathname === '/api/mcp/evolve') { world.markGmActive(room); result = world.evolve(room, payload.playerId, 'MCP Game Master'); }
+    else if (pathname === '/api/mcp/guardian-trials') { world.markGmActive(room); result = world.chooseGuardianTrials(room, payload.playerId, payload.trialIds, 'MCP Game Master'); }
     else if (pathname === '/api/mcp/finale') { world.markGmActive(room); const objective = world.createFinalObjective(room, 'MCP Game Master'); result = objective ? { ok: true, objective } : { ok: false, error: 'The finale needs exactly four assigned and evolved roles.' }; }
     else if (pathname === '/api/mcp/emergent-rule') result = world.emergentRules.apply(room, payload.directive, undefined);
     else if (pathname === '/api/mcp/director-card') result = world.directorRules.apply(room, { card: payload.card, payload: payload.payload }, { source: 'AI Game Master' });

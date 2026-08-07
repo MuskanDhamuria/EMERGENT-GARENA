@@ -13,6 +13,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
+import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
 
 function loadDotEnv() {
   if (!existsSync('.env')) return;
@@ -66,6 +67,7 @@ const actions = {
   unlock_world_feature: { description: 'Reveal one feature from the allowed list only when it follows the observed group identity. Features: hidden-cave, secret-path, invisible-bridge, forgotten-ruins, relic-vault, evolving-artifacts, treasure-cache, healing-shrine, protective-barrier, revival-monument, spirit-realm, illusion-passage, hidden-portal, ancient-temple, final-gate.', args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
   create_emergent_rule: { description: `Create one novel, reversible law from observed behaviour. The server selects players from evidence and rejects incompatible combinations. Triggers: ${EMERGENT_TRIGGER_IDS.join('|')}. Effects: ${EMERGENT_EFFECT_IDS.join('|')}. Visibility: shared|participants|private. Markers when required: ${Object.keys(EMERGENT_MARKERS).join('|')}. Provide title, message, optional markerId, optional durationSeconds 10-120. Use only after its trigger is visibly evidenced in telemetry/world state.`, args: { triggerId: 'string', effectId: 'string', visibility: 'shared|participants|private', markerId: 'optional string', durationSeconds: 'optional number', title: 'string', message: 'string' } },
   apply_director_card: { description: 'Use exactly one authored intervention card after roles awaken. Cards and payload presets: private_hint {playerId,message}; unlock_shortcut {shortcutId:moss_trail|lantern_path|warden_way|veil_passage}; role_request {requestId:explorer_scout|collector_recover|guardian_watch|loner_omen}; cooperation_request {roles:[2-4 roles],title,message}; world_mood {moodId:dawn|mist|storm|starlight}; temporary_boon {playerId,boonId:guiding_light|swift_step|shared_sight}; temporary_obstacle {obstacleId:mist_bank|echo_current|fallen_leaves}; story_turn {turnId:shrine_or_vault|path_or_veil,optionId:the AI-selected option}; finale_variant {variantId:lantern_rite|echo_accord|wardens_promise}. The AI resolves story turns immediately; players cannot vote. Never invent other values.', args: { card: 'string', payload: 'object with only that card\'s documented presets' } },
+  choose_guardian_trials: { description: `After the Guardian evolves but before entering a portal, choose exactly two different trials from: ${GUARDIAN_TRIALS.map((trial) => trial.id).join('|')}. Base this on the Guardian's observed cohesion, movement and rescues.`, args: { playerId: 'Guardian player id', trialIds: '[exactly two valid trial ids]' } },
   create_finale: { description: 'Only after every active player has at least one evolution and no finale exists.', args: {} },
 };
 
@@ -131,6 +133,11 @@ function validateDecision(decision, state) {
     return ['evolving', 'finale'].includes(state.phase) && DIRECTOR_CARD_TYPES.includes(args.card)
       && args.payload && typeof args.payload === 'object' && !Array.isArray(args.payload) ? null : 'That director card is not currently valid.';
   }
+  if (decision.action === 'choose_guardian_trials') {
+    const guardian = players.find((player) => player.id === args.playerId && player.archetype === 'Guardian');
+    return ['evolving', 'finale'].includes(state.phase) && guardian && Array.isArray(args.trialIds) && args.trialIds.length === 2
+      && new Set(args.trialIds).size === 2 && args.trialIds.every((id) => GUARDIAN_TRIALS.some((trial) => trial.id === id)) ? null : 'Choose two valid trials for the evolved Guardian.';
+  }
   if (decision.action === 'create_finale') {
     return state.phase === 'evolving' && !state.finalObjective
       && players.every((player) => player.archetype && (player.evolutions || []).length > 0) ? null : 'The four-player finale is not ready.';
@@ -148,7 +155,7 @@ function prompt(roomCode, telemetry, world) {
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,
     `Authoritative world state: ${JSON.stringify(world)}`,
     `Allowed actions: ${JSON.stringify(actions)}`,
-    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|create_emergent_rule|apply_director_card|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
+    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|create_emergent_rule|apply_director_card|choose_guardian_trials|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
   ].join('\n');
 }
 

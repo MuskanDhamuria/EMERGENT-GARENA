@@ -37,6 +37,8 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'hidden-temple-entrance', type: 'temple-entrance', x: -19, z: -9, role: 'Explorer', terrain: 'moss-trail', label: 'Hidden Temple Entrance' }),
   Object.freeze({ id: 'guardian-shrine', type: 'shrine', x: 14, z: -2, role: 'Guardian', terrain: 'guardian-bridge', label: 'Awakened Shrine' }),
   Object.freeze({ id: 'spirit-portal', type: 'spirit-portal', x: -3, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Spirit Portal' }),
+  Object.freeze({ id: 'explorer-waystone', type: 'waystone', x: -16, z: -10, role: 'Explorer', terrain: 'moss-trail', label: 'Trail Waystone', feature: 'hidden-cave' }),
+  Object.freeze({ id: 'veil-mirror', type: 'veil-mirror', x: -1, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Veil Mirror', feature: 'spirit-realm' }),
   Object.freeze({ id: 'final-altar', type: 'altar', x: 19, z: 9, role: 'Collector', label: 'Relic Altar', feature: 'ancient-temple' }),
   // This is deliberately beside the altar, on a walkable tile.  The former
   // position at (20, 10) was surrounded by collision tiles, making the final
@@ -59,6 +61,11 @@ export const ENTITY_ACTIONS = Object.freeze({
   'spirit-portal': 'enter-spirit-realm',
   'final-altar': 'offer-relics',
   'final-gate': 'open-final-gate',
+  'explorer-waystone': 'trace-waystone',
+  'veil-mirror': 'read-veil',
+  'guardian-portal-1': 'enter-guardian-portal',
+  'guardian-portal-2': 'enter-guardian-portal',
+  'temple-pillar': 'activate-temple-pillar',
 });
 
 // Used only if a client receives an older server snapshot without `entities`.

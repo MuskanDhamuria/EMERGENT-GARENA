@@ -38,12 +38,20 @@ export function createSession() {
     return [...new Set([...(state.mine?.capabilities || state.mine?.abilities || state.mine?.abilityIds || []), ...(state.world?.world?.yourAbilities || state.world?.yourAbilities || []), ...features()])];
   }
   function relics() { return Array.isArray(state.world?.relics) ? state.world.relics : []; }
+  function guardianTrial() { return state.world?.guardianTrial || null; }
+  function templeFinale() { return state.world?.templeFinale || null; }
   function serverEntities() {
     const supplied = state.world?.world?.entities || state.world?.entities || [];
     if (supplied.length) return supplied.filter(Boolean).map((entity, index) => ({ ...entity, id: entity.id || `entity-${index}`, ...mapPoint(entity), label: entity.label || entity.name || entity.id || 'World feature', kind: entity.kind || entity.type || 'feature' }));
     return [...features()].map((feature) => FEATURE_FALLBACK_ENTITIES[feature]).filter(Boolean).map((entity) => ({ ...entity, ...mapPoint(entity), kind: entity.type }));
   }
   function activeEntities() {
+    const trial = guardianTrial(), temple = templeFinale();
+    if (trial?.activeTrial) return trial.activeTrial.objectives.filter((objective) => !trial.activatedObjectiveIds.includes(objective.id)).map((objective) => ({ ...objective, y: objective.z, kind: 'guardian-objective', action: 'guardian-objective', targetId: objective.id }));
+    if (temple) {
+      const minePane = temple.panes?.find((pane) => pane.id === state.network.playerId);
+      return minePane ? [{ ...minePane.pedestal, y: minePane.pedestal.z, kind: 'temple-pillar', action: 'activate-temple-pillar', targetId: 'temple-pillar', label: minePane.pedestal.label }] : [];
+    }
     const relicEntities = relics().filter((relic) => !relic.collectedBy).map((relic) => ({ ...relic, ...mapPoint(relic), kind: 'relic', label: relic.name || relic.id.replaceAll('-', ' '), action: 'relic', targetId: relic.id }));
     return [...relicEntities, ...serverEntities().filter((entity) => entity.kind !== 'relic' && entity.type !== 'relic')];
   }
@@ -87,7 +95,12 @@ export function createSession() {
       note('Roles are still awakening. Interactions unlock when the observation ends.', 4);
       return;
     }
-    const entity = nearest(state.mine, activeEntities()), action = finalAction(entity);
+    const trial = guardianTrial(), temple = templeFinale();
+    // Portal coordinates belong to their separate dimension. Once its trial is
+    // complete, use the overworld player position again so the next portal can
+    // be found and interacted with normally.
+    const position = trial?.activeTrial && trial.position ? { x: trial.position.x, y: trial.position.z } : temple?.panes?.find((pane) => pane.id === state.network.playerId)?.position ? { x: temple.panes.find((pane) => pane.id === state.network.playerId).position.x, y: temple.panes.find((pane) => pane.id === state.network.playerId).position.z } : state.mine;
+    const entity = nearest(position, activeEntities()), action = finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
       note(reply?.ok ? `You used ${entity.label || action.replaceAll('-', ' ')}.` : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
@@ -110,5 +123,5 @@ export function createSession() {
   socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, interact, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, guardianTrial, templeFinale, activeEntities, joinRoom, interact, update };
 }

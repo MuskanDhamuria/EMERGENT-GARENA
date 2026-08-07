@@ -9,7 +9,7 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, update } = session;
+const { state, gameReady, interact, joinRoom, update, activeEntities } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -61,6 +61,9 @@ window.render_game_to_text = () => JSON.stringify({
   room: state.network.roomCode, playerCount: state.players.length,
   phase: state.world?.phase || 'unjoined',
   player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), archetype: state.mine.archetype },
+  targets: activeEntities().map((entity) => ({ id: entity.targetId || entity.id, action: entity.action, x: +Number(entity.x).toFixed(1), y: +Number(entity.y).toFixed(1) })),
+  guardianTrial: state.world?.guardianTrial && { status: state.world.guardianTrial.status, active: state.world.guardianTrial.activeTrial?.id || null, position: state.world.guardianTrial.position || null, wards: state.world.guardianTrial.activatedObjectiveIds?.length || 0, completed: state.world.guardianTrial.completedTrialIds?.length || 0 },
+  temple: state.world?.templeFinale && { status: state.world.templeFinale.status, layout: state.world.templeFinale.status === 'assembling' ? 'shared-map' : 'four-way-split', panes: state.world.templeFinale.panes?.map((pane) => ({ role: pane.archetype, atPillar: pane.atPedestal, awake: pane.pillarActivated })) },
   relics: state.world?.relics?.filter((relic) => !relic.collectedBy).map((relic) => relic.id) || [],
   director: {
     mood: state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId || null,

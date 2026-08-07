@@ -47,7 +47,15 @@ export function createSession() {
   }
   function activeEntities() {
     const trial = guardianTrial(), temple = templeFinale();
-    if (trial?.activeTrial) return trial.activeTrial.objectives.filter((objective) => !trial.activatedObjectiveIds.includes(objective.id)).map((objective) => ({ ...objective, y: objective.z, kind: 'guardian-objective', action: 'guardian-objective', targetId: objective.id }));
+    if (trial?.activeTrial) {
+      const mechanic = trial.mechanic || {}, objectives = trial.activeTrial.objectives;
+      let interactable = objectives.filter((objective) => !trial.activatedObjectiveIds.includes(objective.id));
+      if (mechanic.id === 'carry-lanterns') interactable = mechanic.carriedLanternId
+        ? objectives.filter((objective) => objective.id === 'hearth')
+        : objectives.filter((objective) => objective.id !== 'hearth' && !mechanic.deliveredLanternIds.includes(objective.id));
+      if (mechanic.id === 'stillness-channel' && mechanic.channelObjectiveId) interactable = [];
+      return interactable.map((objective) => ({ ...objective, y: objective.z, kind: 'guardian-objective', action: 'guardian-objective', targetId: objective.id }));
+    }
     if (temple) {
       const minePane = temple.panes?.find((pane) => pane.id === state.network.playerId);
       return minePane ? [{ ...minePane.pedestal, y: minePane.pedestal.z, kind: 'temple-pillar', action: 'activate-temple-pillar', targetId: 'temple-pillar', label: minePane.pedestal.label }] : [];

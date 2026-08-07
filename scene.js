@@ -68,7 +68,7 @@ window.render_game_to_text = () => JSON.stringify({
   phase: state.world?.phase || 'unjoined',
   player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), archetype: state.mine.archetype },
   targets: activeEntities().map((entity) => ({ id: entity.targetId || entity.id, action: entity.action, x: +Number(entity.x).toFixed(1), y: +Number(entity.y).toFixed(1) })),
-  guardianTrial: state.world?.guardianTrial && { status: state.world.guardianTrial.status, active: state.world.guardianTrial.activeTrial?.id || null, position: state.world.guardianTrial.position || null, wards: state.world.guardianTrial.activatedObjectiveIds?.length || 0, completed: state.world.guardianTrial.completedTrialIds?.length || 0 },
+  guardianTrial: state.world?.guardianTrial && { status: state.world.guardianTrial.status, active: state.world.guardianTrial.activeTrial?.id || null, position: state.world.guardianTrial.position || null, wards: state.world.guardianTrial.activatedObjectiveIds?.length || 0, completed: state.world.guardianTrial.completedTrialIds?.length || 0, mechanic: state.world.guardianTrial.mechanic || null },
   temple: state.world?.templeFinale && { status: state.world.templeFinale.status, layout: state.world.templeFinale.status === 'assembling' ? 'shared-map' : 'four-way-split', panes: state.world.templeFinale.panes?.map((pane) => ({ role: pane.archetype, atPillar: pane.atPedestal, awake: pane.pillarActivated })) },
   relics: state.world?.relics?.filter((relic) => !relic.collectedBy).map((relic) => relic.id) || [],
   director: {

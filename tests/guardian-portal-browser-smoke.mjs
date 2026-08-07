@@ -62,11 +62,25 @@ try {
     const trial = trialsById[trialId]; assert.ok(trial, `Unknown trial ${trialId}`);
     await enterPortal(index, trialId);
     await guardianPage.screenshot({ path: `output/web-game/guardian-portal/${trialId}.png` });
-    for (const objective of trial.objectives) {
-      const before = await playerState(guardianPage);
-      await moveInTrialTo(objective, trialId);
-      await guardianPage.keyboard.press('e');
-      await waitFor(async () => { const current = await playerState(guardianPage); return current.guardianTrial.completed > before.guardianTrial.completed || current.guardianTrial.wards > before.guardianTrial.wards ? current : null; }, `${objective.label} to activate`);
+    if (trial.mechanic === 'carry-lanterns') {
+      for (const lantern of trial.objectives.filter((objective) => objective.id !== 'hearth')) {
+        await moveInTrialTo(lantern, trialId); await guardianPage.keyboard.press('e');
+        await waitFor(async () => (await playerState(guardianPage)).guardianTrial?.mechanic?.carriedLanternId === lantern.id, `${lantern.label} to be carried`);
+        const before = await playerState(guardianPage), hearth = trial.objectives.find((objective) => objective.id === 'hearth');
+        await moveInTrialTo(hearth, trialId); await guardianPage.keyboard.press('e');
+        await waitFor(async () => { const current = await playerState(guardianPage); return current.guardianTrial.completed > before.guardianTrial.completed || current.guardianTrial.wards > before.guardianTrial.wards ? current : null; }, `${lantern.label} to reach the Hearth Guardian`);
+      }
+    } else {
+      for (const objective of trial.objectives) {
+        const before = await playerState(guardianPage);
+        await moveInTrialTo(objective, trialId);
+        await guardianPage.keyboard.press('e');
+        if (trial.mechanic === 'stillness-channel' && objective.id !== trial.objectives.at(-1).id) {
+          await waitFor(async () => (await playerState(guardianPage)).guardianTrial?.mechanic?.channelObjectiveId === objective.id, `${objective.label} channel to start`);
+          await sleep(1_750);
+        }
+        await waitFor(async () => { const current = await playerState(guardianPage); return current.guardianTrial.completed > before.guardianTrial.completed || current.guardianTrial.wards > before.guardianTrial.wards ? current : null; }, `${objective.label} to activate`);
+      }
     }
     const completed = await waitFor(async () => { const current = await playerState(guardianPage); return current.guardianTrial.completed >= index + 1 && !current.guardianTrial.active ? current : null; }, `${trial.title} completion`);
     assert.equal(completed.guardianTrial.completed, index + 1);

@@ -136,7 +136,14 @@ export function createRenderer(canvas, session) {
     for (const ward of trial.objectives) drawGuardianAngel(ward, toScreen(ward), trialState.activatedObjectiveIds.includes(ward.id));
     const playerPoint = toScreen(trialState.position || trial.spawn);
     character(state.mine, playerPoint.x - 14, playerPoint.y - 14, 28);
-    panel(20, 18, 920, 74); ctx.textAlign = 'left'; ctx.font = 'bold 18px monospace'; ctx.fillStyle = '#fff3bd'; ctx.fillText(`GUARDIAN SANCTUM · ${trial.title.toUpperCase()}`, 38, 45); ctx.font = '11px monospace'; ctx.fillStyle = '#ddf3e7'; wrap(trial.rule, 38, 65, 650, 13); ctx.fillStyle = '#f7d776'; ctx.fillText(`${trialState.activatedObjectiveIds.length}/${trial.objectives.length} WARDS RESTORED · MOVE + E`, 708, 65);
+    const mechanic = trialState.mechanic || {}, channelLeft = Math.max(0, Number(mechanic.channelEndsAt || 0) - Date.now());
+    if (mechanic.carriedLanternId) { ctx.fillStyle = '#fff3a2'; ctx.beginPath(); ctx.arc(playerPoint.x, playerPoint.y - 23, 7, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#e28c39'; ctx.fillRect(playerPoint.x - 2, playerPoint.y - 27, 4, 8); }
+    if (mechanic.channelObjectiveId) { ctx.strokeStyle = '#d8f6dc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(playerPoint.x, playerPoint.y, 22, 0, Math.PI * 2 * Math.min(1, 1 - channelLeft / 1500)); ctx.stroke(); }
+    const status = mechanic.id === 'ordered-circuit' ? `SEQUENCE ${trialState.activatedObjectiveIds.length + 1}/${trial.objectives.length} · MOVE + E`
+      : mechanic.id === 'carry-lanterns' ? (mechanic.carriedLanternLabel ? `CARRYING ${mechanic.carriedLanternLabel.toUpperCase()} · RETURN TO HEARTH` : `FLAMES DELIVERED ${mechanic.deliveredLanternIds?.length || 0}/2 · MOVE + E`)
+        : mechanic.id === 'timed-relay' ? (mechanic.blessingExpiresAt ? `BLESSING ${Math.max(0, Math.ceil((mechanic.blessingExpiresAt - Date.now()) / 1000))}s · RUN THE RELAY` : 'BEGIN THE RELAY · MOVE + E')
+          : mechanic.channelObjectiveId ? `CHANNELING ${Math.ceil(channelLeft / 1000)}s · DO NOT MOVE` : `CLEANSED ${trialState.activatedObjectiveIds.length}/${trial.objectives.length} · MOVE + E`;
+    panel(20, 18, 920, 74); ctx.textAlign = 'left'; ctx.font = 'bold 18px monospace'; ctx.fillStyle = '#fff3bd'; ctx.fillText(`GUARDIAN SANCTUM · ${trial.title.toUpperCase()}`, 38, 45); ctx.font = '11px monospace'; ctx.fillStyle = '#ddf3e7'; wrap(trial.rule, 38, 65, 650, 13); ctx.fillStyle = '#f7d776'; ctx.fillText(status, 708, 65);
     panel(20, 548, 920, 68); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.publicEvent || 'The Game Master watches the paths you choose.', 480, 575, 850, 16);
     return true;
   }

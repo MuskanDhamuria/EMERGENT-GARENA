@@ -8,25 +8,25 @@ const GUARDIAN_TRIALS = Object.freeze([
     id: 'wardkeepers-circuit', title: "Wardkeeper's Circuit", theme: 'Restore the forest wards in the order their lanterns awaken.',
     map: 'sunlit-grove', bounds: { minX: 0, maxX: 24, minZ: 0, maxZ: 16 }, spawn: { x: 2, z: 8 },
     objectives: [{ id: 'root-ward', label: 'Root Ward', x: 7, z: 4 }, { id: 'brook-ward', label: 'Brook Ward', x: 13, z: 12 }, { id: 'sky-ward', label: 'Sky Ward', x: 20, z: 5 }],
-    rule: 'Awaken the three wards in their marked order.',
+    mechanic: 'ordered-circuit', rule: 'Awaken the three wards in their marked order.',
   },
   {
     id: 'lost-lanterns', title: 'The Lost Lanterns', theme: 'Guide abandoned camp lanterns back into the Guardian’s light.',
     map: 'campfire-clearing', bounds: { minX: 0, maxX: 24, minZ: 0, maxZ: 16 }, spawn: { x: 2, z: 8 },
     objectives: [{ id: 'north-lantern', label: 'North Guardian', x: 8, z: 3 }, { id: 'west-lantern', label: 'West Guardian', x: 8, z: 13 }, { id: 'hearth', label: 'Hearth Guardian', x: 20, z: 8 }],
-    rule: 'Restore both lost guardian lights, then return their flame to the Hearth Guardian.',
+    mechanic: 'carry-lanterns', rule: 'Pick up one lost lantern at a time, then carry its flame to the Hearth Guardian.',
   },
   {
     id: 'shelter-march', title: 'Shelter March', theme: 'Carry a protective blessing through a mountain pass before it fades.',
     map: 'mountain-pass', bounds: { minX: 0, maxX: 28, minZ: 0, maxZ: 14 }, spawn: { x: 2, z: 7 },
     objectives: [{ id: 'pass-gate', label: 'Pass Gate', x: 9, z: 7 }, { id: 'watch-stone', label: 'Watch Stone', x: 17, z: 4 }, { id: 'shelter-gate', label: 'Shelter Gate', x: 25, z: 8 }],
-    rule: 'Move the blessing from gate to gate; lingering lets its glow weaken.',
+    mechanic: 'timed-relay', rule: 'Begin at the Pass Gate and reach each marker before the blessing fades.',
   },
   {
     id: 'shrine-of-return', title: 'Shrine of Return', theme: 'Cleanse a quiet shrine and make it safe for wandering spirits.',
     map: 'shrine-garden', bounds: { minX: 0, maxX: 24, minZ: 0, maxZ: 18 }, spawn: { x: 2, z: 9 },
     objectives: [{ id: 'flower-ward', label: 'Flower Ward', x: 7, z: 4 }, { id: 'water-ward', label: 'Water Ward', x: 12, z: 14 }, { id: 'stone-ward', label: 'Stone Ward', x: 18, z: 5 }, { id: 'return-shrine', label: 'Shrine of Return', x: 21, z: 14 }],
-    rule: 'Cleanse every ward; the final shrine opens only after the garden is safe.',
+    mechanic: 'stillness-channel', rule: 'Stand perfectly still while each ward is cleansed; then awaken the return shrine.',
   },
 ]);
 
@@ -37,6 +37,8 @@ const PEDESTALS = Object.freeze({
   Loner: { id: 'loner-pillar', label: 'Veil Pillar', x: 38, z: 24 },
 });
 const TEMPLE_BOUNDS = Object.freeze({ minX: 0, maxX: 48, minZ: 0, maxZ: 32 });
+const SHELTER_BLESSING_MS = 14_000;
+const SHRINE_CHANNEL_MS = 1_500;
 
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const distance = (left, right) => Math.hypot(Number(left.x) - Number(right.x), Number(left.z) - Number(right.z));
@@ -61,6 +63,8 @@ export function createGuardianPortalState({ playerId, selectedTrialIds, now = Da
   return {
     kind: 'guardian-portals', playerId, selectedTrialIds: selection.trials.map((trial) => trial.id), activeTrialId: null,
     completedTrialIds: [], position: null, activatedObjectiveIds: [], nextObjectiveIndex: 0,
+    carriedLanternId: null, deliveredLanternIds: [], blessingExpiresAt: null,
+    channelObjectiveId: null, channelEndsAt: null,
     lastMovedAt: now, lastNudgeAt: 0, status: 'ready', narration: [],
   };
 }
@@ -77,6 +81,8 @@ export function enterGuardianPortal(state, trialId, now = Date.now()) {
   if (state.completedTrialIds.includes(trialId)) return { ok: false, error: 'That portal has already been restored.' };
   const trial = GUARDIAN_TRIALS.find((entry) => entry.id === trialId);
   state.activeTrialId = trialId; state.position = copy(trial.spawn); state.activatedObjectiveIds = []; state.nextObjectiveIndex = 0;
+  state.carriedLanternId = null; state.deliveredLanternIds = []; state.blessingExpiresAt = null;
+  state.channelObjectiveId = null; state.channelEndsAt = null;
   state.lastMovedAt = now; state.lastNudgeAt = 0; state.status = 'in-trial';
   tell(state, 'portal-entered', `The ${trial.title} opens. ${trial.rule}`, now, { trialId });
   return { ok: true, trial: copy(trial), position: copy(state.position) };
@@ -87,19 +93,41 @@ export function moveGuardianInTrial(state, position, now = Date.now()) {
   if (!trial || state.status !== 'in-trial') return { ok: false, error: 'The Guardian is not inside an active portal trial.' };
   if (!inside(position, trial.bounds)) return { ok: false, error: 'That movement leaves the trial bounds.' };
   const next = { x: Number(position.x), z: Number(position.z) };
-  if (distance(next, state.position) > 0.08) state.lastMovedAt = now;
+  if (distance(next, state.position) > 0.08) {
+    state.lastMovedAt = now;
+    if (state.channelObjectiveId) {
+      const objective = trial.objectives.find((entry) => entry.id === state.channelObjectiveId);
+      if (objective) {
+        tell(state, 'channel-broken', `The cleansing at ${objective?.label || 'the ward'} breaks when you move. Hold still and begin again.`, now, { trialId: trial.id, objectiveId: state.channelObjectiveId });
+        state.channelObjectiveId = null; state.channelEndsAt = null;
+      }
+    }
+  }
   state.position = next;
   return { ok: true, position: copy(next) };
 }
 
 function canActivate(trial, state, objective) {
-  // The circuit and march are intentionally ordered; the camp and shrine ask
-  // the Guardian to protect each place before returning to the final beacon.
   const finalObjective = objective.id === trial.objectives.at(-1).id;
-  if (trial.id === 'wardkeepers-circuit' || trial.id === 'shelter-march') return trial.objectives[state.nextObjectiveIndex]?.id === objective.id;
-  if (trial.id === 'lost-lanterns') return !finalObjective || state.activatedObjectiveIds.length === 2;
-  if (trial.id === 'shrine-of-return') return !finalObjective || state.activatedObjectiveIds.length === trial.objectives.length - 1;
+  if (trial.mechanic === 'ordered-circuit' || trial.mechanic === 'timed-relay') return trial.objectives[state.nextObjectiveIndex]?.id === objective.id;
+  if (trial.mechanic === 'carry-lanterns') return finalObjective ? Boolean(state.carriedLanternId) : !state.carriedLanternId && !state.deliveredLanternIds.includes(objective.id);
+  if (trial.mechanic === 'stillness-channel') return finalObjective ? state.activatedObjectiveIds.length === trial.objectives.length - 1 : !state.channelObjectiveId;
   return true;
+}
+
+function completeGuardianTrial(state, trial, now) {
+  state.completedTrialIds.push(trial.id); state.activeTrialId = null; state.status = state.completedTrialIds.length === 2 ? 'all-trials-complete' : 'ready';
+  state.carriedLanternId = null; state.blessingExpiresAt = null; state.channelObjectiveId = null; state.channelEndsAt = null;
+  tell(state, 'trial-complete', `${trial.title} is restored. The temple remembers this act of guardianship.`, now, { trialId: trial.id });
+  return { ok: true, complete: true, trialId: trial.id, guardianReadyForFinale: state.completedTrialIds.length === 2 };
+}
+
+function restoreObjective(state, trial, objective, now, message = `${objective.label} shines with a protective light.`) {
+  state.activatedObjectiveIds.push(objective.id); state.nextObjectiveIndex += 1; state.lastMovedAt = now;
+  tell(state, 'ward-restored', message, now, { trialId: trial.id, objectiveId: objective.id });
+  return state.activatedObjectiveIds.length === trial.objectives.length
+    ? completeGuardianTrial(state, trial, now)
+    : { ok: true, complete: false, objective: copy(objective) };
 }
 
 export function activateGuardianObjective(state, objectiveId, now = Date.now()) {
@@ -109,6 +137,40 @@ export function activateGuardianObjective(state, objectiveId, now = Date.now()) 
   if (!objective) return { ok: false, error: 'That objective does not belong to this portal.' };
   if (state.activatedObjectiveIds.includes(objectiveId)) return { ok: false, error: 'That ward is already safe.' };
   if (distance(state.position, objective) > 1.6) return { ok: false, error: 'Move to the ward before restoring it.' };
+  if (trial.mechanic === 'timed-relay' && state.blessingExpiresAt && now >= state.blessingExpiresAt) {
+    state.activatedObjectiveIds = []; state.nextObjectiveIndex = 0; state.blessingExpiresAt = null;
+    tell(state, 'blessing-faded', 'The mountain blessing faded before it reached shelter. Return to the Pass Gate and begin the relay again.', now, { trialId: trial.id });
+    return { ok: false, error: 'The blessing faded. Begin the relay again at the Pass Gate.' };
+  }
+  if (trial.mechanic === 'carry-lanterns') {
+    if (!canActivate(trial, state, objective)) return { ok: false, error: 'Carry one flame at a time, and return it to the Hearth Guardian.' };
+    if (objective.id !== 'hearth') {
+      state.carriedLanternId = objective.id; state.lastMovedAt = now;
+      tell(state, 'lantern-picked-up', `${objective.label}'s flame follows you. Carry it safely to the Hearth Guardian.`, now, { trialId: trial.id, objectiveId });
+      return { ok: true, complete: false, carrying: objective.id };
+    }
+    const carried = trial.objectives.find((entry) => entry.id === state.carriedLanternId);
+    state.deliveredLanternIds.push(state.carriedLanternId); state.activatedObjectiveIds.push(state.carriedLanternId); state.carriedLanternId = null; state.lastMovedAt = now;
+    tell(state, 'lantern-delivered', `${carried.label}'s flame settles into the Hearth Guardian.`, now, { trialId: trial.id, objectiveId: carried.id });
+    if (state.deliveredLanternIds.length < trial.objectives.length - 1) return { ok: true, complete: false, objective: copy(objective) };
+    return restoreObjective(state, trial, objective, now, 'The Hearth Guardian burns bright with both returned flames.');
+  }
+  if (trial.mechanic === 'timed-relay') {
+    if (!canActivate(trial, state, objective)) return { ok: false, error: 'The blessing must follow the mountain markers in order.' };
+    if (state.nextObjectiveIndex === 0) state.blessingExpiresAt = now + SHELTER_BLESSING_MS;
+    const result = restoreObjective(state, trial, objective, now, `${objective.label} carries the blessing onward.`);
+    if (result.complete) state.blessingExpiresAt = null;
+    return result;
+  }
+  if (trial.mechanic === 'stillness-channel') {
+    if (!canActivate(trial, state, objective)) return { ok: false, error: 'The shrine opens after the other wards are cleansed.' };
+    if (objective.id !== trial.objectives.at(-1).id) {
+      state.channelObjectiveId = objective.id; state.channelEndsAt = now + SHRINE_CHANNEL_MS; state.lastMovedAt = now;
+      tell(state, 'channel-started', `Hold still at ${objective.label}; the cleansing needs a moment of quiet.`, now, { trialId: trial.id, objectiveId });
+      return { ok: true, complete: false, channeling: objective.id };
+    }
+    return restoreObjective(state, trial, objective, now);
+  }
   if (!canActivate(trial, state, objective)) return { ok: false, error: 'Another place needs the Guardian’s protection first.' };
   state.activatedObjectiveIds.push(objectiveId); state.nextObjectiveIndex += 1; state.lastMovedAt = now;
   tell(state, 'ward-restored', `${objective.label} shines with a protective light.`, now, { trialId: trial.id, objectiveId });
@@ -120,18 +182,34 @@ export function activateGuardianObjective(state, objectiveId, now = Date.now()) 
 
 export function tickGuardianPortal(state, now = Date.now(), { inactivityMs = 8_000, nudgeCooldownMs = 8_000 } = {}) {
   const trial = activeTrial(state);
-  if (!trial || state.status !== 'in-trial' || now - state.lastMovedAt < inactivityMs || now - state.lastNudgeAt < nudgeCooldownMs) return null;
+  if (!trial || state.status !== 'in-trial') return null;
+  if (trial.mechanic === 'timed-relay' && state.blessingExpiresAt && now >= state.blessingExpiresAt) {
+    state.activatedObjectiveIds = []; state.nextObjectiveIndex = 0; state.blessingExpiresAt = null;
+    return tell(state, 'blessing-faded', 'The mountain blessing fades. The Game Master asks you to begin the relay again at the Pass Gate.', now, { trialId: trial.id });
+  }
+  if (trial.mechanic === 'stillness-channel' && state.channelObjectiveId && now >= state.channelEndsAt) {
+    const objective = trial.objectives.find((entry) => entry.id === state.channelObjectiveId);
+    state.channelObjectiveId = null; state.channelEndsAt = null;
+    return restoreObjective(state, trial, objective, now, `${objective.label} is cleansed by your patient vigil.`);
+  }
+  if (now - state.lastMovedAt < inactivityMs || now - state.lastNudgeAt < nudgeCooldownMs) return null;
   state.lastNudgeAt = now;
-  const next = trial.objectives[state.nextObjectiveIndex];
+  const next = trial.mechanic === 'carry-lanterns' && state.carriedLanternId ? trial.objectives.at(-1) : trial.objectives.find((objective) => !state.activatedObjectiveIds.includes(objective.id));
   return tell(state, 'gm-nudge', `The Game Master whispers: “The warding light moves with you. Seek ${next?.label || 'the next sanctuary'}.”`, now, { trialId: trial.id, objectiveId: next?.id || null });
 }
 
 export function serializeGuardianPortal(state) {
   const trial = activeTrial(state);
+  const carried = trial?.objectives.find((objective) => objective.id === state.carriedLanternId);
   return {
     status: state.status, selectedTrialIds: [...state.selectedTrialIds], completedTrialIds: [...state.completedTrialIds],
     activeTrial: trial ? copy(trial) : null, position: state.position && copy(state.position), activatedObjectiveIds: [...state.activatedObjectiveIds],
     narration: copy(state.narration.slice(-8)),
+    mechanic: trial ? {
+      id: trial.mechanic, carriedLanternId: state.carriedLanternId, carriedLanternLabel: carried?.label || null,
+      deliveredLanternIds: [...state.deliveredLanternIds], blessingExpiresAt: state.blessingExpiresAt,
+      channelObjectiveId: state.channelObjectiveId, channelEndsAt: state.channelEndsAt,
+    } : null,
   };
 }
 

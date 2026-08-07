@@ -24,10 +24,31 @@ assert.equal(activateGuardianObjective(guardian, 'brook-ward', 80).ok, true);
 assert.equal(moveGuardianInTrial(guardian, { x: 20, z: 5 }, 90).ok, true);
 assert.equal(activateGuardianObjective(guardian, 'sky-ward', 100).complete, true);
 assert.equal(enterGuardianPortal(guardian, chosen[1], 110).ok, true);
-for (const [id, point] of [['north-lantern', { x: 8, z: 3 }], ['west-lantern', { x: 8, z: 13 }], ['hearth', { x: 20, z: 8 }]]) {
-  moveGuardianInTrial(guardian, point, 120); activateGuardianObjective(guardian, id, 130);
-}
+moveGuardianInTrial(guardian, { x: 8, z: 3 }, 120); assert.equal(activateGuardianObjective(guardian, 'north-lantern', 130).carrying, 'north-lantern');
+moveGuardianInTrial(guardian, { x: 20, z: 8 }, 140); assert.equal(activateGuardianObjective(guardian, 'hearth', 150).complete, false);
+moveGuardianInTrial(guardian, { x: 8, z: 13 }, 160); assert.equal(activateGuardianObjective(guardian, 'west-lantern', 170).carrying, 'west-lantern');
+moveGuardianInTrial(guardian, { x: 20, z: 8 }, 180); assert.equal(activateGuardianObjective(guardian, 'hearth', 190).complete, true);
 assert.deepEqual(guardian.completedTrialIds, chosen);
+
+// The other two trials use real-time mechanics rather than another
+// collection route: the pass relay expires and garden wards need stillness.
+const relay = createGuardianPortalState({ playerId: 'relay', selectedTrialIds: ['shelter-march', 'shrine-of-return'], now: 0 });
+enterGuardianPortal(relay, 'shelter-march', 0);
+moveGuardianInTrial(relay, { x: 9, z: 7 }, 100); activateGuardianObjective(relay, 'pass-gate', 100);
+assert.equal(tickGuardianPortal(relay, 14_101)?.type, 'blessing-faded', 'the mountain relay resets when its blessing expires');
+assert.equal(relay.activatedObjectiveIds.length, 0);
+moveGuardianInTrial(relay, { x: 9, z: 7 }, 15_000); activateGuardianObjective(relay, 'pass-gate', 15_000);
+moveGuardianInTrial(relay, { x: 17, z: 4 }, 15_100); activateGuardianObjective(relay, 'watch-stone', 15_100);
+moveGuardianInTrial(relay, { x: 25, z: 8 }, 15_200); assert.equal(activateGuardianObjective(relay, 'shelter-gate', 15_200).complete, true);
+enterGuardianPortal(relay, 'shrine-of-return', 16_000);
+moveGuardianInTrial(relay, { x: 7, z: 4 }, 16_100); assert.equal(activateGuardianObjective(relay, 'flower-ward', 16_100).channeling, 'flower-ward');
+moveGuardianInTrial(relay, { x: 7.2, z: 4 }, 16_200); assert.equal(relay.channelObjectiveId, null, 'moving breaks a cleansing channel');
+activateGuardianObjective(relay, 'flower-ward', 16_300); tickGuardianPortal(relay, 17_801);
+for (const [id, point, time] of [['water-ward', { x: 12, z: 14 }, 18_000], ['stone-ward', { x: 18, z: 5 }, 20_000]]) {
+  moveGuardianInTrial(relay, point, time); activateGuardianObjective(relay, id, time); tickGuardianPortal(relay, time + 1_501);
+}
+moveGuardianInTrial(relay, { x: 21, z: 14 }, 22_000); assert.equal(activateGuardianObjective(relay, 'return-shrine', 22_000).complete, true);
+assert.deepEqual(relay.completedTrialIds, ['shelter-march', 'shrine-of-return']);
 
 const idle = createGuardianPortalState({ playerId: 'idle', selectedTrialIds: chosen, now: 0 });
 enterGuardianPortal(idle, chosen[0], 0);

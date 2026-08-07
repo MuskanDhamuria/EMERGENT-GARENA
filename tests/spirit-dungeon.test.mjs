@@ -6,6 +6,7 @@ const loner={id:'loner',name:'Nar',archetype:'Loner',x:-3,z:10,realm:'overworld'
 assert.equal(dungeon.enter(room,{...loner,archetype:'Explorer'}).ok,false);
 assert.equal(dungeon.enter(room,loner).ok,true);assert.equal(loner.realm,'dungeon');assert.equal(loner.dungeon.phase,'DEFEAT_WARDENS');
 const attacker=loner.dungeon.enemies[0];attacker.x=loner.x;attacker.z=loner.z;attacker.lastAttackAt=0;loner.dungeon.invulnerableUntil=0;dungeon.tick(room,loner,0.1);assert.equal(loner.dungeon.health,4);
+let renderedAttacker=dungeon.entities(loner).find((item)=>item.id===attacker.id);assert.equal(renderedAttacker.tileX,attacker.x);assert.equal(renderedAttacker.tileY,attacker.z);
 for(let hit=0;hit<4;hit++){loner.dungeon.invulnerableUntil=0;attacker.lastAttackAt=0;dungeon.tick(room,loner,0.1);}assert.equal(loner.dungeon.health,5);assert.equal(loner.dungeon.respawns,1);assert.deepEqual({x:loner.x,z:loner.z},{x:2,z:12});
 assert.equal(dungeonWalkable(0,5),false);assert.equal(dungeonWalkable(9,3),false);assert.equal(dungeonWalkable(9,4),true);
 let altar=dungeon.entities(loner).find((item)=>item.id==='dungeon-altar');loner.x=altar.x;loner.z=altar.z;assert.equal(dungeon.interact(room,loner,'dungeon-altar',altar.id).ok,false);

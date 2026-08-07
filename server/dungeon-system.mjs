@@ -31,7 +31,7 @@ export function createDungeonSystem(world){
     if(!player.dungeon?.active)return [];
     const collected=new Set(player.dungeon.collected);
     return [
-      ...ENEMIES.map((item)=>({...item,...player.dungeon.enemies.find((enemy)=>enemy.id===item.id),tileX:item.x,tileY:item.z,action:'dungeon-attack'})).filter((item)=>!item.defeated),
+      ...ENEMIES.map((item)=>{const state=player.dungeon.enemies.find((enemy)=>enemy.id===item.id);return {...item,...state,tileX:state.x,tileY:state.z,action:'dungeon-attack'};}).filter((item)=>!item.defeated),
       ...SIGILS.filter((item)=>!collected.has(item.id)).map((item)=>({...item,tileX:item.x,tileY:item.z,action:'dungeon-collect'})),
       {...ALTAR,tileX:ALTAR.x,tileY:ALTAR.z,action:'dungeon-altar',active:player.dungeon.altarAwake},
       {...EXIT,tileX:EXIT.x,tileY:EXIT.z,action:'dungeon-exit',active:player.dungeon.phase==='ESCAPE'},

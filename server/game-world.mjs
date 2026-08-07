@@ -9,7 +9,7 @@ import { createPortalSystem } from './portal-system.mjs';
 import { createRealmSystem } from './realm-system.mjs';
 
 const ACTIVE_PHASES = new Set(['observing', 'evolving', 'finale']);
-const ROLE_ACTIONS = Object.freeze({ relic: 'relic', 'discover-temple': 'temple-entrance', 'trace-waystone': 'waystone', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'read-veil': 'veil-mirror', 'enter-shadow-forest': 'realm-portal', 'enter-moon-shrine': 'realm-portal', 'enter-ghost-village': 'realm-portal', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' });
+const ROLE_ACTIONS = Object.freeze({ relic: 'relic', 'discover-temple': 'temple-entrance', 'trace-waystone': 'waystone', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'read-veil': 'veil-mirror', 'enter-shadow-forest': 'realm-portal', 'enter-moon-shrine': 'realm-portal', 'enter-ghost-village': 'realm-portal', 'enter-final-temple': 'finale-entrance', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' });
 const MASTERY_ACTIONS = Object.freeze({ relic: 'Echo Water relic', 'discover-temple': 'hidden route', 'activate-shrine': 'shrine rite', 'enter-spirit-realm': 'spirit path' });
 const INTERACTION_MESSAGES = Object.freeze({ relic: (player, entity) => `${player.name} collected ${entity.label}.`, 'discover-temple': (player) => `${player.name} found the hidden temple entrance.`, 'trace-waystone': (player) => `${player.name} traced the route through the old waystone.`, 'activate-shrine': (player) => `${player.name} awakened the shrine.`, 'enter-spirit-realm': (player) => `${player.name} stepped through the veil.`, 'read-veil': (player) => `${player.name} read the Veil Mirror's hidden omen.`, 'offer-relics': (player) => `${player.name} offered relics at the altar.`, 'open-final-gate': (player) => `${player.name} turned the final gate's spirit key.` });
 const FINALE_TASKS = Object.freeze({ Explorer: 'discover the hidden temple entrance', Collector: 'offer three relics at the altar', Guardian: 'activate the awakened shrine', Loner: 'open the final gate' });
@@ -65,23 +65,27 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (player.archetype === 'Collector') return Math.min(2, player.relicIds.size);
     return player.roleObjectives?.size || 0;
   }
+  // Explorer and Collector still use ordinary overworld interactions in this
+  // build. Until they receive dedicated two-goal portal tracks, the finale
+  // gate waits only for the two roles that do have authored personal rites.
+  function hasDefinedFinaleObjectives(player) { return ['Guardian', 'Loner'].includes(player.archetype); }
   function recordRoleObjective(room, player, id) {
     player.roleObjectives ||= new Set();
     const before = player.roleObjectives.size; player.roleObjectives.add(id);
     if (player.roleObjectives.size > before) event(room, 'portal-objective', `${player.name} completed a ${player.archetype} rite (${objectiveCount(player)}/2).`, { playerId: player.id, archetype: player.archetype, objectiveId: id });
-    maybeBeginTemple(room);
+    maybeRevealFinaleEntrance(room);
   }
 
   function createRoom(code) {
     const createdAt = now();
-    return { code, createdAt, phase: 'waiting-for-four', observationEndsAt: null, players: new Map(), entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })), world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, events: [], finalObjective: null, templeFinale: null, archetypesAssignedAt: null, gmActiveUntil: 0, directorState: { activeRules: [], history: [], sequence: 0 }, emergentState: freshEmergentState(), director: { narration: 'Four lanterns are needed before this shared tale can begin.', source: 'server', at: createdAt } };
+    return { code, createdAt, phase: 'waiting-for-four', observationEndsAt: null, players: new Map(), entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })), world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, events: [], finalObjective: null, finaleEntrance: null, templeFinale: null, archetypesAssignedAt: null, gmActiveUntil: 0, directorState: { activeRules: [], history: [], sequence: 0 }, emergentState: freshEmergentState(), director: { narration: 'Four lanterns are needed before this shared tale can begin.', source: 'server', at: createdAt } };
   }
   function createPlayer(id, name, index) {
     const [x, z] = spawns[index];
     return { id, name: cleanText(name, 'Wanderer', 16), color: colors[index], x, z, inputX: 0, inputZ: 0, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], privateRules: [], emergent: freshPlayerEmergentState(), lastTelemetryAt: now() };
   }
   function resetRoomForRoster(room, reason) {
-    Object.assign(room, { phase: 'waiting-for-four', observationEndsAt: null, archetypesAssignedAt: null, finalObjective: null, templeFinale: null, world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, directorState: { activeRules: [], history: [], sequence: 0 }, emergentState: freshEmergentState(), entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })) });
+    Object.assign(room, { phase: 'waiting-for-four', observationEndsAt: null, archetypesAssignedAt: null, finalObjective: null, finaleEntrance: null, templeFinale: null, world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, directorState: { activeRules: [], history: [], sequence: 0 }, emergentState: freshEmergentState(), entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })) });
     for (const [index, player] of players(room).entries()) {
       const [x, z] = spawns[index];
       Object.assign(player, { x, z, inputX: 0, inputZ: 0, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, privateRules: [], emergent: freshPlayerEmergentState() });
@@ -127,15 +131,33 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   function createFinalObjective(room, source = 'server') {
     if (room.finalObjective) return room.finalObjective;
     const group = players(room); if (group.length !== MAX_PLAYERS || !group.every((player) => player.archetype && player.evolutions.length)) return null;
-    room.world.unlocked.add('ancient-temple'); room.world.unlocked.add('final-gate'); room.phase = 'finale'; room.finalObjective = { id: `temple-${room.createdAt}`, title: 'The Ancient Temple Has Awakened', description: 'Each of the four roles must perform its own rite.', createdAt: now(), source, status: 'active', required: group.map((player) => ({ playerId: player.id, archetype: player.archetype, task: FINALE_TASKS[player.archetype], completed: false })) }; event(room, 'finale-created', 'The Ancient Temple has awakened. All four roles are needed at the final gate.', { objective: room.finalObjective }); return room.finalObjective;
+    room.phase = 'finale';
+    room.finalObjective = { id: `temple-${room.createdAt}`, title: 'The Ancient Temple Is Listening', description: 'The Guardian and Loner must each complete two authored personal objectives before the entrance can appear.', createdAt: now(), source, status: 'awaiting-rites', required: group.map((player) => ({ playerId: player.id, archetype: player.archetype, task: FINALE_TASKS[player.archetype], completed: false })) };
+    event(room, 'finale-preparing', 'The Ancient Temple remains hidden. When the Guardian and Loner complete two personal rites each, the entrance will reveal itself.', { objective: room.finalObjective });
+    return room.finalObjective;
   }
   const maybeCreateFinale = (room, source) => { if (players(room).length === MAX_PLAYERS && players(room).every((player) => player.archetype && player.evolutions.length)) createFinalObjective(room, source); };
-  function maybeBeginTemple(room) {
-    if (!room.finalObjective || room.templeFinale || !players(room).every((player) => objectiveCount(player) >= 2)) return null;
-    room.templeFinale = portals.createFinale({ players: players(room), completedObjectives: Object.fromEntries(players(room).map((player) => [player.id, objectiveCount(player)])) });
-    room.director = { narration: 'The Ancient Temple opens. Four pillars await four different stories.', source: 'portal-director', at: now() };
+  function maybeRevealFinaleEntrance(room) {
+    const requiredPlayers = players(room).filter(hasDefinedFinaleObjectives);
+    if (!room.finalObjective || room.finaleEntrance || !requiredPlayers.length || !requiredPlayers.every((player) => objectiveCount(player) >= 2)) return null;
+    room.phase = 'finale'; room.world.unlocked.add('ancient-temple'); room.world.unlocked.add('final-gate');
+    room.finalObjective.status = 'entrance-revealed'; room.finalObjective.title = 'The Ancient Temple Has Awakened';
+    room.finaleEntrance = { revealedAt: now(), arrivals: new Set() };
+    room.director = { narration: 'Every calling has completed two rites. The Ancient Temple entrance rises in the east—enter together.', source: 'portal-director', at: now() };
+    event(room, 'finale-entrance-revealed', room.director.narration, { objective: room.finalObjective });
+    return room.finaleEntrance;
+  }
+  function enterFinalTemple(room, player) {
+    if (!room.finaleEntrance) return { ok: false, error: 'The Ancient Temple entrance has not appeared yet.' };
+    if (hasDefinedFinaleObjectives(player) && objectiveCount(player) < 2) return { ok: false, error: 'Complete two personal objectives before entering the Temple.' };
+    room.finaleEntrance.arrivals.add(player.id);
+    event(room, 'finale-entrance-entered', `${player.name} enters the Ancient Temple threshold.`, { playerId: player.id });
+    if (room.finaleEntrance.arrivals.size < MAX_PLAYERS) return { ok: true, waitingFor: MAX_PLAYERS - room.finaleEntrance.arrivals.size };
+    room.templeFinale = portals.createFinale({ players: players(room), completedObjectives: Object.fromEntries(players(room).map((entry) => [entry.id, objectiveCount(entry)])) });
+    room.finalObjective.status = 'active';
+    room.director = { narration: 'All four have crossed the threshold. Four pillars await four different stories.', source: 'portal-director', at: now() };
     event(room, 'temple-opened', 'The Game Master gathers every completed path inside the Ancient Temple.', { temple: portals.serializeFinale(room.templeFinale) });
-    return room.templeFinale;
+    return { ok: true, entered: true, templeOpened: true };
   }
   function evolve(room, playerId, source = 'server') {
     const player = getPlayer(room, playerId); if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'The shared world has not started evolving.' }; if (!player?.archetype) return { ok: false, error: 'That player has no assigned role.' };
@@ -206,6 +228,10 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     }
     if (!entity || !Object.hasOwn(ROLE_ACTIONS, action)) return { ok: false, error: 'That interaction target is invalid.' };
     if (distance(player, entity) > 3.25) return { ok: false, error: 'Move closer to interact with that object.' };
+    if (action === 'enter-final-temple') {
+      if (entity.type !== 'finale-entrance') return { ok: false, error: 'That is not the Ancient Temple entrance.' };
+      return enterFinalTemple(room, player);
+    }
     if (!hasRole(player, entity.role)) return { ok: false, error: `Only the ${entity.role} can use ${entity.label}.` };
     if (entity.type !== ROLE_ACTIONS[action]) return { ok: false, error: 'That action does not match this object.' };
     if (entity.feature && !room.world.unlocked.has(entity.feature) && !(room.world.privateUnlocks.get(player.id) || new Set()).has(entity.feature)) return { ok: false, error: 'That place has not awakened yet.' };
@@ -235,7 +261,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     advanceRoom(room); const viewer = viewerId && getPlayer(room, viewerId), privateUnlocks = viewer ? [...(room.world.privateUnlocks.get(viewer.id) || [])] : [], directorRules = room.directorState || { activeRules: [], history: [] }, visibleRules = (directorRules.activeRules || []).filter((rule) => !rule.playerId || !viewerId || rule.playerId === viewerId);
     const entities = [...room.entities, ...guardianPortalEntities(room), ...(viewer ? realms.entities(viewer) : [])].filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, tileX, tileY, label, role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }) => ({ id, type, x, z, tileX, tileY, label, role, requiredRole: role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }));
     const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
-    return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: players(room).map((player) => ({ id: player.id, name: player.name, color: player.color, x: player.x, z: player.z, tileX: player.realm !== 'overworld' ? player.x : undefined, tileY: player.realm !== 'overworld' ? player.z : undefined, locationId: player.locationId, archetype: player.archetype, capabilities: player.id === viewerId ? ROLE_ABILITIES[player.archetype] || [] : undefined, emergentStatus: player.id === viewerId ? { energy: player.emergent?.energy ?? 100, effects: player.emergent?.effects || [] } : undefined, relicCount: player.relicIds.size, objectiveCount: objectiveCount(player), evolutions: player.evolutions, ...(player.id === viewerId ? realms.snapshot(player) : { realm: player.realm }) })), relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain, world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, guardianTrial: viewer?.guardianPortal ? portals.serializeGuardian(viewer.guardianPortal) : null, templeFinale: room.templeFinale ? portals.serializeFinale(room.templeFinale) : null, director: room.director, directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, emergentRules: world.emergentRules.serialize(room, viewerId), events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
+    return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: players(room).map((player) => ({ id: player.id, name: player.name, color: player.color, x: player.x, z: player.z, tileX: player.realm !== 'overworld' ? player.x : undefined, tileY: player.realm !== 'overworld' ? player.z : undefined, locationId: player.locationId, archetype: player.archetype, capabilities: player.id === viewerId ? ROLE_ABILITIES[player.archetype] || [] : undefined, emergentStatus: player.id === viewerId ? { energy: player.emergent?.energy ?? 100, effects: player.emergent?.effects || [] } : undefined, relicCount: player.relicIds.size, objectiveCount: objectiveCount(player), evolutions: player.evolutions, ...(player.id === viewerId ? realms.snapshot(player) : { realm: player.realm }) })), relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain, world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, finaleEntrance: room.finaleEntrance && { revealedAt: room.finaleEntrance.revealedAt, enteredPlayerIds: [...room.finaleEntrance.arrivals] }, guardianTrial: viewer?.guardianPortal ? portals.serializeGuardian(viewer.guardianPortal) : null, templeFinale: room.templeFinale ? portals.serializeFinale(room.templeFinale) : null, director: room.director, directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, emergentRules: world.emergentRules.serialize(room, viewerId), events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
   }
   function broadcastState(room) { for (const player of players(room)) emitState(player.id, serializeRoom(room, player.id)); }
   function tickRoom(room, delta) {
@@ -260,7 +286,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       const nearest = players(room).filter((other) => other.id !== player.id).reduce((closest, other) => Math.min(closest, distance(player, other)), Infinity);
       if (nearest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta;
     }
-    world.emergentRules.tick(room, delta); advanceRoom(room);
+    world.emergentRules.tick(room, delta); maybeRevealFinaleEntrance(room); advanceRoom(room);
   }
 
   const world = { rooms, observationMs, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, chooseGuardianTrials, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact, tickRoom };

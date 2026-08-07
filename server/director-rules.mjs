@@ -183,7 +183,7 @@ export function validateDirectorDirective(world, room, directive) {
     if (!turn) return result(false, { error: 'Unknown story turn.' });
     if (!turn.options.some((option) => option.id === payload.optionId)) return result(false, { error: 'The AI must select one valid story option.' });
   }
-  if (card === 'finale_variant' && (!room.finalObjective || room.finalObjective.status !== 'active' || !FINALE_VARIANTS[payload.variantId])) return result(false, { error: 'An active finale and a known finale variant are required.' });
+  if (card === 'finale_variant' && (!room.finalObjective || !['awaiting-rites', 'entrance-revealed', 'active'].includes(room.finalObjective.status) || !FINALE_VARIANTS[payload.variantId])) return result(false, { error: 'A prepared finale and a known finale variant are required.' });
   return context;
 }
 

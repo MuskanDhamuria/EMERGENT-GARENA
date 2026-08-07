@@ -6,10 +6,12 @@ const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 640;
 canvas.id = 'game';
+canvas.style.touchAction = 'none';
+canvas.style.userSelect = 'none';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, update } = session;
+const { state, gameReady, interact, joinRoom, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -36,12 +38,33 @@ function showLanternGate(error = '') {
 }
 
 addEventListener('keydown', (event) => {
-  keys[event.key.toLowerCase()] = true;
-  if (event.key.toLowerCase() === 'e') { event.preventDefault(); interact(); }
+  const key=event.key.toLowerCase();
+  if(state.collectorGame){ event.preventDefault(); handleGameKey(key); return; }
+  keys[key] = true;
+  if (key === 'e') { event.preventDefault(); interact(); }
   if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
-canvas.addEventListener('click', () => { if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
+function canvasPoint(event){
+  const rect=canvas.getBoundingClientRect();
+  // The canvas is displayed with object-fit: contain. When the browser aspect
+  // ratio differs from the internal 960x640 canvas, the bitmap is letterboxed
+  // inside the CSS box. Pointer coordinates must subtract that letterbox before
+  // converting to game-canvas coordinates, otherwise every hitbox appears
+  // visually correct but clicks/drags are horizontally or vertically offset.
+  const scale=Math.min(rect.width/canvas.width, rect.height/canvas.height);
+  const renderedWidth=canvas.width*scale, renderedHeight=canvas.height*scale;
+  const offsetX=(rect.width-renderedWidth)/2, offsetY=(rect.height-renderedHeight)/2;
+  return {
+    x:(event.clientX-rect.left-offsetX)/scale,
+    y:(event.clientY-rect.top-offsetY)/scale,
+  };
+}
+canvas.addEventListener('pointerdown', (event) => { event.preventDefault(); const {x,y}=canvasPoint(event); if(state.collectorGame){ if(state.collectorGame.type==='crystal-rebuild') handleGamePointerDown(x,y); else handleGameClick(x,y); canvas.setPointerCapture?.(event.pointerId); return;} if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
+canvas.addEventListener('pointermove', (event) => { if(!state.collectorGame || state.collectorGame.type!=='crystal-rebuild') return; event.preventDefault(); const {x,y}=canvasPoint(event); handleGamePointerMove(x,y); });
+canvas.addEventListener('pointerup', (event) => { if(!state.collectorGame || state.collectorGame.type!=='crystal-rebuild') return; event.preventDefault(); const {x,y}=canvasPoint(event); handleGamePointerUp(x,y); });
+canvas.addEventListener('pointercancel', (event) => { if(!state.collectorGame || state.collectorGame.type!=='crystal-rebuild') return; event.preventDefault(); const {x,y}=canvasPoint(event); handleGamePointerUp(x,y); });
+canvas.addEventListener('click', (event) => { if(state.collectorGame) { event.preventDefault(); return; } });
 
 let last = performance.now();
 function loop(now) {

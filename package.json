@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "serve": "node server.mjs",
     "test:game": "node tests/four-player-smoke.mjs",
-    "test:finale": "node tests/finale-system.test.mjs"
+    "test:finale": "node tests/finale-system.test.mjs",
+    "test:dungeon": "node tests/spirit-dungeon.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",

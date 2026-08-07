@@ -16,6 +16,7 @@ export function createSession() {
     camera: { x: 25, y: 17 }, frame: 0,
     network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '' },
     world: null, players: [], mine: null, privateRule: null, publicEvent: null,
+    attackTimer: 0, attackTargetId: null, attackTargetX: 0, attackTargetY: 0, hurtTimer: 0, hurtStrength: 0,
   };
   const socket = io({ autoConnect: false, timeout: 5_000, reconnectionAttempts: 3 });
 
@@ -60,15 +61,19 @@ export function createSession() {
   }
   function applyWorldState(world) {
     if (!world || !Array.isArray(world.players)) return;
+    const previousHealth = state.mine?.dungeon?.health, previousRespawns = state.mine?.dungeon?.respawns || 0;
     state.world = world; state.network.roomCode = world.code || state.network.roomCode;
     const previous = new Map(state.players.map((player) => [player.id, player]));
     state.players = world.players.map((player, index) => {
       const target = mapPoint(player), old = previous.get(player.id);
-      return { ...player, x: old?.x ?? target.x, y: old?.y ?? target.y, targetX: target.x, targetY: target.y, color: cssColor(player.color, ['#2563eb', '#db2777', '#f59e0b', '#16a34a'][index % 4]) };
+      const changedRealm = old && old.realm !== player.realm;
+      return { ...player, x: changedRealm ? target.x : (old?.x ?? target.x), y: changedRealm ? target.y : (old?.y ?? target.y), targetX: target.x, targetY: target.y, color: cssColor(player.color, ['#2563eb', '#db2777', '#f59e0b', '#16a34a'][index % 4]) };
     });
     state.mine = state.players.find((player) => player.id === state.network.playerId) || null;
     const sourceMine = world.players.find((player) => player.id === state.network.playerId);
     if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y });
+    const currentHealth = state.mine?.dungeon?.health, currentRespawns = state.mine?.dungeon?.respawns || 0;
+    if (Number.isFinite(previousHealth) && Number.isFinite(currentHealth) && (currentHealth < previousHealth || currentRespawns > previousRespawns)) { state.hurtTimer = currentRespawns > previousRespawns ? 0.65 : 0.38; state.hurtStrength = currentRespawns > previousRespawns ? 2 : 1; }
     state.privateRule = (world.yourPrivateRules || []).at(-1) || null;
     if (world.director?.narration) state.publicEvent = world.director.narration;
     if (!gameReady() && state.joined) state.notice = `Waiting for all ${MAX_PLAYERS} lanterns — ${roomPlayerCount()}/${MAX_PLAYERS} joined.`;
@@ -90,11 +95,12 @@ export function createSession() {
     const entity = nearest(state.mine, activeEntities()), action = finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
+      if (reply?.ok && action === 'dungeon-attack') { state.attackTimer = 0.28; state.attackTargetId = entity.id; state.attackTargetX = entity.x; state.attackTargetY = entity.y; }
       note(reply?.ok ? `You used ${entity.label || action.replaceAll('-', ' ')}.` : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
     });
   }
   function update(dt, input) {
-    state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;
+    state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt; if (state.hurtTimer > 0) state.hurtTimer = Math.max(0, state.hurtTimer - dt); if (state.attackTimer > 0) { state.attackTimer = Math.max(0, state.attackTimer - dt); if (!state.attackTimer) state.attackTargetId = null; }
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
     const mine = state.mine;
     if (gameReady() && mine) {

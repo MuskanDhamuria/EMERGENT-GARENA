@@ -21,7 +21,7 @@ export const FEATURES = new Set([
   'hidden-portal', 'ancient-temple', 'final-gate',
   'hidden-forest-path', 'ancient-observatory', 'temple-staircase',
   'crystal-mine', 'ancient-vault', 'relic-forge', 'sunken-relic',
-  'sacred-tree', 'ancient-bell', 'sanctuary', 'illusion-walls',
+  'sacred-tree', 'ancient-bell', 'sanctuary',
   'ghost-village', 'shadow-forest', 'moon-shrine',
 ]);
 
@@ -55,7 +55,6 @@ export const WORLD_EVOLUTION_LIBRARY = Object.freeze({
   ]),
   Loner: Object.freeze([
     evolution('spirit-portal-opens','Loner','Spirit Portal','spirit-realm',-3,10,'You listened where the others heard only silence. The veil bends toward you. A spirit portal opens between two breaths.'),
-    evolution('illusion-walls-fade','Loner','Faded Illusion Walls','illusion-walls',-8,7,'Solitude taught you which walls were only stories. Their edges flicker and fail. A passage remains.'),
     evolution('ghost-village-appears','Loner','Ghost Village','ghost-village',-16,11,'You carried silence without fearing it. Pale lanterns answer from an empty field. A village of echoes becomes visible.'),
     evolution('shadow-forest-awakens','Loner','Shadow Forest','shadow-forest',-20,5,'The dim paths know your unaccompanied steps. Shadows gather without menace. Another forest wakes beneath this one.'),
     evolution('moon-shrine-visible','Loner','Moon Shrine','moon-shrine',-9,12,'You noticed the light that daylight hides. Moon-white stones emerge from the mist. A shrine waits in quiet recognition.'),

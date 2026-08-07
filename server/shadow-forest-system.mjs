@@ -26,7 +26,7 @@ export function createShadowForestSystem(world){
   function tick(room,player,delta){
     const state=player.shadowForest;if(!state?.active)return;
     state.sawTime+=delta;
-    state.vx=player.inputX*5.2;const wantsJump=player.inputZ<-.25;if(wantsJump&&!state.jumpHeld&&state.onGround){state.vy=-13.5;state.onGround=false;}state.jumpHeld=wantsJump;
+    state.vx=player.inputX*5.2;const wantsJump=player.inputZ<-.25;if(wantsJump&&!state.jumpHeld&&state.onGround){state.vy=-15.5;state.onGround=false;}state.jumpHeld=wantsJump;
     state.vy=Math.min(15,state.vy+28*delta);const previousY=player.z;let nextX=Math.max(.35,Math.min(24.4,player.x+state.vx*delta)),nextY=player.z+state.vy*delta;
     const platform=land(previousY,nextY,nextX,state.vy);if(platform){nextY=platform.y-.85;state.vy=0;state.onGround=true;}else state.onGround=false;
     player.x=nextX;player.z=nextY;

@@ -10,6 +10,9 @@ import { createMcpRouter } from './server/mcp-router.mjs';
 import { attachSocketGateway } from './server/socket-gateway.mjs';
 import { createFinaleSystem } from './server/finale-system.mjs';
 import { createDungeonSystem } from './server/dungeon-system.mjs';
+import { createShadowForestSystem } from './server/shadow-forest-system.mjs';
+import { createMoonShrineSystem } from './server/moon-shrine-system.mjs';
+import { createGhostVillageSystem } from './server/ghost-village-system.mjs';
 
 // The server owns all game rules. The browser only renders the state below and
 // sends intent; it cannot walk through a role gate or collect an invalid relic.
@@ -77,6 +80,9 @@ const INITIAL_ENTITY_DEFINITIONS = ENTITY_DEFINITIONS.filter((entity) => !LEGACY
 const rooms = new Map();
 let finaleSystem;
 let dungeonSystem;
+let shadowForestSystem;
+let moonShrineSystem;
+let ghostVillageSystem;
 
 let collisionTiles = [];
 try {
@@ -136,7 +142,7 @@ function createRoom(code) {
 }
 function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index];
-  return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], sprite: PLAYER_SPRITES[index], facing: 'down', x, z, realm: 'overworld', dungeon: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
+  return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], sprite: PLAYER_SPRITES[index], facing: 'down', x, z, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
     locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
     nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, observationItems: new Set(), collectorClues: new Set(), collectorProgress: null, collectorEvolutionPlan: [], collectorEvolutionReasons: {}, collectorEvolutionIndex: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
 }
@@ -146,7 +152,7 @@ function resetRoomForRoster(room, reason) {
   room.directorState = { activeRules: [], history: [], sequence: 0 };
   room.entities = [...INITIAL_ENTITY_DEFINITIONS, ...OBSERVATION_ITEMS].map((entity) => ({ ...entity, collectedBy: null }));
   for (const [index, player] of activePlayers(room).entries()) {
-    const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, sprite: PLAYER_SPRITES[index], facing: 'down', realm: 'overworld', dungeon: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], evolutionBaseline: null });
+    const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, sprite: PLAYER_SPRITES[index], facing: 'down', realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], evolutionBaseline: null });
     player.visited = new Set(['starting-village']); player.relicIds.clear(); player.interactions = {};
     player.movement = 0; player.movementSamples = 0; player.nearSeconds = 0; player.aloneSeconds = 0;
     player.riskEvents = 0; player.rescues = 0; player.follows = 0; player.observationItems = new Set(); player.collectorClues = new Set(); player.collectorProgress = null; player.collectorEvolutionPlan = []; player.collectorEvolutionReasons = {}; player.collectorEvolutionIndex = 0; player.privateRules = [];
@@ -346,10 +352,13 @@ function fallbackEvolution(room) {
 function createFinalObjective(room, source = 'server', proposal = {}) { const result = finaleSystem.compose(room, source, proposal); return result.ok ? result.objective : null; }
 function maybeCreateFinale() { /* The AI decision window is handled in advanceRoom. */ }
 function getEntity(room, targetId) { return room.entities.find((entity) => entity.id === targetId); }
-function interact(room, player, type, targetId) {
+function interact(room, player, type, targetId, intent = {}) {
   if (!['observing', 'evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until the expedition begins.' };
   const action = cleanText(type, '', 32);
   if (action.startsWith('dungeon-')) return dungeonSystem.interact(room, player, action, cleanText(targetId, '', 48));
+  if (action === 'exit-shadow-forest') return shadowForestSystem.exit(room, player);
+  if (action === 'moon-shrine-interact') return moonShrineSystem.interact(room, player);
+  if (action === 'ghost-village-aim') return ghostVillageSystem.shoot(room, player, { x: Number(intent.aimX), z: Number(intent.aimZ) });
   const entity = getEntity(room, cleanText(targetId, '', 48));
   if (!entity || !['collect-curio','collect-clue','dig-crystal','collector-minigame-start','collector-minigame-complete','forge-bellows-assist','relic', 'discover-temple', 'activate-shrine', 'enter-spirit-realm', 'offer-relics', 'open-final-gate', 'explore-evolution', 'finale-arrive', 'finale-role-step', 'finale-ritual'].includes(action)) return { ok: false, error: 'That interaction target is invalid.' };
   if (distance(player, entity) > 3.25) return { ok: false, error: 'Move closer to interact with that object.' };
@@ -421,6 +430,9 @@ function interact(room, player, type, targetId) {
     return {ok:true,completed:true,nextEvolution,collectorEvolutionsComplete:!hasNext};
   }
   if (action.startsWith('finale-')) return finaleSystem.interact(room, player, action, entity);
+  if (action === 'explore-evolution' && entity.id === 'evolution-shadow-forest-awakens') return shadowForestSystem.enter(room, player);
+  if (action === 'explore-evolution' && entity.id === 'evolution-moon-shrine-visible') return moonShrineSystem.enter(room, player);
+  if (action === 'explore-evolution' && entity.id === 'evolution-ghost-village-appears') return ghostVillageSystem.enter(room, player);
   if (!hasRole(player, entity.role)) return { ok: false, error: `Only the ${entity.role} can use ${entity.label}.` };
   const expected = { relic: 'relic', 'discover-temple': 'temple-entrance', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'offer-relics': 'altar', 'open-final-gate': 'final-gate', 'explore-evolution': 'world-evolution' }[action];
   if (entity.type !== expected) return { ok: false, error: 'That action does not match this object.' };
@@ -450,7 +462,7 @@ function serializeRoom(room, viewerId = null) {
   if (viewer?.realm === 'dungeon') entities.push(...dungeonSystem.entities(viewer));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
   return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, nextEvolutionAt: room.nextEvolutionAt, evolutionSecondsRemaining: room.nextEvolutionAt ? Math.max(0, Math.ceil((room.nextEvolutionAt - now()) / 1000)) : null, finaleSecondsRemaining: room.archetypesAssignedAt ? Math.max(0, Math.ceil((room.archetypesAssignedAt + FINALE_MIN_MATCH_MS - now()) / 1000)) : null, finaleEligible: Boolean(finaleSystem?.eligibility(room).ok), worldEvolutions: room.worldEvolutions, evolutionHistory: room.worldEvolutions,
-    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm === 'dungeon' ? p.x : undefined, tileY: p.realm === 'dungeon' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, observationCount: p.observationItems?.size || 0, forgeAssistHeat: p.id === viewerId ? (p.collectorProgress?.forgeAssistHeat || 0) : undefined, collectorEvolutionPlan: p.id === viewerId && p.archetype === 'Collector' ? p.collectorEvolutionPlan : undefined, collectorEvolutionReasons: p.id === viewerId && p.archetype === 'Collector' ? p.collectorEvolutionReasons : undefined, collectorObjective: p.id === viewerId ? collectorObjectiveText(p.collectorProgress,p) : (p.archetype === 'Collector' && p.collectorProgress ? { title:p.collectorProgress.title, completed:p.collectorProgress.completed, status:p.collectorProgress.completed?'complete':'in-progress' } : null), evolutions: p.evolutions, dungeonCompletions: p.dungeonCompletions || 0 })),
+    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm !== 'overworld' ? p.x : undefined, tileY: p.realm !== 'overworld' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, shadowForest: p.id === viewerId ? p.shadowForest : undefined, moonShrine: p.id === viewerId ? p.moonShrine : undefined, ghostVillage: p.id === viewerId ? p.ghostVillage : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, observationCount: p.observationItems?.size || 0, forgeAssistHeat: p.id === viewerId ? (p.collectorProgress?.forgeAssistHeat || 0) : undefined, collectorEvolutionPlan: p.id === viewerId && p.archetype === 'Collector' ? p.collectorEvolutionPlan : undefined, collectorEvolutionReasons: p.id === viewerId && p.archetype === 'Collector' ? p.collectorEvolutionReasons : undefined, collectorObjective: p.id === viewerId ? collectorObjectiveText(p.collectorProgress,p) : (p.archetype === 'Collector' && p.collectorProgress ? { title:p.collectorProgress.title, completed:p.collectorProgress.completed, status:p.collectorProgress.completed?'complete':'in-progress' } : null), evolutions: p.evolutions, dungeonCompletions: p.dungeonCompletions || 0 })),
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
     world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director,
     directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
@@ -472,8 +484,11 @@ function tickRoom(room, delta) {
   world.directorRules.expire(room);
   const activeRules = room.directorState?.activeRules || [];
   const hasObstacle = activeRules.some((rule) => rule.card === 'temporary_obstacle');
-  if (['observing', 'evolving', 'finale'].includes(room.phase)) for (const player of activePlayers(room)) { const magnitude = Math.hypot(player.inputX, player.inputZ); if (magnitude) { const swiftStep = activeRules.some((rule) => rule.card === 'temporary_boon' && rule.playerId === player.id && rule.boonId === 'swift_step'); const speed = 8 * (swiftStep ? 1.35 : 1) * (hasObstacle ? 0.82 : 1); recordTelemetry(room, player, { x: player.x + player.inputX / magnitude * speed * delta, z: player.z + player.inputZ / magnitude * speed * delta }, true); } const closest = closestDistance(room, player); if (closest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta; }
+  if (['observing', 'evolving', 'finale'].includes(room.phase)) for (const player of activePlayers(room)) { const magnitude = Math.hypot(player.inputX, player.inputZ); if (magnitude && !['shadow-forest', 'moon-shrine', 'ghost-village'].includes(player.realm)) { const swiftStep = activeRules.some((rule) => rule.card === 'temporary_boon' && rule.playerId === player.id && rule.boonId === 'swift_step'); const speed = 8 * (swiftStep ? 1.35 : 1) * (hasObstacle ? 0.82 : 1); recordTelemetry(room, player, { x: player.x + player.inputX / magnitude * speed * delta, z: player.z + player.inputZ / magnitude * speed * delta }, true); } const closest = closestDistance(room, player); if (closest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta; }
   for (const player of activePlayers(room)) if (player.realm === 'dungeon') dungeonSystem.tick(room, player, delta);
+  for (const player of activePlayers(room)) if (player.realm === 'shadow-forest') shadowForestSystem.tick(room, player, delta);
+  for (const player of activePlayers(room)) if (player.realm === 'moon-shrine') moonShrineSystem.tick(room, player, delta);
+  for (const player of activePlayers(room)) if (player.realm === 'ghost-village') ghostVillageSystem.tick(room, player, delta);
   advanceRoom(room);
 }
 function advanceRoom(room) {
@@ -493,6 +508,9 @@ function advanceRoom(room) {
 const world = { rooms, observationMs: OBSERVATION_MS, cleanText, clamp, getPlayer, playerTelemetry, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, evolveWorld, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact };
 finaleSystem = createFinaleSystem(world, { minimumMatchMs: FINALE_MIN_MATCH_MS, resetAfterMs: FINALE_RESET_MS });
 dungeonSystem = createDungeonSystem(world);
+shadowForestSystem = createShadowForestSystem(world);
+moonShrineSystem = createMoonShrineSystem(world);
+ghostVillageSystem = createGhostVillageSystem(world);
 world.directorRules = createDirectorRules(world);
 const handleMcpApi = createMcpRouter(world);
 

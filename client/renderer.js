@@ -36,6 +36,11 @@ export function createRenderer(canvas, session) {
   const dungeonChest = new Image(); dungeonChest.src = '/game-art/dungeon/chest_1.png'; dungeonChest.addEventListener('load', () => { art.dungeonChest = dungeonChest; render(); });
   const dungeonSeal = new Image(); dungeonSeal.src = '/game-art/dungeon/coin_1.png'; dungeonSeal.addEventListener('load', () => { art.dungeonSeal = dungeonSeal; render(); });
   const dungeonCharacters = new Image(); dungeonCharacters.src = '/game-art/dungeon/Dungeon_Character.png'; dungeonCharacters.addEventListener('load', () => { art.dungeonCharacters = dungeonCharacters; render(); });
+  const lonerPortal = new Image(); lonerPortal.src = '/game-art/loner-portal/portal-chroma.png'; lonerPortal.addEventListener('load', () => { art.lonerPortal=lonerPortal; render(); });
+  for (const [key, file] of Object.entries({ shadowBackground:'forest-background.avif', shadowTerrain:'terrain.png', shadowExit:'exit.png' })) { const sprite = new Image(); sprite.src = `/game-art/shadow-forest/${file}`; sprite.addEventListener('load', () => { art[key] = sprite; render(); }); }
+  for (const [key, file] of Object.entries({ trapSpikes:'spikes.png', trapTrampoline:'trampoline-idle.png', trapFan:'fan.png', trapFire:'fire.png', trapSaw:'saw.png' })) { const sprite = new Image(); sprite.src = `/game-art/shadow-forest/traps/${file}`; sprite.addEventListener('load', () => { art[key] = sprite; render(); }); }
+  for (const [key, file] of Object.entries({ moonBackground:'background.png', moonShrine:'shrine.png' })) { const sprite = new Image(); sprite.src = `/game-art/moon-shrine/${file}`; sprite.addEventListener('load', () => { art[key] = sprite; render(); }); }
+  for (const [key, file] of Object.entries({ ghostBackground:'background.png', ghostSprite:'ghost.png', ghostShard:'shard.png' })) { const sprite = new Image(); sprite.src = `/game-art/ghost-village/${file}`; sprite.addEventListener('load', () => { art[key] = sprite; render(); }); }
   for (const id of [1, 2, 3, 5]) { const sprite = new Image(); sprite.src = `/game-art/retro-characters/player-${id}.png`; sprite.addEventListener('load', () => { art[`player${id}`] = sprite; render(); }); }
   collectorAssetNames.forEach((name) => { const sprite = new Image(); sprite.src = `/game-art/collector/${name}.png`; sprite.addEventListener('load', () => { art[name] = sprite; render(); }); });
   Object.entries(uiAssets).forEach(([name, src]) => { const sprite = new Image(); sprite.src = src; sprite.addEventListener('load', () => { art[name] = sprite; render(); }); });
@@ -48,6 +53,21 @@ export function createRenderer(canvas, session) {
   function drawTile(x, y) { const X = px(x), Y = py(y), index = y * W + x; if (!authoredForest || !art.camping || x < 0 || y < 0 || x >= W || y >= H) { ctx.fillStyle = C.grass; ctx.fillRect(X, Y, T, T); return; } for (const layer of authoredForest.layers || []) { const gid = layer.data?.[index] || 0; if (gid) sheetTile(gid, X, Y); } }
   function dungeonWall(x, y) { return x < 1 || x > 18 || y < 1 || y > 14 || (x === 9 && y >= 2 && y <= 6 && y !== 4) || (y === 8 && x >= 3 && x <= 16 && ![7, 10, 14].includes(x)); }
   function drawDungeonTile(x, y) { const X = px(x), Y = py(y), wall = dungeonWall(x, y); ctx.fillStyle = wall ? '#231b2d' : '#35243e'; ctx.fillRect(X, Y, T, T); if (art.dungeon) ctx.drawImage(art.dungeon, wall ? 16 : 32, wall ? 0 : 32, 16, 16, X, Y, T, T); }
+  const shadowPlatforms=[{x:0,y:12,w:5},{x:6,y:11,w:4},{x:11,y:12,w:3},{x:15,y:10,w:3},{x:19,y:12,w:6},{x:3,y:8,w:4},{x:8,y:7,w:3},{x:12,y:5,w:4},{x:17,y:7,w:3},{x:21,y:5,w:3}];
+  const shadowTraps=[{x:7.35,y:11,w:1.1},{x:19.65,y:12,w:1.1}],shadowFire=[{x:16.1,y:10,w:1},{x:21.1,y:12,w:.9}],shadowTrampoline={x:3.15,y:12,w:1},shadowFan={x:12.6,y:12,w:1.1,top:5.2};
+  function drawShadowForest(){
+    ctx.fillStyle='#123c46';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.shadowBackground){const scale=Math.max(canvas.width/art.shadowBackground.width,canvas.height/art.shadowBackground.height),w=art.shadowBackground.width*scale,h=art.shadowBackground.height*scale;ctx.drawImage(art.shadowBackground,(canvas.width-w)/2,(canvas.height-h)/2,w,h);}
+    shadowPlatforms.forEach((p)=>{for(let x=p.x;x<p.x+p.w;x++){const X=px(x),Y=py(p.y);ctx.fillStyle='#6e4736';ctx.fillRect(X,Y,T,T);if(art.shadowTerrain)ctx.drawImage(art.shadowTerrain,96,0,16,16,X,Y,T,T);}});
+    shadowTraps.forEach((item)=>{const X=px(item.x),Y=py(item.y);if(art.trapSpikes)ctx.drawImage(art.trapSpikes,0,0,16,16,X,Y-16,item.w*T,20);});
+    shadowFire.forEach((item,index)=>{const X=px(item.x),Y=py(item.y),frame=Math.floor(state.frame*1.5+index)%3;if(art.trapFire)ctx.drawImage(art.trapFire,frame*16,0,16,32,X,Y-28,item.w*T,32);});
+    let X=px(shadowTrampoline.x),Y=py(shadowTrampoline.y);if(art.trapTrampoline)ctx.drawImage(art.trapTrampoline,0,0,28,28,X,Y-14,shadowTrampoline.w*T,20);
+    X=px(shadowFan.x);Y=py(shadowFan.y);if(art.trapFan){const frame=Math.floor(state.frame*2)%4;ctx.drawImage(art.trapFan,frame*24,0,24,8,X,Y-10,shadowFan.w*T,10);}ctx.strokeStyle='rgba(210,245,255,.55)';for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(X+i*5,Y-14);ctx.lineTo(X+i*5+Math.sin(state.frame*.8+i)*4,py(shadowFan.top));ctx.stroke();}
+    const sawTime=state.mine?.shadowForest?.sawTime||0,sawX=8.15+(Math.sin(sawTime*2.4)+1)*1.05,sx=px(sawX),sy=py(5.8);if(art.trapSaw){const frame=Math.floor(state.frame*2)%8;ctx.drawImage(art.trapSaw,frame*38,0,38,38,sx-9,sy-9,38,38);}
+    X=px(22.15);Y=py(2.7);ctx.fillStyle='rgba(220,255,238,.28)';ctx.fillRect(X-4,Y-4,48,55);if(art.shadowExit)ctx.drawImage(art.shadowExit,0,0,64,64,X,Y,40,40);
+  }
+  function drawMoonShrine(){ctx.fillStyle='#0d1428';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.moonBackground)ctx.drawImage(art.moonBackground,0,0,canvas.width,canvas.height);const mission=state.mine?.moonShrine||{},path=[{x:2,y:10},{x:7,y:10},{x:7,y:7},{x:13,y:7},{x:13,y:10},{x:19,y:10},{x:19,y:6},{x:24,y:6},{x:28,y:5}],ready=Number(mission.pathStep||0)>=path.length-1;ctx.strokeStyle=mission.lineFailed?'#b73f58':'rgba(222,248,255,.9)';ctx.lineWidth=7;ctx.lineCap='round';ctx.lineJoin='round';ctx.shadowColor=mission.lineFailed?'#7d1f38':'#a8e8ff';ctx.shadowBlur=12;ctx.beginPath();path.forEach((point,index)=>index?ctx.lineTo(px(point.x)+10,py(point.y)+10):ctx.moveTo(px(point.x)+10,py(point.y)+10));ctx.stroke();ctx.shadowBlur=0;path.forEach((point,index)=>{ctx.fillStyle=index<=Number(mission.pathStep||0)?'#effcff':'#53637b';ctx.beginPath();ctx.arc(px(point.x)+10,py(point.y)+10,6,0,Math.PI*2);ctx.fill();});if(ready){const X=px(28)+10,Y=py(5)+10,pulse=30+Math.sin(state.frame)*6;const glow=ctx.createRadialGradient(X,Y,4,X,Y,pulse);glow.addColorStop(0,'rgba(235,252,255,.95)');glow.addColorStop(1,'rgba(140,215,255,0)');ctx.fillStyle=glow;ctx.beginPath();ctx.arc(X,Y,pulse,0,Math.PI*2);ctx.fill();ctx.shadowColor='#dff8ff';ctx.shadowBlur=22;}if(art.moonShrine)ctx.drawImage(art.moonShrine,0,0,112,224,px(27),py(1),40,80);ctx.shadowBlur=0;}
+  function drawLonerPortal(X,Y){const pulse=1+Math.sin(state.frame*1.6)*.045,bob=Math.sin(state.frame*1.25)*1.2,w=24*pulse,h=36*pulse;ctx.save();if(art.lonerPortal){ctx.imageSmoothingEnabled=false;ctx.drawImage(art.lonerPortal,340,55,580,1010,X+10-w/2,Y+9-h/2+bob,w,h);}else{ctx.fillStyle='#17dff2';ctx.beginPath();ctx.ellipse(X+10,Y+9+bob,7,13,0,0,Math.PI*2);ctx.fill();ctx.fillStyle='#173fba';ctx.beginPath();ctx.ellipse(X+10,Y+9+bob,5,10,0,0,Math.PI*2);ctx.fill();}ctx.restore();}
+
   function drawSprite(name, X, Y, width, height, alpha = 1) { const sprite = art[name]; if (!sprite) return false; const scale = Math.min(width / sprite.width, height / sprite.height), drawW = Math.max(1, Math.round(sprite.width * scale)), drawH = Math.max(1, Math.round(sprite.height * scale)); ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(sprite, Math.round(X + (width - drawW) / 2), Math.round(Y + (height - drawH)), drawW, drawH); ctx.restore(); return true; }
 
   function drawUiSprite(name, sx, sy, sw, sh, dx, dy, dw, dh, alpha = 1) { const sprite = art[name]; if (!sprite) return false; ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(sprite, sx, sy, sw, sh, dx, dy, dw, dh); ctx.restore(); return true; }
@@ -110,7 +130,9 @@ export function createRenderer(canvas, session) {
   }
   function drawEntity(entity) {
     const X = px(entity.x), Y = py(entity.y), kind = String(entity.kind || entity.type || '').toLowerCase();
-    if (kind.includes('dungeon-enemy')) {
+    if (kind === 'world-evolution' && entity.role === 'Loner' && entity.dormant) return;
+    if ((kind === 'world-evolution' && entity.role === 'Loner' && !entity.dormant) || kind.includes('spirit-portal')) { drawLonerPortal(X,Y); }
+    else if (kind.includes('dungeon-enemy')) {
       const sprite=Number(entity.sprite)||0, sx=(sprite%7)*16, sy=Math.floor(sprite/7)*16;
       if(art.dungeonCharacters) ctx.drawImage(art.dungeonCharacters,sx,sy,16,16,X,Y,20,20);
       if(state.attackTimer>0&&state.attackTargetId===entity.id){ctx.fillStyle=`rgba(255,245,210,${Math.min(1,state.attackTimer*3)})`;ctx.fillRect(X+2,Y+2,16,16);}
@@ -138,6 +160,7 @@ export function createRenderer(canvas, session) {
     else if (kind.includes('temple') || kind.includes('altar')) { ctx.fillStyle = '#b9a882'; ctx.fillRect(X, Y + 5, 20, 15); ctx.fillStyle = kind.includes('altar') ? C.gold : '#706879'; ctx.fillRect(X + 7, Y + 8, 6, 12); }
     else { ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 4, Y + 4, 12, 12); }
   }
+  function drawGhostVillage(){ctx.fillStyle='#100c1d';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.ghostBackground)ctx.drawImage(art.ghostBackground,0,50,canvas.width,540);const player=state.mine,mission=player?.ghostVillage;if(!mission)return;mission.ghosts.filter((ghost)=>ghost.active).forEach((ghost)=>{const X=px(ghost.x),Y=py(ghost.z),bob=Math.sin(state.frame+ghost.x)*4;ctx.fillStyle='rgba(175,225,255,.18)';ctx.beginPath();ctx.arc(X+10,Y+10+bob,18,0,Math.PI*2);ctx.fill();if(art.ghostSprite)ctx.drawImage(art.ghostSprite,X-2,Y-2+bob,24,24);});for(const shot of mission.projectiles||[]){const X=px(shot.x),Y=py(shot.z);ctx.fillStyle='rgba(190,240,255,.35)';ctx.beginPath();ctx.arc(X+8,Y+8,12,0,Math.PI*2);ctx.fill();if(art.ghostShard)ctx.drawImage(art.ghostShard,X,Y,16,16);}const aim=state.aimScreen,aimX=(aim.x+(state.camera.x*T-canvas.width/2))/T,aimZ=(aim.y+(state.camera.y*T-canvas.height/2))/T,dx=aimX-player.x,dz=aimZ-(player.y-.4),length=Math.max(.2,Math.hypot(dx,dz)),vx=dx/length*10,vz=dz/length*10;ctx.fillStyle='rgba(225,250,255,.75)';for(let t=.12;t<2.1;t+=.16){const x=player.x+vx*t,z=player.y-.4+vz*t+3.5*t*t;if(z>12.5||x<0||x>28)break;ctx.beginPath();ctx.arc(px(x)+8,py(z)+8,3,0,Math.PI*2);ctx.fill();}panel(315,14,330,58);ctx.textAlign='center';ctx.font='bold 11px monospace';ctx.fillStyle='#dff8ff';ctx.fillText(`GHOSTS CAUGHT · ${mission.caught}/6`,480,36);ctx.font='10px monospace';ctx.fillText('RUN A/D · AIM ARC WITH MOUSE · CLICK TO THROW',480,56);}
   function character(player) { const X = px(player.x), Y = py(player.y), sprite=art[`player${player.sprite}`], rows={down:0,left:1,right:2,up:3}, row=rows[player.facing]??0, frame=player.moving?Math.floor(state.frame*1.4)%3:1; if(sprite)ctx.drawImage(sprite,frame*32,row*32,32,32,X-6,Y-10,32,32);else{ctx.fillStyle=C.ink;ctx.fillRect(X+4,Y+4,10,11);ctx.fillStyle=player.color;ctx.fillRect(X+5,Y+5,8,8);}ctx.fillStyle=player.color;ctx.fillRect(X+3,Y+18,14,2);if(player===state.mine&&state.hurtTimer>0&&Math.floor(state.frame*12)%2===0){ctx.fillStyle='rgba(255,240,230,.75)';ctx.fillRect(X-4,Y-8,28,28);} }
   function drawAttack() { const player=state.mine;if(!player||state.attackTimer<=0||player.realm!=='dungeon')return;const X=px(player.x)+10,Y=py(player.y)+10,dx=state.attackTargetX-player.x,dy=state.attackTargetY-player.y,angle=Math.atan2(dy,dx),progress=1-state.attackTimer/.28,swing=angle-.9+progress*1.8;ctx.save();ctx.translate(X,Y);ctx.rotate(swing);ctx.fillStyle='#d9e7ee';ctx.fillRect(8,-2,15,4);ctx.fillStyle='#fff8c9';ctx.fillRect(20,-1,7,2);ctx.fillStyle='#8b6b46';ctx.fillRect(4,-3,6,6);ctx.restore(); }
   function label(text, x, y, color = '#fff7d5') { ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; const tx = px(x), ty = py(y) - 14; const width = Math.max(32, ctx.measureText(text).width + 14); ctx.fillStyle = 'rgba(12,22,33,.90)'; ctx.fillRect(Math.round(tx - width / 2), ty - 10, width, 14); ctx.fillStyle = color; ctx.fillRect(Math.round(tx - width / 2 + 3), ty - 7, 4, 4); ctx.strokeStyle = '#0b1118'; ctx.lineWidth = 3; ctx.strokeText(text, tx + 3, ty); ctx.fillStyle = '#ffffff'; ctx.fillText(text, tx + 3, ty); }
@@ -374,31 +397,22 @@ function drawCollectorGame(){
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state.joined) { drawStart(); return; }
-    const dungeon=state.mine?.realm==='dungeon';
+    const realm=state.mine?.realm||'overworld', dungeon=realm==='dungeon', shadow=realm==='shadow-forest', moon=realm==='moon-shrine', ghost=realm==='ghost-village';
     const minX=Math.floor(state.camera.x-25),maxX=Math.ceil(state.camera.x+25),minY=Math.floor(state.camera.y-17),maxY=Math.ceil(state.camera.y+17);
-    if(dungeon){
-      ctx.fillStyle='#120f19';ctx.fillRect(0,0,canvas.width,canvas.height);
-      for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawDungeonTile(x,y);
-    }else{
-      for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawTile(x,y);
-      (state.world?.terrain||[]).forEach(drawTerrain);
-    }
+    if(shadow) drawShadowForest();
+    else if(moon) drawMoonShrine();
+    else if(ghost) drawGhostVillage();
+    else if(dungeon){ ctx.fillStyle='#120f19';ctx.fillRect(0,0,canvas.width,canvas.height); for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawDungeonTile(x,y); }
+    else { for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawTile(x,y); (state.world?.terrain||[]).forEach(drawTerrain); }
+    const special=shadow||moon||ghost;
     const mood=state.world?.director?.mood||state.world?.directorRules?.activeRules?.find((rule)=>rule.card==='world_mood')?.moodId;
-    if(!dungeon&&mood==='mist'){ctx.fillStyle='rgba(220,236,242,.18)';ctx.fillRect(0,0,canvas.width,canvas.height);}
-    if(!dungeon&&mood==='storm'){ctx.fillStyle='rgba(54,67,105,.18)';ctx.fillRect(0,0,canvas.width,canvas.height);}
-    if(!dungeon&&mood==='starlight'){ctx.fillStyle='rgba(82,57,132,.16)';ctx.fillRect(0,0,canvas.width,canvas.height);}
-    activeEntities().filter((entity)=>dungeon?String(entity.kind).startsWith('dungeon-'):!String(entity.kind).startsWith('dungeon-')).forEach(drawEntity);
-    const visiblePlayers=state.players.filter((player)=>(player.realm||'overworld')===(state.mine?.realm||'overworld'));
-    visiblePlayers.forEach(character);
-    drawAttack();
-    visiblePlayers.forEach((player)=>label(player.name,player.x,player.y,player.color));
-    drawHurtEffect();
-    drawHud();
-    drawDirectorHud();
-    if(dungeon) drawDungeonHud();
-    if(!gameReady()) drawLobby();
-    drawCollectorGame();
-    drawReflection();
+    if(!dungeon&&!special&&mood==='mist'){ctx.fillStyle='rgba(220,236,242,.18)';ctx.fillRect(0,0,canvas.width,canvas.height);}
+    if(!dungeon&&!special&&mood==='storm'){ctx.fillStyle='rgba(54,67,105,.18)';ctx.fillRect(0,0,canvas.width,canvas.height);}
+    if(!dungeon&&!special&&mood==='starlight'){ctx.fillStyle='rgba(82,57,132,.16)';ctx.fillRect(0,0,canvas.width,canvas.height);}
+    if(!special) activeEntities().filter((entity)=>dungeon?String(entity.kind).startsWith('dungeon-'):!String(entity.kind).startsWith('dungeon-')).forEach(drawEntity);
+    const visiblePlayers=state.players.filter((player)=>(player.realm||'overworld')===realm);
+    visiblePlayers.forEach(character); drawAttack(); if(!shadow&&!ghost) visiblePlayers.forEach((player)=>label(player.name,player.x,player.y,player.color));
+    drawHurtEffect(); drawHud(); if(!special) drawDirectorHud(); if(dungeon) drawDungeonHud(); if(shadow) drawShadowHud(); if(!gameReady()) drawLobby(); drawCollectorGame(); drawReflection();
   }
   return { render };
 }

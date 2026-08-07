@@ -13,7 +13,10 @@
     "serve": "node server.mjs",
     "test:game": "node tests/four-player-smoke.mjs",
     "test:finale": "node tests/finale-system.test.mjs",
-    "test:dungeon": "node tests/spirit-dungeon.test.mjs"
+    "test:dungeon": "node tests/spirit-dungeon.test.mjs",
+    "test:shadow": "node tests/shadow-forest.test.mjs",
+    "test:moon": "node tests/moon-shrine.test.mjs",
+    "test:ghost": "node tests/ghost-village.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",

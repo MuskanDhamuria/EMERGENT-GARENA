@@ -11,9 +11,10 @@ canvas.style.userSelect = 'none';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
+const { state, gameReady, interact, aimAt, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
+const preview=new URLSearchParams(location.search).get('preview'); if(preview==='shadow-forest') enableShadowForestPreview(); else if(preview==='moon-shrine') enableMoonShrinePreview(); else if(preview==='ghost-village') enableGhostVillagePreview();
 
 function movementInput() {
   let x = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
@@ -61,10 +62,10 @@ function canvasPoint(event){
   };
 }
 canvas.addEventListener('pointerdown', (event) => { event.preventDefault(); const {x,y}=canvasPoint(event); if(state.collectorGame){ if(state.collectorGame.type==='crystal-rebuild') handleGamePointerDown(x,y); else handleGameClick(x,y); canvas.setPointerCapture?.(event.pointerId); return;} if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
-canvas.addEventListener('pointermove', (event) => { if(!state.collectorGame || state.collectorGame.type!=='crystal-rebuild') return; event.preventDefault(); const {x,y}=canvasPoint(event); handleGamePointerMove(x,y); });
+canvas.addEventListener('pointermove', (event) => { const {x,y}=canvasPoint(event); state.aimScreen={x,y}; if(state.collectorGame?.type==='crystal-rebuild'){ event.preventDefault(); handleGamePointerMove(x,y); } });
 canvas.addEventListener('pointerup', (event) => { if(!state.collectorGame || state.collectorGame.type!=='crystal-rebuild') return; event.preventDefault(); const {x,y}=canvasPoint(event); handleGamePointerUp(x,y); });
 canvas.addEventListener('pointercancel', (event) => { if(!state.collectorGame || state.collectorGame.type!=='crystal-rebuild') return; event.preventDefault(); const {x,y}=canvasPoint(event); handleGamePointerUp(x,y); });
-canvas.addEventListener('click', (event) => { if(state.collectorGame) { event.preventDefault(); return; } });
+canvas.addEventListener('click', (event) => { const {x,y}=canvasPoint(event); if(state.collectorGame) { event.preventDefault(); return; } if(aimAt(x,y,canvas.width,canvas.height)){ event.preventDefault(); return; } if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
 
 let last = performance.now();
 function loop(now) {

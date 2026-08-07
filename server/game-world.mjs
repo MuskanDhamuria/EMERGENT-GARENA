@@ -6,9 +6,10 @@ import { ARCHETYPES, ENTITY_DEFINITIONS, EVOLUTION_LIBRARY, FEATURES, MAX_PLAYER
 import { createDirectorRules } from './director-rules.mjs';
 import { createEmergentRules } from './emergent-rules.mjs';
 import { createPortalSystem } from './portal-system.mjs';
+import { createRealmSystem } from './realm-system.mjs';
 
 const ACTIVE_PHASES = new Set(['observing', 'evolving', 'finale']);
-const ROLE_ACTIONS = Object.freeze({ relic: 'relic', 'discover-temple': 'temple-entrance', 'trace-waystone': 'waystone', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'read-veil': 'veil-mirror', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' });
+const ROLE_ACTIONS = Object.freeze({ relic: 'relic', 'discover-temple': 'temple-entrance', 'trace-waystone': 'waystone', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'read-veil': 'veil-mirror', 'enter-shadow-forest': 'realm-portal', 'enter-moon-shrine': 'realm-portal', 'enter-ghost-village': 'realm-portal', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' });
 const MASTERY_ACTIONS = Object.freeze({ relic: 'Echo Water relic', 'discover-temple': 'hidden route', 'activate-shrine': 'shrine rite', 'enter-spirit-realm': 'spirit path' });
 const INTERACTION_MESSAGES = Object.freeze({ relic: (player, entity) => `${player.name} collected ${entity.label}.`, 'discover-temple': (player) => `${player.name} found the hidden temple entrance.`, 'trace-waystone': (player) => `${player.name} traced the route through the old waystone.`, 'activate-shrine': (player) => `${player.name} awakened the shrine.`, 'enter-spirit-realm': (player) => `${player.name} stepped through the veil.`, 'read-veil': (player) => `${player.name} read the Veil Mirror's hidden omen.`, 'offer-relics': (player) => `${player.name} offered relics at the altar.`, 'open-final-gate': (player) => `${player.name} turned the final gate's spirit key.` });
 const FINALE_TASKS = Object.freeze({ Explorer: 'discover the hidden temple entrance', Collector: 'offer three relics at the altar', Guardian: 'activate the awakened shrine', Loner: 'open the final gate' });
@@ -26,6 +27,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   const spawns = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
   const now = () => clock();
   const portals = createPortalSystem({ clock: now });
+  let realms;
   const cleanText = (value, fallback = '', maximum = 220) => typeof value === 'string' ? value.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, maximum) || fallback : fallback;
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
   const players = (room) => [...room.players.values()];
@@ -76,13 +78,13 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   }
   function createPlayer(id, name, index) {
     const [x, z] = spawns[index];
-    return { id, name: cleanText(name, 'Wanderer', 16), color: colors[index], x, z, inputX: 0, inputZ: 0, locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], privateRules: [], emergent: freshPlayerEmergentState(), lastTelemetryAt: now() };
+    return { id, name: cleanText(name, 'Wanderer', 16), color: colors[index], x, z, inputX: 0, inputZ: 0, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], privateRules: [], emergent: freshPlayerEmergentState(), lastTelemetryAt: now() };
   }
   function resetRoomForRoster(room, reason) {
     Object.assign(room, { phase: 'waiting-for-four', observationEndsAt: null, archetypesAssignedAt: null, finalObjective: null, templeFinale: null, world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map() }, directorState: { activeRules: [], history: [], sequence: 0 }, emergentState: freshEmergentState(), entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })) });
     for (const [index, player] of players(room).entries()) {
       const [x, z] = spawns[index];
-      Object.assign(player, { x, z, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, privateRules: [], emergent: freshPlayerEmergentState() });
+      Object.assign(player, { x, z, inputX: 0, inputZ: 0, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, privateRules: [], emergent: freshPlayerEmergentState() });
     }
     room.director = { narration: reason, source: 'server', at: now() };
   }
@@ -185,9 +187,14 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     }
     return result;
   }
-  function interact(room, player, type, targetId) {
+  function interact(room, player, type, targetId, intent = {}) {
     if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until all four players have received their roles.' };
     const action = cleanText(type, '', 32), cleanTargetId = cleanText(targetId, '', 48);
+    const realmResult = realms?.interact(room, player, action, cleanTargetId, intent);
+    if (realmResult) {
+      if (realmResult.ok && ['dungeon-exit', 'exit-shadow-forest', 'moon-shrine-interact'].includes(action)) recordRoleObjective(room, player, `${player.archetype.toLowerCase()}-${action}`);
+      return realmResult;
+    }
     if (room.templeFinale) return action === 'activate-temple-pillar' ? interactTemple(room, player) : { ok: false, error: 'The temple asks you to stand at your own pillar.' };
     if (player.guardianPortal?.status === 'in-trial') return action === 'guardian-objective' ? interactGuardianTrial(room, player, cleanTargetId) : { ok: false, error: 'Restore the next ward inside the Guardian sanctum.' };
     const dynamicEntities = guardianPortalEntities(room), entity = [...room.entities, ...dynamicEntities].find((entry) => entry.id === cleanTargetId);
@@ -202,6 +209,12 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (!hasRole(player, entity.role)) return { ok: false, error: `Only the ${entity.role} can use ${entity.label}.` };
     if (entity.type !== ROLE_ACTIONS[action]) return { ok: false, error: 'That action does not match this object.' };
     if (entity.feature && !room.world.unlocked.has(entity.feature) && !(room.world.privateUnlocks.get(player.id) || new Set()).has(entity.feature)) return { ok: false, error: 'That place has not awakened yet.' };
+    const realmFeature = action === 'enter-spirit-realm' ? 'spirit-realm' : action === 'enter-shadow-forest' ? 'shadow-forest' : action === 'enter-moon-shrine' ? 'moon-shrine' : action === 'enter-ghost-village' ? 'ghost-village' : null;
+    if (realmFeature) {
+      const entered = realms.enter(room, player, realmFeature);
+      if (entered.ok) event(room, 'realm-entered', `${player.name} steps into the ${entity.label}.`, { playerId: player.id, realm: player.realm });
+      return entered;
+    }
     const emergentInteraction = world.emergentRules.validateInteraction(room, player, action, entity); if (!emergentInteraction.ok) return emergentInteraction;
     if (entity.type === 'relic') { if (entity.collectedBy) return { ok: false, error: 'That relic was already claimed.' }; entity.collectedBy = player.id; player.relicIds.add(entity.id); recordRoleObjective(room, player, `relic-${entity.id}`); }
     player.interactions[action] = (player.interactions[action] || 0) + 1; if (MASTERY_ACTIONS[action]) maybeAutoEvolve(room, player, MASTERY_ACTIONS[action]);
@@ -211,6 +224,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   }
   function recordTelemetry(room, player, payload = {}, positionIsAuthoritative = false) {
     if (!ACTIVE_PHASES.has(room.phase)) return;
+    if (player.realm && player.realm !== 'overworld') return;
     const x = positionIsAuthoritative ? clamp(payload.x ?? payload.position?.x, worldBounds.minX, worldBounds.maxX) : player.x, z = positionIsAuthoritative ? clamp(payload.z ?? payload.position?.z, worldBounds.minZ, worldBounds.maxZ) : player.z;
     const next = canEnterTile(player, x, z) ? { x, z } : { x: player.x, z: player.z }; const travelled = Math.min(2, Math.hypot(next.x - player.x, next.z - player.z)); if (travelled) { player.movement += travelled; player.movementSamples += 1; }
     player.x = next.x; player.z = next.z; player.locationId = locationFor(next.x, next.z); player.visited.add(player.locationId); player.lastTelemetryAt = now();
@@ -219,18 +233,37 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   function entityVisibleTo(entity, viewer, room) { const privateFeatures = viewer ? room.world.privateUnlocks.get(viewer.id) || new Set() : new Set(); return !viewer || entity.type === 'relic' ? !viewer || viewer.archetype === 'Collector' : entity.feature && !room.world.unlocked.has(entity.feature) && !privateFeatures.has(entity.feature) ? false : entity.role === viewer.archetype || !entity.role; }
   function serializeRoom(room, viewerId = null) {
     advanceRoom(room); const viewer = viewerId && getPlayer(room, viewerId), privateUnlocks = viewer ? [...(room.world.privateUnlocks.get(viewer.id) || [])] : [], directorRules = room.directorState || { activeRules: [], history: [] }, visibleRules = (directorRules.activeRules || []).filter((rule) => !rule.playerId || !viewerId || rule.playerId === viewerId);
-    const entities = [...room.entities, ...guardianPortalEntities(room)].filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, label, role, terrain, collectedBy, feature, action, trialId }) => ({ id, type, x, z, label, requiredRole: role, terrain, collectedBy, feature, action, trialId }));
+    const entities = [...room.entities, ...guardianPortalEntities(room), ...(viewer ? realms.entities(viewer) : [])].filter((entity) => entityVisibleTo(entity, viewer, room)).map(({ id, type, x, z, tileX, tileY, label, role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }) => ({ id, type, x, z, tileX, tileY, label, role, requiredRole: role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }));
     const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
-    return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: players(room).map((player) => ({ id: player.id, name: player.name, color: player.color, x: player.x, z: player.z, locationId: player.locationId, archetype: player.archetype, capabilities: player.id === viewerId ? ROLE_ABILITIES[player.archetype] || [] : undefined, emergentStatus: player.id === viewerId ? { energy: player.emergent?.energy ?? 100, effects: player.emergent?.effects || [] } : undefined, relicCount: player.relicIds.size, objectiveCount: objectiveCount(player), evolutions: player.evolutions })), relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain, world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, guardianTrial: viewer?.guardianPortal ? portals.serializeGuardian(viewer.guardianPortal) : null, templeFinale: room.templeFinale ? portals.serializeFinale(room.templeFinale) : null, director: room.director, directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, emergentRules: world.emergentRules.serialize(room, viewerId), events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
+    return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: players(room).map((player) => ({ id: player.id, name: player.name, color: player.color, x: player.x, z: player.z, tileX: player.realm !== 'overworld' ? player.x : undefined, tileY: player.realm !== 'overworld' ? player.z : undefined, locationId: player.locationId, archetype: player.archetype, capabilities: player.id === viewerId ? ROLE_ABILITIES[player.archetype] || [] : undefined, emergentStatus: player.id === viewerId ? { energy: player.emergent?.energy ?? 100, effects: player.emergent?.effects || [] } : undefined, relicCount: player.relicIds.size, objectiveCount: objectiveCount(player), evolutions: player.evolutions, ...(player.id === viewerId ? realms.snapshot(player) : { realm: player.realm }) })), relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain, world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, guardianTrial: viewer?.guardianPortal ? portals.serializeGuardian(viewer.guardianPortal) : null, templeFinale: room.templeFinale ? portals.serializeFinale(room.templeFinale) : null, director: room.director, directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, emergentRules: world.emergentRules.serialize(room, viewerId), events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };
   }
   function broadcastState(room) { for (const player of players(room)) emitState(player.id, serializeRoom(room, player.id)); }
   function tickRoom(room, delta) {
-    world.directorRules.expire(room); const rules = room.directorState?.activeRules || [], hasObstacle = rules.some((rule) => rule.card === 'temporary_obstacle');
-    if (ACTIVE_PHASES.has(room.phase)) for (const player of players(room)) { const magnitude = Math.hypot(player.inputX, player.inputZ); if (magnitude) { const swiftStep = rules.some((rule) => rule.card === 'temporary_boon' && rule.playerId === player.id && rule.boonId === 'swift_step'); const speed = 8 * (swiftStep ? 1.35 : 1) * (hasObstacle ? 0.82 : 1) * world.emergentRules.movementMultiplier(room, player); const dx = player.inputX / magnitude * speed * delta, dz = player.inputZ / magnitude * speed * delta; if (room.templeFinale) portals.moveFinale(room.templeFinale, player.id, { x: room.templeFinale.players[player.id].position.x + dx, z: room.templeFinale.players[player.id].position.z + dz }); else if (player.guardianPortal?.status === 'in-trial') portals.moveGuardian(player.guardianPortal, { x: player.guardianPortal.position.x + dx, z: player.guardianPortal.position.z + dz }); else recordTelemetry(room, player, { x: player.x + dx, z: player.z + dz }, true); } if (player.guardianPortal?.status === 'in-trial') { const nudge = portals.tickGuardian(player.guardianPortal); if (nudge) { room.director = { narration: nudge.message, source: 'portal-director', at: now() }; event(room, nudge.type, nudge.message, { playerId: player.id }); } } const nearest = players(room).filter((other) => other.id !== player.id).reduce((closest, other) => Math.min(closest, distance(player, other)), Infinity); if (nearest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta; }
+    world.directorRules.expire(room);
+    const rules = room.directorState?.activeRules || [], hasObstacle = rules.some((rule) => rule.card === 'temporary_obstacle');
+    if (ACTIVE_PHASES.has(room.phase)) for (const player of players(room)) {
+      const magnitude = Math.hypot(player.inputX, player.inputZ);
+      if (magnitude) {
+        const swiftStep = rules.some((rule) => rule.card === 'temporary_boon' && rule.playerId === player.id && rule.boonId === 'swift_step');
+        const speed = 8 * (swiftStep ? 1.35 : 1) * (hasObstacle ? 0.82 : 1) * world.emergentRules.movementMultiplier(room, player);
+        const dx = player.inputX / magnitude * speed * delta, dz = player.inputZ / magnitude * speed * delta;
+        if (room.templeFinale) portals.moveFinale(room.templeFinale, player.id, { x: room.templeFinale.players[player.id].position.x + dx, z: room.templeFinale.players[player.id].position.z + dz });
+        else if (player.guardianPortal?.status === 'in-trial') portals.moveGuardian(player.guardianPortal, { x: player.guardianPortal.position.x + dx, z: player.guardianPortal.position.z + dz });
+        else if (player.realm === 'dungeon' && realms.move(player, player.x + dx, player.z + dz)) { player.x += dx; player.z += dz; }
+        else if (player.realm === 'overworld') recordTelemetry(room, player, { x: player.x + dx, z: player.z + dz }, true);
+      }
+      if (player.guardianPortal?.status === 'in-trial') {
+        const nudge = portals.tickGuardian(player.guardianPortal);
+        if (nudge) { room.director = { narration: nudge.message, source: 'portal-director', at: now() }; event(room, nudge.type, nudge.message, { playerId: player.id }); }
+      }
+      if (player.realm !== 'overworld') realms.tick(room, player, delta);
+      const nearest = players(room).filter((other) => other.id !== player.id).reduce((closest, other) => Math.min(closest, distance(player, other)), Infinity);
+      if (nearest <= 9) player.nearSeconds += delta; else player.aloneSeconds += delta;
+    }
     world.emergentRules.tick(room, delta); advanceRoom(room);
   }
 
   const world = { rooms, observationMs, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, unlock, evolve, chooseGuardianTrials, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact, tickRoom };
-  world.directorRules = createDirectorRules(world); world.emergentRules = createEmergentRules(world, emergentOptions);
+  world.directorRules = createDirectorRules(world); world.emergentRules = createEmergentRules(world, emergentOptions); realms = createRealmSystem(world);
   return world;
 }

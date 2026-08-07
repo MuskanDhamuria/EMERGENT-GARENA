@@ -14,6 +14,7 @@ import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
+import { AI_FEATURE_IDS, canEvolvePlayer } from './server/game-master-capabilities.mjs';
 
 function loadDotEnv() {
   if (!existsSync('.env')) return;
@@ -64,7 +65,7 @@ const actions = {
   narrate_event: { description: 'Narrate one concise public or private clue that reflects a visible change or observed behaviour.', args: { text: 'string', privateTo: 'optional player id' } },
   assign_archetypes: { description: 'Only if phase is observing and the observation timer is zero. Assign every player exactly once, using all four distinct archetypes when four players exist.', args: { assignments: '[{playerId, archetype, evidence}]' } },
   issue_asymmetric_rule: { description: 'Evolve one player only after archetypes exist. It reveals that player’s next validated evolution; use a player id from state.', args: { playerId: 'string' } },
-  unlock_world_feature: { description: 'Reveal one feature from the allowed list only when it follows the observed group identity. Features: hidden-cave, secret-path, invisible-bridge, forgotten-ruins, relic-vault, evolving-artifacts, treasure-cache, healing-shrine, protective-barrier, revival-monument, spirit-realm, illusion-passage, hidden-portal, ancient-temple, final-gate.', args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
+  unlock_world_feature: { description: `Reveal one feature from the allowed list only when it follows the observed group identity. Features: ${AI_FEATURE_IDS.join(', ')}.`, args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
   create_emergent_rule: { description: `Create one novel, reversible law from observed behaviour. The server selects players from evidence and rejects incompatible combinations. Triggers: ${EMERGENT_TRIGGER_IDS.join('|')}. Effects: ${EMERGENT_EFFECT_IDS.join('|')}. Visibility: shared|participants|private. Markers when required: ${Object.keys(EMERGENT_MARKERS).join('|')}. Provide title, message, optional markerId, optional durationSeconds 10-120. Use only after its trigger is visibly evidenced in telemetry/world state.`, args: { triggerId: 'string', effectId: 'string', visibility: 'shared|participants|private', markerId: 'optional string', durationSeconds: 'optional number', title: 'string', message: 'string' } },
   apply_director_card: { description: 'Use exactly one authored intervention card after roles awaken. Cards and payload presets: private_hint {playerId,message}; unlock_shortcut {shortcutId:moss_trail|lantern_path|warden_way|veil_passage}; role_request {requestId:explorer_scout|collector_recover|guardian_watch|loner_omen}; cooperation_request {roles:[2-4 roles],title,message}; world_mood {moodId:dawn|mist|storm|starlight}; temporary_boon {playerId,boonId:guiding_light|swift_step|shared_sight}; temporary_obstacle {obstacleId:mist_bank|echo_current|fallen_leaves}; story_turn {turnId:shrine_or_vault|path_or_veil,optionId:the AI-selected option}; finale_variant {variantId:lantern_rite|echo_accord|wardens_promise}. The AI resolves story turns immediately; players cannot vote. Never invent other values.', args: { card: 'string', payload: 'object with only that card\'s documented presets' } },
   choose_guardian_trials: { description: `After the Guardian evolves but before entering a portal, choose exactly two different trials from: ${GUARDIAN_TRIALS.map((trial) => trial.id).join('|')}. Base this on the Guardian's observed cohesion, movement and rescues.`, args: { playerId: 'Guardian player id', trialIds: '[exactly two valid trial ids]' } },
@@ -104,7 +105,7 @@ function validateDecision(decision, state) {
   }
   if (decision.action === 'issue_asymmetric_rule') {
     const player = players.find((item) => item.id === args.playerId);
-    return ['evolving', 'finale'].includes(state.phase) && player?.archetype && (player.evolutions || []).length < 1 ? null : 'That evolution is not currently valid.';
+    return ['evolving', 'finale'].includes(state.phase) && canEvolvePlayer(player) ? null : 'That evolution is not currently valid.';
   }
   if (decision.action === 'unlock_world_feature') {
     const publicDuplicate = !args.privateTo && (state.world?.unlocked || []).includes(args.feature);

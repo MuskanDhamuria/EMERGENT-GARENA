@@ -106,6 +106,16 @@ export function createSession() {
       note(reply?.ok ? `You used ${entity.label || action.replaceAll('-', ' ')}.` : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
     });
   }
+  function aimAt(screenX, screenY, width = 960, height = 640) {
+    if (state.mine?.realm !== 'ghost-village') return false;
+    const tile = 20;
+    const aimX = (screenX + state.camera.x * tile - width / 2) / tile;
+    const aimZ = (screenY + state.camera.y * tile - height / 2) / tile;
+    socket.emit('interact', { type: 'ghost-village-aim', aimX, aimZ }, (reply) => {
+      if (!reply?.ok) note(reply?.error || 'The spirit shard does not answer that throw.', 2);
+    });
+    return true;
+  }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
@@ -123,5 +133,5 @@ export function createSession() {
   socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, guardianTrial, templeFinale, activeEntities, joinRoom, interact, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, guardianTrial, templeFinale, activeEntities, joinRoom, interact, aimAt, update };
 }

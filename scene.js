@@ -9,7 +9,7 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, update, activeEntities } = session;
+const { state, gameReady, interact, aimAt, joinRoom, update, activeEntities } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -41,7 +41,13 @@ addEventListener('keydown', (event) => {
   if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
-canvas.addEventListener('click', () => { if (!state.joined && !document.getElementById('lantern-gate')) showLanternGate(); });
+canvas.addEventListener('click', (event) => {
+  if (!state.joined && !document.getElementById('lantern-gate')) { showLanternGate(); return; }
+  if (state.mine?.realm === 'ghost-village') {
+    const bounds = canvas.getBoundingClientRect();
+    aimAt((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height, canvas.width, canvas.height);
+  }
+});
 
 let last = performance.now();
 function loop(now) {

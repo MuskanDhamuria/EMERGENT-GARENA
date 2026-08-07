@@ -15,10 +15,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
+import { ARCHETYPES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
+import { AI_FEATURE_IDS, canEvolvePlayer, EVOLUTION_LIMITS, GAME_MASTER_CAPABILITIES } from './server/game-master-capabilities.mjs';
 
 const gameServerUrl = (process.env.EMERGENT_GAME_SERVER_URL || 'http://127.0.0.1:8787').replace(/\/$/, '');
 const REQUIRED_PLAYERS = MAX_PLAYERS;
@@ -26,7 +27,7 @@ const roomCodeSchema = z.string().trim().regex(/^[A-Za-z0-9]{4,6}$/, 'Use a 4–
 const playerIdSchema = z.string().trim().min(1).max(128);
 const archetypeSchema = z.enum(ARCHETYPES);
 const archetypes = ARCHETYPES;
-const featureSchema = z.enum([...FEATURES]);
+const featureSchema = z.enum(AI_FEATURE_IDS);
 
 function toolResult(payload) {
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
@@ -87,6 +88,12 @@ server.registerTool('list_active_rooms', {
   try { return toolResult(await gameRequest('/api/mcp/rooms')); }
   catch (error) { return toolError(error.message); }
 });
+
+server.registerTool('get_game_master_capabilities', {
+  title: 'Describe the safe Game Master capability surface',
+  description: 'Return every bounded action the AI may request, the available feature ids, and per-archetype evolution limits. Use this to explain the agentic boundary to judges or to bootstrap another Game Master client.',
+  inputSchema: {},
+}, async () => toolResult({ ok: true, capabilities: GAME_MASTER_CAPABILITIES, features: AI_FEATURE_IDS, evolutionLimits: EVOLUTION_LIMITS }));
 
 server.registerTool('get_world_state', {
   title: 'Get authoritative world state',
@@ -173,7 +180,7 @@ server.registerTool('issue_asymmetric_rule', {
     const state = await requireReadyRoom(roomCode);
     const player = playerIn(state, playerId);
     if (!['evolving', 'finale'].includes(state.phase) || !player?.archetype) return toolError('Only a currently assigned player in an evolving four-player room can evolve.');
-    if ((player.evolutions || []).length >= 1) return toolError('This player has reached the current evolution limit.');
+    if (!canEvolvePlayer(player)) return toolError('This player has reached the authored evolution limit for their archetype.');
     return toolResult(await gameRequest('/api/mcp/evolve', { method: 'POST', body: { roomCode, playerId } }));
   }
   catch (error) { return toolError(error.message); }

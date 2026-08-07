@@ -18,7 +18,7 @@ export const FEATURES = new Set([
   'hidden-cave', 'secret-path', 'invisible-bridge', 'forgotten-ruins',
   'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
   'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
-  'hidden-portal', 'ancient-temple', 'final-gate',
+  'hidden-portal', 'crystal-mine', 'shadow-forest', 'moon-shrine', 'ghost-village', 'ancient-temple', 'final-gate',
 ]);
 
 // Coordinates are server-world coordinates.  The browser converts them to map
@@ -39,6 +39,9 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'spirit-portal', type: 'spirit-portal', x: -3, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Spirit Portal' }),
   Object.freeze({ id: 'explorer-waystone', type: 'waystone', x: -16, z: -10, role: 'Explorer', terrain: 'moss-trail', label: 'Trail Waystone', feature: 'hidden-cave' }),
   Object.freeze({ id: 'veil-mirror', type: 'veil-mirror', x: -1, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Veil Mirror', feature: 'spirit-realm' }),
+  Object.freeze({ id: 'shadow-forest-gate', type: 'realm-portal', x: -20, z: 5, role: 'Loner', label: 'Shadow Forest Crossing', feature: 'shadow-forest' }),
+  Object.freeze({ id: 'moon-shrine-gate', type: 'realm-portal', x: -9, z: 12, role: 'Loner', label: 'Moon Shrine', feature: 'moon-shrine' }),
+  Object.freeze({ id: 'ghost-village-gate', type: 'realm-portal', x: -16, z: 11, role: 'Loner', label: 'Ghost Village', feature: 'ghost-village' }),
   Object.freeze({ id: 'final-altar', type: 'altar', x: 19, z: 9, role: 'Collector', label: 'Relic Altar', feature: 'ancient-temple' }),
   // This is deliberately beside the altar, on a walkable tile.  The former
   // position at (20, 10) was surrounded by collision tiles, making the final
@@ -50,8 +53,28 @@ export const EVOLUTION_LIBRARY = Object.freeze({
   Explorer: Object.freeze([Object.freeze(['hidden-cave', 'The Explorer has mapped the Moss Trail and revealed the temple entrance.'])]),
   Collector: Object.freeze([Object.freeze(['relic-vault', 'The Collector has learned the language of the Echo Water relics.'])]),
   Guardian: Object.freeze([Object.freeze(['healing-shrine', 'The Guardian has awakened the shrine beyond the Warden Bridge.'])]),
-  Loner: Object.freeze([Object.freeze(['spirit-realm', 'The Loner can now read the paths behind the veil.'])]),
+  Loner: Object.freeze([
+    Object.freeze(['spirit-realm', 'The Loner can now read the paths behind the veil.']),
+    Object.freeze(['shadow-forest', 'The Loner sees a second forest growing beneath the first.']),
+    Object.freeze(['moon-shrine', 'Moon-white stones emerge where only the Loner can follow them.']),
+    Object.freeze(['ghost-village', 'A village of echoes appears at the edge of the shared world.']),
+  ]),
 });
+
+// Compatibility data for the alternate dynamic-finale composition module.
+// The active game uses the newer Temple finale, but this immutable catalogue
+// keeps the standalone composition system independently runnable and reviewable.
+const worldEvolution = (id, archetype, title, feature, x, z) => Object.freeze({
+  id, archetype, title, feature,
+  entity: Object.freeze({ id: `evolution-${id}`, type: 'world-evolution', x, z, role: archetype, feature, label: title, interaction: 'explore-evolution' }),
+});
+export const WORLD_EVOLUTIONS = Object.freeze([
+  worldEvolution('hidden-cave-appears', 'Explorer', 'Hidden Cave', 'hidden-cave', -22, -10),
+  worldEvolution('forgotten-ruins-emerge', 'Explorer', 'Forgotten Ruins', 'forgotten-ruins', -14, -7),
+  worldEvolution('crystal-mine-awakens', 'Collector', 'Crystal Mine', 'crystal-mine', 12, 7),
+  worldEvolution('healing-shrine-awakens', 'Guardian', 'Healing Shrine', 'healing-shrine', 14, -2),
+  worldEvolution('spirit-portal-opens', 'Loner', 'Spirit Portal', 'spirit-realm', -3, 10),
+]);
 
 // Client input is translated through this single lookup.  When adding a new
 // interaction, update this mapping and the server's expected action together.
@@ -63,6 +86,9 @@ export const ENTITY_ACTIONS = Object.freeze({
   'final-gate': 'open-final-gate',
   'explorer-waystone': 'trace-waystone',
   'veil-mirror': 'read-veil',
+  'shadow-forest-gate': 'enter-shadow-forest',
+  'moon-shrine-gate': 'enter-moon-shrine',
+  'ghost-village-gate': 'enter-ghost-village',
   'guardian-portal-1': 'enter-guardian-portal',
   'guardian-portal-2': 'enter-guardian-portal',
   'temple-pillar': 'activate-temple-pillar',

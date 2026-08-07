@@ -12,7 +12,7 @@ export const LANDMARKS = [
 
 export function createSession() {
   const state = {
-    joined: false, notice: 'Light a lantern to join a four-player expedition.', noticeTimer: 0,
+    joined: false, preview: null, notice: 'Light a lantern to join a four-player expedition.', noticeTimer: 0,
     camera: { x: 25, y: 17 }, frame: 0,
     network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '' },
     world: null, players: [], mine: null, privateRule: null, publicEvent: null,
@@ -31,7 +31,7 @@ export function createSession() {
   }
   function note(text, duration = 4) { state.notice = text; state.noticeTimer = duration; }
   function roomPlayerCount() { return state.world?.players?.length || 0; }
-  function gameReady() { return state.network.connected && roomPlayerCount() === MAX_PLAYERS; }
+  function gameReady() { return state.preview === 'shadow-forest' || (state.network.connected && roomPlayerCount() === MAX_PLAYERS); }
   function features() {
     return new Set([...(state.world?.world?.unlocked || state.world?.unlockedFeatures || []), ...(state.world?.world?.privateUnlocks || state.world?.yourPrivateUnlocks || []), ...(state.mine?.evolutions || [])]);
   }
@@ -86,8 +86,21 @@ export function createSession() {
       note('Your lantern is lit. Waiting for exactly four players.', 8); socket.emit('request-world-state');
     }));
   }
+  function enableShadowForestPreview() {
+    const player = { id: 'preview-loner', name: 'Loner', color: '#67d9ec', sprite: 1, facing: 'right', moving: false, x: 1.5, y: 11, targetX: 1.5, targetY: 11, realm: 'shadow-forest', archetype: 'Loner', capabilities: [], shadowForest: { active: true, vx: 0, vy: 0, onGround: true, jumpHeld: false, falls: 0, trapHits: 0, sawTime: 0 } };
+    state.preview = 'shadow-forest'; state.joined = true; state.network.connected = true; state.network.playerId = player.id; state.network.roomCode = 'PREVIEW'; state.players = [player]; state.mine = player; state.world = { code: 'PREVIEW', phase: 'evolving', players: [player], world: { unlocked: ['shadow-forest'] }, entities: [], relics: [] }; state.camera.x = player.x; state.camera.y = player.y; note('Shadow Forest preview: reach the trophy.', 5);
+  }
+  const previewPlatforms=[{x:0,y:12,w:5},{x:6,y:11,w:4},{x:11,y:12,w:3},{x:15,y:10,w:3},{x:19,y:12,w:6},{x:3,y:8,w:4},{x:8,y:7,w:3},{x:12,y:5,w:4},{x:17,y:7,w:3},{x:21,y:5,w:3}];
+  const previewTraps=[{x:7.35,y:11,w:1.1},{x:19.65,y:12,w:1.1}],previewFire=[{x:16.1,y:10,w:1},{x:21.1,y:12,w:.9}],previewTrampoline={x:3.15,y:12,w:1},previewFan={x:12.6,y:12,w:1.1,top:5.2};
+  function updateShadowPreview(dt,input) {
+    const player=state.mine,mission=player.shadowForest;mission.sawTime+=dt;mission.vx=input.x*5.2;const jump=input.z<-.25;if(jump&&!mission.jumpHeld&&mission.onGround){mission.vy=-13.5;mission.onGround=false;}mission.jumpHeld=jump;mission.vy=Math.min(15,mission.vy+28*dt);const oldY=player.y;let nextX=Math.max(.35,Math.min(24.4,player.x+mission.vx*dt)),nextY=player.y+mission.vy*dt,oldBottom=oldY+.85,nextBottom=nextY+.85;const platform=mission.vy>=0?previewPlatforms.filter((p)=>nextX+.28>p.x&&nextX-.28<p.x+p.w&&oldBottom<=p.y+.08&&nextBottom>=p.y).sort((a,b)=>a.y-b.y)[0]:null;if(platform){nextY=platform.y-.85;mission.vy=0;mission.onGround=true;}else mission.onGround=false;player.x=player.targetX=nextX;player.y=player.targetY=nextY;player.moving=Math.abs(mission.vx)>.1;const bottom=player.y+.85,inZone=(item)=>player.x+.25>item.x&&player.x-.25<item.x+item.w&&bottom>item.y-.55&&bottom<item.y+.2;if(inZone(previewTrampoline)){mission.vy=-13;mission.onGround=false;}if(player.x+.25>previewFan.x&&player.x-.25<previewFan.x+previewFan.w&&player.y>previewFan.top&&player.y<previewFan.y)mission.vy=Math.max(-8,mission.vy-35*dt);const sawX=8.15+(Math.sin(mission.sawTime*2.4)+1)*1.05,hazard=previewTraps.find(inZone)||previewFire.find(inZone)||Math.hypot(player.x-sawX,player.y-5.8)<.72;if(hazard){player.x=player.targetX=1.5;player.y=player.targetY=11;mission.vx=mission.vy=0;mission.trapHits+=1;note('The forest trap returns you to the first branch.',2);return;}if(player.y>15){player.x=player.targetX=1.5;player.y=player.targetY=11;mission.vx=mission.vy=0;mission.falls+=1;note('The shadows return you to the first branch.',2);}}
   function interact() {
     if (!gameReady() || !state.mine) return;
+    if (state.mine.realm === 'shadow-forest') {
+      if (state.mine.x < 22.4 || state.mine.y >= 6.3) { note('Stand beside the trophy before pressing E.', 3); return; }
+      if (state.preview === 'shadow-forest') { state.mine.x=state.mine.targetX=1.5;state.mine.y=state.mine.targetY=11;state.mine.shadowForest.vx=state.mine.shadowForest.vy=0;note('Crossing complete. The preview has restarted.',4);return; }
+      socket.emit('interact', { type: 'exit-shadow-forest' }, (reply) => note(reply?.ok ? 'You claim the forgotten trophy.' : (reply?.error || 'The trophy remains silent.'), reply?.ok ? 3 : 5)); return;
+    }
     if (!['evolving', 'finale'].includes(state.world?.phase)) {
       note('Roles are still awakening. Interactions unlock when the observation ends.', 4);
       return;
@@ -101,6 +114,7 @@ export function createSession() {
   }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt; if (state.hurtTimer > 0) state.hurtTimer = Math.max(0, state.hurtTimer - dt); if (state.attackTimer > 0) { state.attackTimer = Math.max(0, state.attackTimer - dt); if (!state.attackTimer) state.attackTargetId = null; }
+    if (state.preview === 'shadow-forest') { updateShadowPreview(dt,input);const mine=state.mine;state.camera.x+=(mine.x-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(mine.y-state.camera.y)*Math.min(1,dt*5);return; }
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
     const mine = state.mine;
     if (gameReady() && mine) {
@@ -116,5 +130,5 @@ export function createSession() {
   socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, interact, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, enableShadowForestPreview, interact, update };
 }

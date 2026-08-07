@@ -9,9 +9,10 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, update } = session;
+const { state, gameReady, interact, joinRoom, enableShadowForestPreview, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
+if (new URLSearchParams(location.search).get('preview') === 'shadow-forest') enableShadowForestPreview();
 
 function movementInput() {
   let x = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);

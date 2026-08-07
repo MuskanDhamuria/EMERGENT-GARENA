@@ -27,6 +27,7 @@ const WORLD_MIN_X = -29, WORLD_MAX_X = 28, WORLD_MIN_Z = -16, WORLD_MAX_Z = 15;
 const MAP_WIDTH = 60, MAP_OFFSET_X = 30, MAP_OFFSET_Z = 17;
 const COLORS = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
 const SPAWNS = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
+const PLAYER_SPRITES = [1, 2, 3, 5];
 const rooms = new Map();
 let finaleSystem;
 let dungeonSystem;
@@ -89,7 +90,7 @@ function createRoom(code) {
 }
 function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index];
-  return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], x, z, realm: 'overworld', dungeon: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
+  return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], sprite: PLAYER_SPRITES[index], facing: 'down', x, z, realm: 'overworld', dungeon: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
     locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
     nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
 }
@@ -99,7 +100,7 @@ function resetRoomForRoster(room, reason) {
   room.directorState = { activeRules: [], history: [], sequence: 0 };
   room.entities = [...ENTITY_DEFINITIONS, ...WORLD_EVOLUTIONS.map((item) => item.entity)].map((entity) => ({ ...entity, collectedBy: null }));
   for (const [index, player] of activePlayers(room).entries()) {
-    const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, realm: 'overworld', dungeon: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], evolutionBaseline: null });
+    const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, sprite: PLAYER_SPRITES[index], facing: 'down', realm: 'overworld', dungeon: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], evolutionBaseline: null });
     player.visited = new Set(['starting-village']); player.relicIds.clear(); player.interactions = {};
     player.movement = 0; player.movementSamples = 0; player.nearSeconds = 0; player.aloneSeconds = 0;
     player.riskEvents = 0; player.rescues = 0; player.follows = 0; player.privateRules = [];
@@ -214,7 +215,7 @@ function serializeRoom(room, viewerId = null) {
   if (viewer?.realm === 'dungeon') entities.push(...dungeonSystem.entities(viewer));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
   return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, nextEvolutionAt: room.nextEvolutionAt, evolutionSecondsRemaining: room.nextEvolutionAt ? Math.max(0, Math.ceil((room.nextEvolutionAt - now()) / 1000)) : null, finaleSecondsRemaining: room.archetypesAssignedAt ? Math.max(0, Math.ceil((room.archetypesAssignedAt + FINALE_MIN_MATCH_MS - now()) / 1000)) : null, finaleEligible: Boolean(finaleSystem?.eligibility(room).ok), worldEvolutions: room.worldEvolutions, evolutionHistory: room.worldEvolutions,
-    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, x: p.x, z: p.z, tileX: p.realm === 'dungeon' ? p.x : undefined, tileY: p.realm === 'dungeon' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions, dungeonCompletions: p.dungeonCompletions || 0 })),
+    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm === 'dungeon' ? p.x : undefined, tileY: p.realm === 'dungeon' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions, dungeonCompletions: p.dungeonCompletions || 0 })),
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
     world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director,
     directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };

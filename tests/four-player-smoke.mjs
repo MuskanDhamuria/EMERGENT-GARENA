@@ -61,6 +61,7 @@ try {
     return payload.state.phase === 'evolving' ? payload.state : null;
   }, 'four roles to awaken');
   assert.equal(state.players.length, 4);
+  assert.equal(new Set(state.players.map((player) => player.sprite)).size, 4);
   assert.deepEqual(new Set(state.players.map((player) => player.archetype)), new Set(['Explorer', 'Collector', 'Guardian', 'Loner']));
 
   const [first, second, third, fourth] = state.players;

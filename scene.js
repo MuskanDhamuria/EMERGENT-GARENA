@@ -9,10 +9,10 @@ canvas.id = 'game';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, joinRoom, enableShadowForestPreview, update } = session;
+const { state, gameReady, interact, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
-if (new URLSearchParams(location.search).get('preview') === 'shadow-forest') enableShadowForestPreview();
+const preview=new URLSearchParams(location.search).get('preview');if(preview==='shadow-forest')enableShadowForestPreview();else if(preview==='moon-shrine')enableMoonShrinePreview();
 
 function movementInput() {
   let x = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);

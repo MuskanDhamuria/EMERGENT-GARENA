@@ -31,7 +31,7 @@ export function createSession() {
   }
   function note(text, duration = 4) { state.notice = text; state.noticeTimer = duration; }
   function roomPlayerCount() { return state.world?.players?.length || 0; }
-  function gameReady() { return state.preview === 'shadow-forest' || (state.network.connected && roomPlayerCount() === MAX_PLAYERS); }
+  function gameReady() { return Boolean(state.preview) || (state.network.connected && roomPlayerCount() === MAX_PLAYERS); }
   function features() {
     return new Set([...(state.world?.world?.unlocked || state.world?.unlockedFeatures || []), ...(state.world?.world?.privateUnlocks || state.world?.yourPrivateUnlocks || []), ...(state.mine?.evolutions || [])]);
   }
@@ -90,10 +90,17 @@ export function createSession() {
     const player = { id: 'preview-loner', name: 'Loner', color: '#67d9ec', sprite: 1, facing: 'right', moving: false, x: 1.5, y: 11, targetX: 1.5, targetY: 11, realm: 'shadow-forest', archetype: 'Loner', capabilities: [], shadowForest: { active: true, vx: 0, vy: 0, onGround: true, jumpHeld: false, falls: 0, trapHits: 0, sawTime: 0 } };
     state.preview = 'shadow-forest'; state.joined = true; state.network.connected = true; state.network.playerId = player.id; state.network.roomCode = 'PREVIEW'; state.players = [player]; state.mine = player; state.world = { code: 'PREVIEW', phase: 'evolving', players: [player], world: { unlocked: ['shadow-forest'] }, entities: [], relics: [] }; state.camera.x = player.x; state.camera.y = player.y; note('Shadow Forest preview: reach the trophy.', 5);
   }
+  function enableMoonShrinePreview() {
+    const player={id:'preview-loner',name:'Loner',color:'#b9d9ff',sprite:1,facing:'right',moving:false,x:2,y:10,targetX:2,targetY:10,realm:'moon-shrine',archetype:'Loner',capabilities:[],moonShrine:{active:true,pathStep:0,lineFailed:false}};
+    state.preview='moon-shrine';state.joined=true;state.network.connected=true;state.network.playerId=player.id;state.network.roomCode='PREVIEW';state.players=[player];state.mine=player;state.world={code:'PREVIEW',phase:'evolving',players:[player],world:{unlocked:['moon-shrine']},entities:[],relics:[]};state.camera.x=12;state.camera.y=0;note('Recover three moon echoes, then awaken the shrine.',5);
+  }
   const previewPlatforms=[{x:0,y:12,w:5},{x:6,y:11,w:4},{x:11,y:12,w:3},{x:15,y:10,w:3},{x:19,y:12,w:6},{x:3,y:8,w:4},{x:8,y:7,w:3},{x:12,y:5,w:4},{x:17,y:7,w:3},{x:21,y:5,w:3}];
   const previewTraps=[{x:7.35,y:11,w:1.1},{x:19.65,y:12,w:1.1}],previewFire=[{x:16.1,y:10,w:1},{x:21.1,y:12,w:.9}],previewTrampoline={x:3.15,y:12,w:1},previewFan={x:12.6,y:12,w:1.1,top:5.2};
   function updateShadowPreview(dt,input) {
     const player=state.mine,mission=player.shadowForest;mission.sawTime+=dt;mission.vx=input.x*5.2;const jump=input.z<-.25;if(jump&&!mission.jumpHeld&&mission.onGround){mission.vy=-13.5;mission.onGround=false;}mission.jumpHeld=jump;mission.vy=Math.min(15,mission.vy+28*dt);const oldY=player.y;let nextX=Math.max(.35,Math.min(24.4,player.x+mission.vx*dt)),nextY=player.y+mission.vy*dt,oldBottom=oldY+.85,nextBottom=nextY+.85;const platform=mission.vy>=0?previewPlatforms.filter((p)=>nextX+.28>p.x&&nextX-.28<p.x+p.w&&oldBottom<=p.y+.08&&nextBottom>=p.y).sort((a,b)=>a.y-b.y)[0]:null;if(platform){nextY=platform.y-.85;mission.vy=0;mission.onGround=true;}else mission.onGround=false;player.x=player.targetX=nextX;player.y=player.targetY=nextY;player.moving=Math.abs(mission.vx)>.1;const bottom=player.y+.85,inZone=(item)=>player.x+.25>item.x&&player.x-.25<item.x+item.w&&bottom>item.y-.55&&bottom<item.y+.2;if(inZone(previewTrampoline)){mission.vy=-13;mission.onGround=false;}if(player.x+.25>previewFan.x&&player.x-.25<previewFan.x+previewFan.w&&player.y>previewFan.top&&player.y<previewFan.y)mission.vy=Math.max(-8,mission.vy-35*dt);const sawX=8.15+(Math.sin(mission.sawTime*2.4)+1)*1.05,hazard=previewTraps.find(inZone)||previewFire.find(inZone)||Math.hypot(player.x-sawX,player.y-5.8)<.72;if(hazard){player.x=player.targetX=1.5;player.y=player.targetY=11;mission.vx=mission.vy=0;mission.trapHits+=1;note('The forest trap returns you to the first branch.',2);return;}if(player.y>15){player.x=player.targetX=1.5;player.y=player.targetY=11;mission.vx=mission.vy=0;mission.falls+=1;note('The shadows return you to the first branch.',2);}}
+  const moonPath=[{x:2,y:10},{x:7,y:10},{x:7,y:7},{x:13,y:7},{x:13,y:10},{x:19,y:10},{x:19,y:6},{x:24,y:6},{x:28,y:5}];
+  function moonSegmentDistance(point,a,b){const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy,t=length?Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.y-a.y)*dy)/length)):0;return {distance:Math.hypot(point.x-(a.x+t*dx),point.y-(a.y+t*dy)),t};}
+  function interactMoonPreview(){const player=state.mine,mission=player.moonShrine;if(mission.lineFailed&&Math.hypot(player.x-2,player.y-10)<=1.2){mission.lineFailed=false;mission.pathStep=0;note('The silver line begins again.',3);return;}if(Math.hypot(player.x-28,player.y-5)<=1.8){if(mission.lineFailed){note('Return to the beginning and press E.',3);return;}if(mission.pathStep<moonPath.length-1){note('The full silver route has not been followed.',3);return;}player.x=player.targetX=2;player.y=player.targetY=10;mission.pathStep=0;mission.lineFailed=false;note('Ritual complete. The preview has restarted.',4);return;}note(mission.lineFailed?'Return to the beginning and press E to retry.':'Follow the silver line to the shrine.',3);}
   function interact() {
     if (!gameReady() || !state.mine) return;
     if (state.mine.realm === 'shadow-forest') {
@@ -101,6 +108,7 @@ export function createSession() {
       if (state.preview === 'shadow-forest') { state.mine.x=state.mine.targetX=1.5;state.mine.y=state.mine.targetY=11;state.mine.shadowForest.vx=state.mine.shadowForest.vy=0;note('Crossing complete. The preview has restarted.',4);return; }
       socket.emit('interact', { type: 'exit-shadow-forest' }, (reply) => note(reply?.ok ? 'You claim the forgotten trophy.' : (reply?.error || 'The trophy remains silent.'), reply?.ok ? 3 : 5)); return;
     }
+    if (state.mine.realm === 'moon-shrine') { if(state.preview==='moon-shrine'){interactMoonPreview();return;}socket.emit('interact', { type: 'moon-shrine-interact' }, (reply) => note(reply?.ok ? (reply.kind==='complete'?'The Moon Shrine recognizes you.':reply.kind==='puzzle'?'Three numbered runes awaken.':reply.kind==='rune'?'A rune ignites.':'A moon echo answers.') : (reply?.error || 'The moonlit stones remain silent.'), reply?.ok ? 3 : 5)); return; }
     if (!['evolving', 'finale'].includes(state.world?.phase)) {
       note('Roles are still awakening. Interactions unlock when the observation ends.', 4);
       return;
@@ -115,13 +123,14 @@ export function createSession() {
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt; if (state.hurtTimer > 0) state.hurtTimer = Math.max(0, state.hurtTimer - dt); if (state.attackTimer > 0) { state.attackTimer = Math.max(0, state.attackTimer - dt); if (!state.attackTimer) state.attackTargetId = null; }
     if (state.preview === 'shadow-forest') { updateShadowPreview(dt,input);const mine=state.mine;state.camera.x+=(mine.x-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(mine.y-state.camera.y)*Math.min(1,dt*5);return; }
+    if (state.preview === 'moon-shrine') { const mine=state.mine,mission=mine.moonShrine;mine.x=mine.targetX=Math.max(.6,Math.min(29.5,mine.x+input.x*5.2*dt));mine.y=mine.targetY=Math.max(3.5,Math.min(11.5,mine.y+input.z*5.2*dt));mine.moving=Math.hypot(input.x,input.z)>0;if(mission.pathStep<moonPath.length-1){const result=moonSegmentDistance(mine,moonPath[mission.pathStep],moonPath[mission.pathStep+1]);if(result.distance>.85){mine.x=mine.targetX=2;mine.y=mine.targetY=10;mission.pathStep=0;mission.lineFailed=false;note('Misstep! The moonlight returns you to the start.',3);}else if(result.t>.94)mission.pathStep+=1;}state.camera.x+=(12-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(0-state.camera.y)*Math.min(1,dt*5);return; }
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
     const mine = state.mine;
     if (gameReady() && mine) {
       const { x, z } = input; socket.emit('move', { x, z });
       if (performance.now() - state.network.lastTelemetry > 500) { const landmark = nearest(mine, LANDMARKS, 4); socket.emit('player-telemetry', { locationId: landmark?.label?.toLowerCase().replaceAll(' ', '-') }); state.network.lastTelemetry = performance.now(); }
     }
-    if (mine) { state.camera.x += (mine.x - state.camera.x) * Math.min(1, dt * 5); state.camera.y += (mine.y - state.camera.y) * Math.min(1, dt * 5); }
+    if (mine) { const cameraTarget=mine.realm==='moon-shrine'?{x:12,y:0}:mine;state.camera.x += (cameraTarget.x - state.camera.x) * Math.min(1, dt * 5); state.camera.y += (cameraTarget.y - state.camera.y) * Math.min(1, dt * 5); }
   }
 
   socket.on('connect_error', () => { state.network.error = 'Unable to reach the game server.'; });
@@ -130,5 +139,5 @@ export function createSession() {
   socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, enableShadowForestPreview, interact, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, interact, update };
 }

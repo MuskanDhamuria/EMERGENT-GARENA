@@ -72,7 +72,6 @@ export const STORY_TURNS = Object.freeze({
 export const FINALE_VARIANTS = Object.freeze({
   lantern_rite: Object.freeze({ title: 'Lantern Rite', description: 'Gather the four callings around the awakened temple.' }),
   echo_accord: Object.freeze({ title: 'Echo Accord', description: 'Let relic, shrine, temple, and veil answer one another.' }),
-  wardens_promise: Object.freeze({ title: 'Warden’s Promise', description: 'Protect the shared tale before the final gate opens.' }),
 });
 
 export const DIRECTOR_RULE_CARDS = Object.freeze({

@@ -91,7 +91,7 @@ export function createFinaleSystem(world, options={}) {
   function setVariant(room,variantId,source='Game Master'){
     const finale=room.finalObjective;if(!finale||finale.status!=='active')return {ok:false,error:'No active finale to shape.'};
     if(finale.phase!=='PREPARING')return {ok:false,error:'The finale variant can only change during preparation.'};
-    const known={lantern_rite:{title:'Lantern Rite',description:'Defend the central energy core together against an adaptive final assault.'},echo_accord:{title:'Last Snake Standing',description:'Four living echoes enter the arena. Only one will remain.'},wardens_promise:{title:'Warden’s Promise',description:'Protect the shared tale before the final gate opens.'}}[variantId];
+    const known={lantern_rite:{title:'Lantern Rite',description:'Defend the central energy core together against an adaptive final assault.'},echo_accord:{title:'Last Snake Standing',description:'Four living echoes enter the arena. Only one will remain.'}}[variantId];
     if(!known)return {ok:false,error:'Unknown finale variant.'};
     finale.variant={id:variantId,...known,chosenAt:Date.now(),source};
     return {ok:true,variant:finale.variant};

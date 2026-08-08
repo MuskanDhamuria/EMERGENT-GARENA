@@ -97,7 +97,7 @@ function createRoom(code) {
 function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index];
   return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], sprite: PLAYER_SPRITES[index], facing: 'down', x, z, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
-    locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
+    locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), completedEvolutions: new Set(), interactions: {}, movement: 0, movementSamples: 0,
     nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
 }
 function resetRoomForRoster(room, reason) {
@@ -107,7 +107,7 @@ function resetRoomForRoster(room, reason) {
   room.entities = [...ENTITY_DEFINITIONS, ...WORLD_EVOLUTIONS.map((item) => item.entity)].map((entity) => ({ ...entity, collectedBy: null }));
   for (const [index, player] of activePlayers(room).entries()) {
     const [x, z] = SPAWNS[index]; Object.assign(player, { x, z, sprite: PLAYER_SPRITES[index], facing: 'down', realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], evolutionBaseline: null });
-    player.visited = new Set(['starting-village']); player.relicIds.clear(); player.interactions = {};
+    player.visited = new Set(['starting-village']); player.relicIds.clear(); player.completedEvolutions = new Set(); player.interactions = {};
     player.movement = 0; player.movementSamples = 0; player.nearSeconds = 0; player.aloneSeconds = 0;
     player.riskEvents = 0; player.rescues = 0; player.follows = 0; player.privateRules = [];
   }
@@ -161,6 +161,7 @@ function evolveWorld(room, evolutionId, narration, source = 'AI Game Master') {
   const definition = WORLD_EVOLUTIONS.find((item) => item.id === evolutionId);
   if (!definition) return { ok: false, error: 'Unknown world evolution.' };
   if (room.worldEvolutions.some((item) => item.id === definition.id)) return { ok: false, error: 'That evolution already occurred in this match.' };
+  if (room.worldEvolutions.filter((item) => item.archetype === definition.archetype).length >= 2) return { ok: false, error: 'That calling already has two individual missions.' };
   const player = activePlayers(room).find((item) => item.archetype === definition.archetype);
   if (!player) return { ok: false, error: 'That evolution has no matching archetype.' };
   const message = cleanText(narration, definition.narration, 280);
@@ -178,7 +179,7 @@ function evolve(room, playerId, source = 'server') {
 }
 function fallbackEvolution(room) {
   const used = new Set(room.worldEvolutions.map((item) => item.id));
-  const candidates = WORLD_EVOLUTIONS.filter((item) => !used.has(item.id) && activePlayers(room).some((player) => player.archetype === item.archetype));
+  const candidates = WORLD_EVOLUTIONS.filter((item) => !used.has(item.id) && activePlayers(room).some((player) => player.archetype === item.archetype) && room.worldEvolutions.filter((usedItem) => usedItem.archetype === item.archetype).length < 2);
   if (!candidates.length) { room.nextEvolutionAt = null; return null; }
   const score = (item) => { const player = activePlayers(room).find((p) => p.archetype === item.archetype); const base = player.evolutionBaseline || {}; const proxy = { ...player, movement: player.movement - (base.movement || 0), visited: { size: Math.max(0, player.visited.size - (base.visited || 0)) }, nearSeconds: player.nearSeconds - (base.near || 0), aloneSeconds: player.aloneSeconds - (base.alone || 0), riskEvents: player.riskEvents - (base.risk || 0), rescues: player.rescues - (base.rescues || 0), relicIds: { size: player.relicIds.size - (base.relics || 0) }, interactions: Object.fromEntries(Object.entries(player.interactions).map(([key,value]) => [key, value - (base.interactions?.[key] || 0)])) }; return (archetypeScores(proxy)[item.archetype] || 0) - room.worldEvolutions.filter((e) => e.archetype === item.archetype).length * 8 + Math.random() * 3; };
   const chosen = [...candidates].sort((a, b) => score(b) - score(a))[0];
@@ -208,6 +209,7 @@ function interact(room, player, type, targetId, intent = {}) {
   if (action === 'explore-evolution' && entity.id === 'evolution-ghost-village-appears') return ghostVillageSystem.enter(room, player);
   if (entity.type === 'relic') { if (entity.collectedBy) return { ok: false, error: 'That relic was already claimed.' }; entity.collectedBy = player.id; player.relicIds.add(entity.id); }
   player.interactions[action] = (player.interactions[action] || 0) + 1;
+  if (action === 'explore-evolution') player.completedEvolutions.add(entity.id.replace(/^evolution-/, ''));
   const messages = { relic: `${player.name} collected ${entity.label}.`, 'discover-temple': `${player.name} found the hidden temple entrance.`, 'activate-shrine': `${player.name} awakened the shrine.`, 'enter-spirit-realm': `${player.name} stepped through the veil.`, 'offer-relics': `${player.name} offered relics at the altar.`, 'open-final-gate': `${player.name} turned the final gate's spirit key.`, 'explore-evolution': `${player.name} explored the changed world at ${entity.label}.` };
   event(room, action === 'relic' ? 'relic-collected' : 'role-interaction', messages[action], { playerId: player.id, targetId: entity.id }); return { ok: true, targetId: entity.id };
 }
@@ -227,7 +229,7 @@ function serializeRoom(room, viewerId = null) {
   if (viewer?.realm === 'dungeon') entities.push(...dungeonSystem.entities(viewer));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
   return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, nextEvolutionAt: room.nextEvolutionAt, evolutionSecondsRemaining: room.nextEvolutionAt ? Math.max(0, Math.ceil((room.nextEvolutionAt - now()) / 1000)) : null, finaleSecondsRemaining: room.archetypesAssignedAt ? Math.max(0, Math.ceil((room.archetypesAssignedAt + FINALE_MIN_MATCH_MS - now()) / 1000)) : null, finaleEligible: Boolean(finaleSystem?.eligibility(room).ok), worldEvolutions: room.worldEvolutions, evolutionHistory: room.worldEvolutions,
-    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm !== 'overworld' ? p.x : undefined, tileY: p.realm !== 'overworld' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, shadowForest: p.id === viewerId ? p.shadowForest : undefined, moonShrine: p.id === viewerId ? p.moonShrine : undefined, ghostVillage: p.id === viewerId ? p.ghostVillage : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions, dungeonCompletions: p.dungeonCompletions || 0 })),
+    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm !== 'overworld' ? p.x : undefined, tileY: p.realm !== 'overworld' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, shadowForest: p.id === viewerId ? p.shadowForest : undefined, moonShrine: p.id === viewerId ? p.moonShrine : undefined, ghostVillage: p.id === viewerId ? p.ghostVillage : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions, completedEvolutions: [...(p.completedEvolutions || [])], dungeonCompletions: p.dungeonCompletions || 0 })),
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
     world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director,
     directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };

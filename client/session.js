@@ -53,6 +53,13 @@ export function createSession() {
   }
   function finalAction(entity) {
     if (!entity) return null;
+    const finale=state.world?.finalObjective;
+    if(finale?.status==='active'){
+      if(finale.phase==='TRAVEL'&&entity.id===finale.destination?.targetId)return 'finale-arrive';
+      const step=finale.roleSteps?.find((item)=>item.phase===finale.phase);
+      if(step&&entity.id===step.targetId&&state.mine?.archetype===step.role)return 'finale-role-step';
+      if(finale.phase==='GROUP_RITUAL'&&entity.id===`finale-circle-${state.mine?.archetype?.toLowerCase()}`)return 'finale-ritual';
+    }
     if (entity.action) return entity.action;
     if (ENTITY_ACTIONS[entity.id]) return ENTITY_ACTIONS[entity.id];
     const kind = String(entity.kind || entity.type || '').toLowerCase();
@@ -114,7 +121,9 @@ export function createSession() {
       note('Roles are still awakening. Interactions unlock when the observation ends.', 4);
       return;
     }
-    const entity = nearest(state.mine, activeEntities()), action = finalAction(entity);
+    const candidates=activeEntities(),finale=state.world?.finalObjective;
+    const finaleTarget=finale?.status==='active'&&finale.phase==='TRAVEL'?candidates.find((item)=>item.id===finale.destination?.targetId):null;
+    const entity=finaleTarget&&Math.hypot(state.mine.x-finaleTarget.x,state.mine.y-finaleTarget.y)<=3.25?finaleTarget:nearest(state.mine,candidates),action=finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
       if (reply?.ok && action === 'dungeon-attack') { state.attackTimer = 0.28; state.attackTargetId = entity.id; state.attackTargetX = entity.x; state.attackTargetY = entity.y; }

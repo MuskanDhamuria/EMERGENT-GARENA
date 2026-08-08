@@ -25,6 +25,7 @@ function hash(text){ let value=2166136261; for(const char of String(text)){value
 function players(room){ return [...room.players.values()]; }
 function definition(id){ return WORLD_EVOLUTIONS.find((item)=>item.id===id); }
 function evolvedByRole(room,role){ return room.worldEvolutions.filter((item)=>item.archetype===role&&room.world.unlocked.has(item.feature)); }
+function completedByRole(room,role){const player=players(room).find((item)=>item.archetype===role),valid=new Set(evolvedByRole(room,role).map((item)=>item.id));return [...(player?.completedEvolutions||[])].filter((id)=>valid.has(id));}
 
 export function createFinaleSystem(world, options={}) {
   const minimumMatchMs = Number(options.minimumMatchMs ?? 180_000);
@@ -35,7 +36,8 @@ export function createFinaleSystem(world, options={}) {
   function eligibility(room){
     if(room.finalObjective) return {ok:false,error:'A finale is already active.'};
     if(players(room).length!==4||!ARCHETYPES.every((role)=>players(room).some((player)=>player.archetype===role))) return {ok:false,error:'All four callings must be present.'};
-    if(!ARCHETYPES.every((role)=>evolvedByRole(room,role).length)) return {ok:false,error:'Each calling must first leave a mark on the world.'};
+    if(!ARCHETYPES.every((role)=>evolvedByRole(room,role).length>=2)) return {ok:false,error:'Each calling must receive two individual missions before the finale.'};
+    if(!ARCHETYPES.every((role)=>completedByRole(room,role).length>=2)) return {ok:false,error:'Every player must complete both individual missions before the finale.'};
     if(!room.archetypesAssignedAt||Date.now()-room.archetypesAssignedAt<minimumMatchMs) return {ok:false,error:'The Game Master has not watched long enough.'};
     return {ok:true};
   }
@@ -61,7 +63,6 @@ export function createFinaleSystem(world, options={}) {
     if(!complication) return {ok:false,error:'Unknown shared complication.'};
     const destinationDef=definition(destination.id); const anchor=destinationDef.entity;
     const roleSteps=ARCHETYPES.map((role)=>({role,phase:ROLE_PHASE[role],powers:[...(ROLE_ABILITIES[role]||[])],phaseRequirement:'finale-role-step',evolutionId:selected[role].id,feature:selected[role].feature,landmark:selected[role].title,targetId:`evolution-${selected[role].id}`,narration:ROLE_NARRATION[role](selected[role].title),completed:false}));
-    for(const step of roleSteps){const landmark=room.entities.find((entity)=>entity.id===step.targetId);if(landmark)landmark.interaction='finale-role-step';}
     const circles=ARCHETYPES.map((role,index)=>({id:`finale-circle-${role.toLowerCase()}`,type:'finale-circle',x:anchor.x+[-2,2,-2,2][index],z:anchor.z+[-2,-2,2,2][index],role,label:`${role} Ritual Circle`,interaction:'finale-ritual',finaleOnly:true}));
     room.entities.push({id:'finale-destination',type:'finale-destination',x:anchor.x,z:anchor.z,role:null,label:destination.title,interaction:'finale-arrive',finaleOnly:true},...circles);
     room.phase='finale'; room.nextEvolutionAt=null;

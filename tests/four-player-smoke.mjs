@@ -107,7 +107,7 @@ try {
   assert.equal(new Set(state.players.map((player) => player.sprite)).size, 4, 'all four players should receive distinct mascot sprites');
   assert.deepEqual(new Set(state.players.map((player) => player.archetype)), new Set(['Explorer', 'Collector', 'Guardian', 'Loner']));
   const draft = await api('/api/mcp/select-expeditions', { roomCode, expeditions: ['dark-cave', 'hidden-ruins'] });
-  assert.deepEqual(draft.expeditions, ['dark-cave', 'hidden-ruins'], 'the Game Master should authoritatively choose exactly two of three expeditions');
+  assert.deepEqual([...draft.expeditions].sort(), ['dark-cave', 'hidden-ruins'], 'the Game Master should authoritatively choose exactly two of three expeditions');
   const ruinsPlan = await api('/api/mcp/adapt-encounter', { roomCode, expeditionId: 'hidden-ruins', tacticId: 'guard-collector', reason: 'The group collected eagerly, so the wardens should make protecting the Collector matter.' });
   const cavePlan = await api('/api/mcp/adapt-encounter', { roomCode, expeditionId: 'dark-cave', tacticId: 'hunt-straggler', reason: 'The group repeatedly separated, so the demons should notice isolated lanterns.' });
   assert.equal(ruinsPlan.tacticId, 'guard-collector');
@@ -164,9 +164,10 @@ try {
   const explorerState = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
   const evolvedExplorer = explorerState.players.find((player) => player.id === explorer.id);
   assert.deepEqual(evolvedExplorer.evolutions, ['hidden-cave-appears', 'forgotten-ruins-emerge']);
-  assert.deepEqual(explorerState.world.selectedExpeditions, ['dark-cave', 'hidden-ruins']);
+  assert.deepEqual([...explorerState.world.selectedExpeditions].sort(), ['dark-cave', 'hidden-ruins']);
   assert.equal(explorerState.entities.some((entity) => entity.feature === 'temple-staircase-uncovered'), false, 'the unselected temple must stay hidden');
-  assert.equal(explorerState.entities.filter((entity) => entity.requiredRole === 'Explorer' && entity.feature).length, 2);
+  assert.equal(explorerState.entities.filter((entity) => entity.requiredRole === 'Explorer' && entity.feature).length, 1, 'the ruins doorway should be shared after the Explorer reveals it');
+  assert.equal(explorerState.entities.find((entity) => entity.id === 'hidden-ruins-entrance')?.requiredRole, undefined, 'the Collector must be able to use the revealed Ruins arch');
   assert.equal(explorerState.terrain.filter((area) => area.requiredRole === 'Explorer' && area.feature).length, 2);
   const finale = await api('/api/mcp/finale', { roomCode });
   assert.equal(finale.ok, true);
@@ -196,7 +197,7 @@ try {
     Math.hypot(shorelinePosition.x - 36, shorelinePosition.y - 23) < 1.2,
     'the visible grass beside the lake should be walkable',
   );
-  await driveTo(explorerPage, 36, 8, 'the buried Hidden Ruins arch');
+  await driveTo(explorerPage, 42, 8, 'the buried Hidden Ruins arch');
   await explorerPage.keyboard.press('e');
   const ruinsRendered = await waitFor(async () => {
     const rendered = await explorerPage.evaluate(() => JSON.parse(window.render_game_to_text()));
@@ -259,17 +260,17 @@ try {
   await waitFor(async () => (await renderedPlayer(explorerPage)).zone === 'overworld', 'the Explorer to return through the forest passage');
   const collectorPageIndex = names.indexOf(state.players.find((player) => player.archetype === 'Collector').name);
   const collectorPage = pages[collectorPageIndex]; await collectorPage.bringToFront();
-  await driveTo(collectorPage, 36, 8, 'the opened Hidden Ruins arch');
+  await driveTo(collectorPage, 42, 8, 'the opened Hidden Ruins arch');
   await collectorPage.keyboard.press('e');
   const collectorRuins = await waitFor(async () => {
     const rendered = await collectorPage.evaluate(() => JSON.parse(window.render_game_to_text()));
-    return rendered.player?.zone === 'hidden-ruins' && rendered.relics?.filter((id) => id.startsWith('sunstone-shard-')).length === 3 ? rendered : null;
-  }, 'the Collector to enter and see all three guarded Sunstones');
+    return rendered.player?.zone === 'hidden-ruins' && rendered.relics?.filter((id) => id.startsWith('sunstone-shard-')).length === 4 ? rendered : null;
+  }, 'the Collector to enter and see all four guarded Sunstones');
   assert.equal(collectorRuins.ruinsCombat.enemies.length, 2);
   await sleep(500); await collectorPage.screenshot({ path: 'output/web-game/director-smoke/hidden-ruins-collector.png' });
   await driveTo(collectorPage, 18, 22, 'the guarded western Sunstone'); await collectorPage.keyboard.press('e'); await sleep(250);
   const guardedRuins = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
-  assert.equal(Boolean(guardedRuins.entities.find((entity) => entity.id === 'sunstone-shard-west')?.collectedBy), false, 'the three Sunstones must remain guarded until both mummies are defeated');
+  assert.equal(Boolean(guardedRuins.entities.find((entity) => entity.id === 'sunstone-shard-west')?.collectedBy), false, 'the four Sunstones must remain guarded until both mummies are defeated');
   assert.deepEqual(consoleErrors, []);
   console.log('Four-player AI Director, two-of-three expedition draft, Black Hollow, and Hidden Ruins smoke test passed.');
 } finally {

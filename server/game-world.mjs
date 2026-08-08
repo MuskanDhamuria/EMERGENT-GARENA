@@ -2,7 +2,7 @@
 // assignment, interactions, serialization and ticks. It deliberately knows
 // nothing about HTTP, Socket.IO, files, or browser rendering.
 
-import { ARCHETYPES, CAVE_DEMON_MAX_HEALTH, CAVE_PLAYER_MAX_HEALTH, CAVE_SHARD_TOTAL, CONTENT_VERSION, DARK_CAVE_POINTS, DARK_CAVE_RIFTS, ENCOUNTER_TACTICS, ENCOUNTER_TACTIC_IDS, ENTITY_DEFINITIONS, EVOLUTION_LIBRARY, EXPEDITION_FEATURES, EXPEDITION_IDS, FEATURES, HIDDEN_RUINS_POINTS, MAX_PLAYERS, OBSERVATION_MS, ROLE_ABILITIES, RUINS_MUMMY_MAX_HEALTH, RUINS_SHARD_TOTAL, TEMPLE_SHARD_TOTAL, TEMPLE_WARDEN_MAX_HEALTH, TERRAIN_OVERLAYS } from '../shared/game-content.js';
+import { ARCHETYPES, CAVE_DEMON_MAX_HEALTH, CAVE_PLAYER_MAX_HEALTH, CAVE_SHARD_TOTAL, CONTENT_VERSION, DARK_CAVE_POINTS, DARK_CAVE_RIFTS, ENCOUNTER_TACTICS, ENCOUNTER_TACTIC_IDS, ENTITY_DEFINITIONS, EVERDAWN_SHARD_TOTAL, EVOLUTION_LIBRARY, EXPEDITION_FEATURES, EXPEDITION_IDS, FEATURES, HIDDEN_RUINS_POINTS, MAX_PLAYERS, OBSERVATION_MS, ROLE_ABILITIES, RUINS_MUMMY_MAX_HEALTH, RUINS_SHARD_TOTAL, TEMPLE_SHARD_TOTAL, TERRAIN_OVERLAYS } from '../shared/game-content.js';
 import { createDirectorRules } from './director-rules.mjs';
 import { createEmergentRules } from './emergent-rules.mjs';
 import { createPortalSystem } from './portal-system.mjs';
@@ -15,6 +15,16 @@ const MASTERY_ACTIONS = Object.freeze({ relic: 'Echo Water relic', 'discover-tem
 const INTERACTION_MESSAGES = Object.freeze({ relic: (player, entity) => `${player.name} collected ${entity.label}.`, 'discover-temple': (player) => `${player.name} found the hidden temple entrance.`, 'trace-waystone': (player) => `${player.name} traced the route through the old waystone.`, 'enter-dark-cave': (player) => `${player.name} opened the way into the Black Hollow.`, 'exit-dark-cave': (player) => `${player.name} climbed back into the western forest.`, 'enter-sunken-temple': (player) => `${player.name} descended into the Sunken Temple.`, 'exit-sunken-temple': (player) => `${player.name} returned from the Sunken Temple.`, 'enter-hidden-ruins': (player) => `${player.name} crossed the buried arch into the Hidden Ruins.`, 'exit-hidden-ruins': (player) => `${player.name} returned from the Hidden Ruins.`, 'activate-shrine': (player) => `${player.name} awakened the shrine.`, 'enter-spirit-realm': (player) => `${player.name} stepped through the veil.`, 'read-veil': (player) => `${player.name} read the Veil Mirror's hidden omen.`, 'offer-relics': (player) => `${player.name} offered relics at the altar.`, 'open-final-gate': (player) => `${player.name} turned the final gate's spirit key.` });
 const FINALE_TASKS = Object.freeze({ Explorer: 'cross one of the awakened thresholds', Collector: 'recover this tale\'s shards', Guardian: 'activate the awakened shrine', Loner: 'open the final gate' });
 const SHARD_PREFIX_BY_EXPEDITION = Object.freeze({ 'dark-cave': 'gloom-shard-', 'sunken-temple': 'tideglass-shard-', 'hidden-ruins': 'sunstone-shard-' });
+const EVERDAWN_SHARD_PREFIX = 'everdawn-shard-';
+const isTaleShard = (room, entity) => room.world.selectedExpeditions.some((id) => entity.id.startsWith(SHARD_PREFIX_BY_EXPEDITION[id])) || entity.id.startsWith(EVERDAWN_SHARD_PREFIX);
+// Each tale opens two of three expeditions. Cycling the pairs gives every
+// destination the same opportunity to appear: twice in every three tales.
+const EXPEDITION_PAIR_CYCLE = Object.freeze([
+  Object.freeze(['hidden-ruins', 'dark-cave']),
+  Object.freeze(['hidden-ruins', 'sunken-temple']),
+  Object.freeze(['dark-cave', 'sunken-temple']),
+]);
+const AI_EXPEDITION_SOURCES = new Set(['AI Game Master', 'MCP Game Master', 'behaviour-model fallback']);
 
 function freshEmergentState() { return { activeRules: [], history: [], nextId: 0, lastAnalyzedAt: 0, cooldowns: {}, observations: { pairs: {}, guardianSeconds: 0, lonerSeconds: 0 } }; }
 function freshPlayerEmergentState() { return { energy: 100, activeRuleIds: [], effects: [] }; }
@@ -41,13 +51,12 @@ function freshRuinsCombat() {
   };
 }
 function freshTempleCombat() {
+  // The Sunken Temple is an exploration space, not another mummy fight.
+  // Its Tideglass is ready for the Collector once the party reaches it.
   return {
-    cleared: false,
+    cleared: true,
     tacticId: null, tacticSource: null, tacticReason: null, tacticRevision: 0, tacticAnnounced: false,
-    enemies: [
-      { id: 'tide-warden-west', name: 'Tide Warden', sprite: 'mummy-lord', x: -9, z: -1, health: TEMPLE_WARDEN_MAX_HEALTH, maxHealth: TEMPLE_WARDEN_MAX_HEALTH, lastAttackAt: -Infinity, hitUntil: 0, attackUntil: 0, targetId: null, variant: 0, theme: 'tide' },
-      { id: 'tide-warden-east', name: 'Tide Warden', sprite: 'mummy-lord', x: 9, z: -1, health: TEMPLE_WARDEN_MAX_HEALTH, maxHealth: TEMPLE_WARDEN_MAX_HEALTH, lastAttackAt: -Infinity, hitUntil: 0, attackUntil: 0, targetId: null, variant: 1, theme: 'tide' },
-    ],
+    enemies: [],
   };
 }
 
@@ -66,6 +75,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   const now = () => clock();
   const portals = createPortalSystem({ clock: now });
   let realms;
+  let expeditionDraftCursor = 0;
   const cleanText = (value, fallback = '', maximum = 220) => typeof value === 'string' ? value.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, maximum) || fallback : fallback;
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
   const players = (room) => [...room.players.values()];
@@ -129,7 +139,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const pending = [];
     if (room.phase === 'observing' && room.observationEndsAt && now() >= room.observationEndsAt && !players(room).some((player) => player.archetype)) pending.push({ type: 'assign-archetypes', priority: 'critical' });
     for (const expeditionId of room.world.selectedExpeditions || []) {
-      const combat = expeditionId === 'dark-cave' ? room.caveCombat : expeditionId === 'hidden-ruins' ? room.ruinsCombat : expeditionId === 'sunken-temple' ? room.templeCombat : null;
+      const combat = expeditionId === 'dark-cave' ? room.caveCombat : expeditionId === 'hidden-ruins' ? room.ruinsCombat : null;
       if (combat && !combat.tacticId) pending.push({ type: 'adapt-encounter', expeditionId, allowedTactics: ENCOUNTER_TACTIC_IDS });
     }
     if (['evolving', 'finale'].includes(room.phase)) for (const player of players(room)) {
@@ -214,11 +224,22 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   }
   function selectExpeditions(room, requested, source = 'AI Game Master') {
     if (players(room).some((player) => player.archetype === 'Explorer' && player.evolutions.length)) return { ok: false, error: 'The available expeditions cannot change after the Explorer has awakened a destination.' };
-    const selection = Array.isArray(requested) ? requested : chooseFallbackExpeditions(room);
-    if (selection.length !== 2 || new Set(selection).size !== 2 || selection.some((id) => !EXPEDITION_IDS.includes(id))) return { ok: false, error: 'Choose exactly two different expeditions from the available three.' };
+    const requestedSelection = Array.isArray(requested) ? requested : chooseFallbackExpeditions(room);
+    if (requestedSelection.length !== 2 || new Set(requestedSelection).size !== 2 || requestedSelection.some((id) => !EXPEDITION_IDS.includes(id))) return { ok: false, error: 'Choose exactly two different expeditions from the available three.' };
+    // Keep a room's draft stable if a Game Master retries the same decision.
+    if (room.world.selectedExpeditions.length === 2) return { ok: true, expeditions: [...room.world.selectedExpeditions], reused: true };
+    const aiControlled = AI_EXPEDITION_SOURCES.has(source);
+    // The model still determines roles, encounter tactics and other
+    // adaptations from behaviour. This guard prevents one realm being
+    // repeatedly starved across new tales.
+    const selection = aiControlled
+      ? [...EXPEDITION_PAIR_CYCLE[expeditionDraftCursor++ % EXPEDITION_PAIR_CYCLE.length]]
+      : requestedSelection;
     room.world.selectedExpeditions = [...selection];
     room.director = { narration: 'Two distant thresholds answer the group. Their locations remain for the Explorer to discover.', source, at: now() };
-    recordAiDecision(room, 'expedition-draft', selection.join(' + '), 'Two destinations were selected from the group\'s exploration, risk, cohesion, and collecting signals.', source, { expeditions: [...selection] });
+    recordAiDecision(room, 'expedition-draft', selection.join(' + '), aiControlled
+      ? 'The Game Master balanced destinations across tales, then shapes the selected encounters from this group\'s observed behaviour.'
+      : 'Two destinations were selected from the group\'s exploration, risk, cohesion, and collecting signals.', source, { expeditions: [...selection], requestedExpeditions: requestedSelection, balancedRotation: aiControlled });
     return { ok: true, expeditions: [...selection] };
   }
   const selectedExplorerSteps = (room) => {
@@ -261,7 +282,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   function createFinalObjective(room, source = 'server') {
     if (room.finalObjective) return room.finalObjective;
     const group = players(room); if (group.length !== MAX_PLAYERS || !group.every((player) => player.archetype && player.evolutions.length)) return null;
-    const shardTotal = room.entities.filter((entity) => room.world.selectedExpeditions.some((id) => entity.id.startsWith(SHARD_PREFIX_BY_EXPEDITION[id]))).length;
+    const shardTotal = room.entities.filter((entity) => isTaleShard(room, entity)).length;
     room.phase = 'finale';
     room.finalObjective = { id: `temple-${room.createdAt}`, title: 'The Ancient Temple Is Listening', description: 'The Guardian and Loner must each complete two authored personal objectives before the entrance can appear.', createdAt: now(), source, status: 'awaiting-rites', required: group.map((player) => ({ playerId: player.id, archetype: player.archetype, task: player.archetype === 'Collector' ? `recover the ${shardTotal} shards hidden across this tale` : FINALE_TASKS[player.archetype], completed: false })) };
     recordAiDecision(room, 'finale-composition', room.finalObjective.title, 'The final rite was assembled from the roles, abilities, destinations, and personal trials this group caused to emerge.', source, { shardTotal });
@@ -335,9 +356,8 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const expected = { Collector: 'offer-relics', Guardian: 'activate-shrine', Loner: 'open-final-gate' }[player.archetype];
     const explorerExpedition = { 'enter-dark-cave': 'dark-cave', 'enter-sunken-temple': 'sunken-temple', 'enter-hidden-ruins': 'hidden-ruins' }[action];
     if (player.archetype === 'Explorer' ? !explorerExpedition : action !== expected) return { ok: true, finale: false };
-    const selectedPrefixes = room.world.selectedExpeditions.map((id) => SHARD_PREFIX_BY_EXPEDITION[id]);
-    const requiredShards = room.entities.filter((item) => selectedPrefixes.some((prefix) => item.id.startsWith(prefix))).length;
-    const collectedShards = [...player.relicIds].filter((id) => selectedPrefixes.some((prefix) => id.startsWith(prefix))).length;
+    const requiredShards = room.entities.filter((item) => isTaleShard(room, item)).length;
+    const collectedShards = [...player.relicIds].filter((id) => isTaleShard(room, { id })).length;
     const valid = (player.archetype === 'Explorer' && room.world.selectedExpeditions.includes(explorerExpedition)) || (player.archetype === 'Collector' && action === 'offer-relics' && entity.id === 'final-altar' && collectedShards >= requiredShards) || (player.archetype === 'Guardian' && action === 'activate-shrine' && entity.id === 'guardian-shrine') || (player.archetype === 'Loner' && action === 'open-final-gate' && entity.id === 'final-gate');
     if (!valid) return { ok: false, error: 'That is not your valid finale rite yet.' };
     task.completed = true; event(room, 'finale-progress', `${player.name} completed the ${player.archetype} rite.`, { playerId: player.id, archetype: player.archetype }); if (objective.required.every((entry) => entry.completed)) { objective.status = 'complete'; objective.completedAt = now(); event(room, 'finale-complete', 'The final gate opens. Everdawn remembers the four stories written here.', { objective }); } return { ok: true, finale: true };
@@ -385,7 +405,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     player.inputX = 0; player.inputZ = 0; player.locationId = locationFor(player.x, player.z);
     event(room, 'temple-defeat', `${player.name} was driven back up the submerged steps. The Tide Wardens will not admit them again this tale.`, { playerId: player.id });
   }
-  const combatForExpedition = (room, expeditionId) => expeditionId === 'dark-cave' ? room.caveCombat : expeditionId === 'hidden-ruins' ? room.ruinsCombat : expeditionId === 'sunken-temple' ? room.templeCombat : null;
+  const combatForExpedition = (room, expeditionId) => expeditionId === 'dark-cave' ? room.caveCombat : expeditionId === 'hidden-ruins' ? room.ruinsCombat : null;
   function chooseFallbackEncounterTactic(room) {
     const group = players(room), collector = group.find((player) => player.archetype === 'Collector');
     if (collector && (collector.relicIds.size || collector.interactions.relic)) return 'guard-collector';
@@ -433,26 +453,26 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   }
   function damagePlayer(room, player, amount) {
     const zone = zoneOf(player);
-    if (!['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(zone) || player.health <= 0 || (zone === 'dark-cave' ? player.caveLocked : zone === 'hidden-ruins' ? player.ruinsLocked : player.templeLocked)) return;
+    if (!['dark-cave', 'hidden-ruins'].includes(zone) || player.health <= 0 || (zone === 'dark-cave' ? player.caveLocked : player.ruinsLocked)) return;
     const damage = Math.max(0, amount); player.health = Math.max(0, player.health - damage); player.lastDamage = damage; player.hurtUntil = now() + 550;
-    if (player.health <= 0) (zone === 'dark-cave' ? ejectFromCave : zone === 'hidden-ruins' ? ejectFromRuins : ejectFromTemple)(room, player);
+    if (player.health <= 0) (zone === 'dark-cave' ? ejectFromCave : ejectFromRuins)(room, player);
   }
   function attackEncounter(room, player) {
     if (player.guardianPortal?.status === 'in-trial') return guardGuardianTrial(room, player);
     const zone = zoneOf(player);
-    if (!['evolving', 'finale'].includes(room.phase) || !['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(zone)) return { ok: false, error: 'You can only fight inside a hostile expedition.' };
-    const ruins = zone === 'hidden-ruins', temple = zone === 'sunken-temple', combat = temple ? room.templeCombat : ruins ? room.ruinsCombat : room.caveCombat;
-    const locked = temple ? player.templeLocked : ruins ? player.ruinsLocked : player.caveLocked;
-    if (locked || player.health <= 0) return { ok: false, error: `${temple ? 'The submerged steps' : ruins ? 'The buried arch' : 'The Black Hollow'} no longer answers your lantern.` };
+    if (!['evolving', 'finale'].includes(room.phase) || !['dark-cave', 'hidden-ruins'].includes(zone)) return { ok: false, error: 'You can only fight inside a hostile expedition.' };
+    const ruins = zone === 'hidden-ruins', combat = ruins ? room.ruinsCombat : room.caveCombat;
+    const locked = ruins ? player.ruinsLocked : player.caveLocked;
+    if (locked || player.health <= 0) return { ok: false, error: `${ruins ? 'The buried arch' : 'The Black Hollow'} no longer answers your lantern.` };
     const lastAttackAt = Math.max(player.lastCombatAttackAt ?? -Infinity, player.lastCaveAttackAt ?? -Infinity);
     if (now() - lastAttackAt < 380) return { ok: false, cooldown: true, error: 'Your weapon is still recovering.' };
     const target = combat.enemies.filter((enemy) => enemy.health > 0).sort((left, right) => Math.hypot(player.x - left.x, player.z - left.z) - Math.hypot(player.x - right.x, player.z - right.z))[0];
-    if (!target || Math.hypot(player.x - target.x, player.z - target.z) > 3.4) return { ok: false, error: `Move closer to a ${temple ? 'Tide Warden' : ruins ? 'mummy' : 'demon'} before striking.` };
+    if (!target || Math.hypot(player.x - target.x, player.z - target.z) > 3.4) return { ok: false, error: `Move closer to a ${ruins ? 'mummy' : 'demon'} before striking.` };
     player.lastCombatAttackAt = now(); player.lastCaveAttackAt = now(); target.health = Math.max(0, target.health - 22); target.hitUntil = now() + 180;
-    if (target.health === 0) event(room, temple ? 'temple-enemy-defeated' : ruins ? 'ruins-enemy-defeated' : 'cave-enemy-defeated', `${player.name} and the party defeated the ${target.name}.`, { playerId: player.id, targetId: target.id });
+    if (target.health === 0) event(room, ruins ? 'ruins-enemy-defeated' : 'cave-enemy-defeated', `${player.name} and the party defeated the ${target.name}.`, { playerId: player.id, targetId: target.id });
     if (combat.enemies.every((enemy) => enemy.health <= 0) && !combat.cleared) {
       combat.cleared = true;
-      event(room, temple ? 'temple-cleared' : ruins ? 'ruins-cleared' : 'cave-cleared', temple ? 'The Tide Wardens sink beneath the floor. Tideglass shards shine through the flooded hall.' : ruins ? 'The two mummy wardens collapse. Three Sunstone shards glimmer between the broken pillars.' : 'The three demons fall. The Black Hollow is safe enough for the Collector to search its deepest grottoes.');
+      event(room, ruins ? 'ruins-cleared' : 'cave-cleared', ruins ? 'The two mummy wardens collapse. Four Sunstones glimmer between the broken pillars.' : 'The three demons fall. The Black Hollow is safe enough for the Collector to search its deepest grottoes.');
     }
     return { ok: true, targetId: target.id, damage: 22, targetHealth: target.health, defeated: target.health === 0 };
   }
@@ -484,7 +504,10 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       if (!target || zoneOf(target) !== 'hidden-ruins') continue;
       const dx = target.x - enemy.x, dz = target.z - enemy.z, range = Math.hypot(dx, dz);
       if (range > 1.65) {
-        const step = Math.min(range - 1.45, 1.25 * tactic.speedMultiplier * delta), nextX = enemy.x + dx / range * step, nextZ = enemy.z + dz / range * step;
+        // Mummies are deliberate, but they must still be able to close the
+        // distance in the wide Ruins chamber before the party simply walks
+        // away. Their pace is intentionally much faster than cave demons.
+        const step = Math.min(range - 1.45, 3.2 * tactic.speedMultiplier * delta), nextX = enemy.x + dx / range * step, nextZ = enemy.z + dz / range * step;
         if (ruinsWalkable(nextX, nextZ)) { enemy.x = nextX; enemy.z = nextZ; }
       } else if (now() - enemy.lastAttackAt >= tactic.attackCooldownMs) {
         enemy.lastAttackAt = now(); enemy.attackUntil = now() + 550; enemy.targetId = target.id; damagePlayer(room, target, 5);
@@ -515,23 +538,16 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       if (entity.type !== 'finale-entrance') return { ok: false, error: 'That is not the Ancient Temple entrance.' };
       return enterFinalTemple(room, player);
     }
-    const templeIsOpen = room.world.unlocked.has('sunken-temple-open');
-    const darkCaveIsOpen = room.world.unlocked.has('dark-cave-open');
-    const hiddenRuinsIsOpen = room.world.unlocked.has('hidden-ruins-open');
     if (action === 'enter-dark-cave') {
-      if (!darkCaveIsOpen && player.archetype !== 'Explorer') return { ok: false, error: 'Only the Explorer can discover what lies behind this stone.' };
       if (player.caveLocked) return { ok: false, error: 'Your lantern was extinguished here. The Black Hollow will not admit you again this tale.' };
       room.world.unlocked.add('dark-cave-open'); player.zone = 'dark-cave'; player.x = 0; player.z = 11; player.inputX = 0; player.inputZ = 0; player.locationId = 'dark-cave'; player.visited.add('dark-cave'); player.health = player.maxHealth; player.caveSafeX = 0; player.caveSafeZ = 11; player.portalCooldownUntil = 0; ensureEncounterTactic(room, 'dark-cave');
     } else if (action === 'exit-dark-cave') {
       player.zone = 'overworld'; player.x = -20; player.z = -8; player.inputX = 0; player.inputZ = 0; player.locationId = locationFor(player.x, player.z);
     } else if (action === 'enter-sunken-temple') {
-      if (!templeIsOpen && player.archetype !== 'Explorer') return { ok: false, error: 'Only the Explorer can awaken these submerged steps.' };
-      if (player.templeLocked) return { ok: false, error: 'The Tide Wardens drove you back. The submerged steps will not admit you again this tale.' };
-      room.world.unlocked.add('sunken-temple-open'); player.zone = 'sunken-temple'; player.x = 0; player.z = 12; player.inputX = 0; player.inputZ = 0; player.locationId = 'sunken-temple'; player.visited.add('sunken-temple'); player.health = player.maxHealth; ensureEncounterTactic(room, 'sunken-temple');
+      room.world.unlocked.add('sunken-temple-open'); player.zone = 'sunken-temple'; player.x = 0; player.z = 12; player.inputX = 0; player.inputZ = 0; player.locationId = 'sunken-temple'; player.visited.add('sunken-temple'); player.health = player.maxHealth;
     } else if (action === 'exit-sunken-temple') {
       player.zone = 'overworld'; player.x = 20; player.z = -5; player.inputX = 0; player.inputZ = 0; player.locationId = locationFor(player.x, player.z);
     } else if (action === 'enter-hidden-ruins') {
-      if (!hiddenRuinsIsOpen && player.archetype !== 'Explorer') return { ok: false, error: 'Only the Explorer can read the buried markings on this arch.' };
       if (player.ruinsLocked) return { ok: false, error: 'The mummy wardens cast you out. The buried arch will not admit you again this tale.' };
       room.world.unlocked.add('hidden-ruins-open'); player.zone = 'hidden-ruins'; player.x = 0; player.z = 11; player.inputX = 0; player.inputZ = 0; player.locationId = 'hidden-ruins'; player.visited.add('hidden-ruins'); player.health = player.maxHealth; ensureEncounterTactic(room, 'hidden-ruins');
     } else if (action === 'exit-hidden-ruins') {
@@ -541,7 +557,6 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (expedition) guidance.expeditionEntered(room, player, expedition);
     if (entity.id.startsWith('gloom-shard-') && !room.caveCombat.cleared) return { ok: false, error: 'The demons guard this shard. The party must clear the Black Hollow first.' };
     if (entity.id.startsWith('sunstone-shard-') && !room.ruinsCombat.cleared) return { ok: false, error: 'The mummy wardens guard this shard. The party must defeat both of them first.' };
-    if (entity.id.startsWith('tideglass-shard-') && !room.templeCombat.cleared) return { ok: false, error: 'The Tide Wardens guard this shard. The party must clear the Sunken Temple first.' };
     if (entity.type !== ROLE_ACTIONS[action]) return { ok: false, error: 'That action does not match this object.' };
     if (entity.feature && !room.world.unlocked.has(entity.feature) && !(room.world.privateUnlocks.get(player.id) || new Set()).has(entity.feature)) return { ok: false, error: 'That place has not awakened yet.' };
     const realmFeature = action === 'enter-spirit-realm' ? 'spirit-realm' : action === 'enter-shadow-forest' ? 'shadow-forest' : action === 'enter-moon-shrine' ? 'moon-shrine' : action === 'enter-ghost-village' ? 'ghost-village' : null;
@@ -564,13 +579,17 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (['discover-temple', 'enter-dark-cave', 'enter-sunken-temple', 'enter-hidden-ruins', 'trace-waystone'].includes(action)) recordRoleObjective(room, player, `${player.archetype.toLowerCase()}-${action}`);
     world.emergentRules.completeInteraction(room, player, action, entity);
     const shardCount = room.entities.filter((item) => item.id.startsWith('tideglass-shard-') && item.collectedBy).length;
+    const gloomCount = room.entities.filter((item) => item.id.startsWith('gloom-shard-') && item.collectedBy).length;
     const sunstoneCount = room.entities.filter((item) => item.id.startsWith('sunstone-shard-') && item.collectedBy).length;
-    const isTideglass = entity.id.startsWith('tideglass-shard-'), isSunstone = entity.id.startsWith('sunstone-shard-');
+    const everdawnCount = room.entities.filter((item) => item.id.startsWith(EVERDAWN_SHARD_PREFIX) && item.collectedBy).length;
+    const isTideglass = entity.id.startsWith('tideglass-shard-'), isGloom = entity.id.startsWith('gloom-shard-'), isSunstone = entity.id.startsWith('sunstone-shard-'), isEverdawn = entity.id.startsWith(EVERDAWN_SHARD_PREFIX);
     const message = isTideglass
-      ? `Tideglass recovered — ${shardCount}/${TEMPLE_SHARD_TOTAL}.${shardCount === 5 ? ' The fragments reveal a purpose: carry the complete set to the ancient altar.' : shardCount === TEMPLE_SHARD_TOTAL ? ' The collection is complete.' : ''}`
+      ? `Tideglass recovered — ${shardCount}/${TEMPLE_SHARD_TOTAL}.${shardCount === TEMPLE_SHARD_TOTAL ? ' The temple collection is complete.' : ''}`
+      : isGloom ? `Gloom shard recovered — ${gloomCount}/${CAVE_SHARD_TOTAL}.`
       : isSunstone ? `Sunstone recovered — ${sunstoneCount}/${RUINS_SHARD_TOTAL}.`
+      : isEverdawn ? `Everdawn shard recovered — ${everdawnCount}/${EVERDAWN_SHARD_TOTAL}.`
       : INTERACTION_MESSAGES[action](player, entity);
-    event(room, action === 'relic' ? 'relic-collected' : 'role-interaction', message, { playerId: player.id, targetId: entity.id, ...((isTideglass || isSunstone) ? { privateTo: player.id } : {}) }); return { ok: true, targetId: entity.id };
+    event(room, action === 'relic' ? 'relic-collected' : 'role-interaction', message, { playerId: player.id, targetId: entity.id, ...((isTideglass || isGloom || isSunstone || isEverdawn) ? { privateTo: player.id } : {}) }); return { ok: true, targetId: entity.id };
   }
   function recordTelemetry(room, player, payload = {}, positionIsAuthoritative = false) {
     if (!ACTIVE_PHASES.has(room.phase)) return;
@@ -605,30 +624,13 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (entity.feature && !room.world.unlocked.has(entity.feature) && !privateFeatures.has(entity.feature)) return false;
     if (!viewer) return true;
     // A route found by the Explorer becomes a shared landmark immediately.
-    // The interaction logic still keeps the first entry Explorer-only.
+    // Every teammate can then join the expedition.
     if (entity.feature && ['hidden-cave-appears', 'temple-staircase-uncovered', 'forgotten-ruins-emerge'].includes(entity.feature) && room.world.unlocked.has(entity.feature)) return true;
     if (entity.id === 'hidden-temple-entrance' && room.world.unlocked.has('sunken-temple-open')) return true;
     if (entity.id === 'hidden-cave-mouth' && room.world.unlocked.has('dark-cave-open')) return true;
     if (entity.id === 'hidden-ruins-entrance' && room.world.unlocked.has('hidden-ruins-open')) return true;
     if (entity.type === 'relic') return viewer.archetype === 'Collector';
     return entity.role === viewer.archetype || !entity.role;
-  }
-  function tickTempleCombat(room, delta) {
-    const templePlayers = players(room).filter((player) => zoneOf(player) === 'sunken-temple' && !player.templeLocked && player.health > 0);
-    if (!templePlayers.length || room.templeCombat.cleared) return;
-    const combat = ensureEncounterTactic(room, 'sunken-temple'), tactic = ENCOUNTER_TACTICS[combat.tacticId] || ENCOUNTER_TACTICS['hunt-straggler'];
-    for (const enemy of room.templeCombat.enemies) {
-      if (enemy.health <= 0) continue;
-      const target = selectEncounterTarget(enemy, templePlayers, combat.tacticId);
-      if (!target || zoneOf(target) !== 'sunken-temple') continue;
-      const dx = target.x - enemy.x, dz = target.z - enemy.z, range = Math.hypot(dx, dz);
-      if (range > 1.65) {
-        const step = Math.min(range - 1.45, 1.2 * tactic.speedMultiplier * delta), nextX = enemy.x + dx / range * step, nextZ = enemy.z + dz / range * step;
-        if (canEnterTile(room, target, nextX, nextZ)) { enemy.x = nextX; enemy.z = nextZ; }
-      } else if (now() - enemy.lastAttackAt >= tactic.attackCooldownMs) {
-        enemy.lastAttackAt = now(); enemy.attackUntil = now() + 550; enemy.targetId = target.id; damagePlayer(room, target, 5);
-      }
-    }
   }
   function serializeRoom(room, viewerId = null) {
     advanceRoom(room); const viewer = viewerId && getPlayer(room, viewerId), privateUnlocks = viewer ? [...(room.world.privateUnlocks.get(viewer.id) || [])] : [], directorRules = room.directorState || { activeRules: [], history: [] }, visibleRules = (directorRules.activeRules || []).filter((rule) => !rule.playerId || !viewerId || rule.playerId === viewerId);
@@ -637,17 +639,17 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       .map(({ id, type, x, z, tileX, tileY, zone, label, role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }) => ({ id, type, x, z, tileX, tileY, zone: zone || 'overworld', label, role, requiredRole: role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }));
     const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => (!viewer || area.role === viewer.archetype || (area.feature && ['hidden-cave-appears', 'temple-staircase-uncovered', 'forgotten-ruins-emerge'].includes(area.feature) && room.world.unlocked.has(area.feature)) || (area.id === 'temple-staircase-ground' && room.world.unlocked.has('sunken-temple-open')) || (area.id === 'hidden-cave-clearing' && room.world.unlocked.has('dark-cave-open')) || (area.id === 'forgotten-ruins-site' && room.world.unlocked.has('hidden-ruins-open'))) && (!area.feature || room.world.unlocked.has(area.feature))).map(({ id, kind, role, feature, label, x, z, w, h, points, pathWidth }) => ({ id, kind, requiredRole: role, feature, label, x, z, w, h, points, pathWidth }));
     const viewerShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => id.startsWith('tideglass-shard-')).length : 0;
-    const shardProgress = viewerShardCount > 0 ? { collected: viewerShardCount, total: TEMPLE_SHARD_TOTAL, objectiveRevealed: viewerShardCount >= 5 } : null;
+    const shardProgress = viewerShardCount > 0 ? { collected: viewerShardCount, total: TEMPLE_SHARD_TOTAL, objectiveRevealed: viewerShardCount >= TEMPLE_SHARD_TOTAL } : null;
     const viewerCaveShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => id.startsWith('gloom-shard-')).length : 0;
     const caveShardProgress = viewer?.archetype === 'Collector' && (zoneOf(viewer) === 'dark-cave' || viewerCaveShardCount > 0) ? { collected: viewerCaveShardCount, total: CAVE_SHARD_TOTAL } : null;
     const viewerRuinsShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => id.startsWith('sunstone-shard-')).length : 0;
     const ruinsShardProgress = viewer?.archetype === 'Collector' && (zoneOf(viewer) === 'hidden-ruins' || viewerRuinsShardCount > 0) ? { collected: viewerRuinsShardCount, total: RUINS_SHARD_TOTAL } : null;
-    const selectedShardPrefixes = room.world.selectedExpeditions.map((id) => SHARD_PREFIX_BY_EXPEDITION[id]);
-    const viewerSelectedShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => selectedShardPrefixes.some((prefix) => id.startsWith(prefix))).length : 0;
-    const finalObjective = room.finalObjective ? { ...room.finalObjective, required: room.finalObjective.required.map((entry) => entry.archetype === 'Collector' && !(viewer?.id === entry.playerId && viewerSelectedShardCount > 0) ? { ...entry, task: 'An undiscovered rite.' } : { ...entry }) } : null;
+    const viewerEverdawnShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => id.startsWith(EVERDAWN_SHARD_PREFIX)).length : 0;
+    const everdawnShardProgress = viewer?.archetype === 'Collector' && (zoneOf(viewer) === 'overworld' || viewerEverdawnShardCount > 0) ? { collected: viewerEverdawnShardCount, total: EVERDAWN_SHARD_TOTAL } : null;
+    const viewerTaleShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => isTaleShard(room, { id })).length : 0;
+    const finalObjective = room.finalObjective ? { ...room.finalObjective, required: room.finalObjective.required.map((entry) => entry.archetype === 'Collector' && !(viewer?.id === entry.playerId && viewerTaleShardCount > 0) ? { ...entry, task: 'An undiscovered rite.' } : { ...entry }) } : null;
     const caveCombat = !viewer || zoneOf(viewer) === 'dark-cave' ? { cleared: room.caveCombat.cleared, tacticId: room.caveCombat.tacticId, tacticLabel: ENCOUNTER_TACTICS[room.caveCombat.tacticId]?.label || null, tacticSource: room.caveCombat.tacticSource, rifts: DARK_CAVE_RIFTS, enemies: room.caveCombat.enemies.map((enemy) => ({ id: enemy.id, name: enemy.name, sprite: enemy.sprite, x: enemy.x, z: enemy.z, health: enemy.health, maxHealth: enemy.maxHealth, alive: enemy.health > 0, hit: enemy.hitUntil > now(), attacking: enemy.attackUntil > now(), targetId: enemy.targetId })) } : undefined;
     const ruinsCombat = !viewer || zoneOf(viewer) === 'hidden-ruins' ? { cleared: room.ruinsCombat.cleared, tacticId: room.ruinsCombat.tacticId, tacticLabel: ENCOUNTER_TACTICS[room.ruinsCombat.tacticId]?.label || null, tacticSource: room.ruinsCombat.tacticSource, enemies: room.ruinsCombat.enemies.map((enemy) => ({ id: enemy.id, name: enemy.name, sprite: enemy.sprite, variant: enemy.variant, x: enemy.x, z: enemy.z, health: enemy.health, maxHealth: enemy.maxHealth, alive: enemy.health > 0, hit: enemy.hitUntil > now(), attacking: enemy.attackUntil > now(), targetId: enemy.targetId })) } : undefined;
-    const templeCombat = !viewer || zoneOf(viewer) === 'sunken-temple' ? { cleared: room.templeCombat.cleared, tacticId: room.templeCombat.tacticId, tacticLabel: ENCOUNTER_TACTICS[room.templeCombat.tacticId]?.label || null, tacticSource: room.templeCombat.tacticSource, enemies: room.templeCombat.enemies.map((enemy) => ({ id: enemy.id, name: enemy.name, sprite: enemy.sprite, variant: enemy.variant, theme: enemy.theme, x: enemy.x, z: enemy.z, health: enemy.health, maxHealth: enemy.maxHealth, alive: enemy.health > 0, hit: enemy.hitUntil > now(), attacking: enemy.attackUntil > now(), targetId: enemy.targetId })) } : undefined;
     return {
       contentVersion: CONTENT_VERSION,
       code: room.code,
@@ -659,9 +661,9 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       ...(shardProgress ? { shardProgress } : {}),
       ...(caveShardProgress ? { caveShardProgress } : {}),
       ...(ruinsShardProgress ? { ruinsShardProgress } : {}),
+      ...(everdawnShardProgress ? { everdawnShardProgress } : {}),
       ...(caveCombat ? { caveCombat } : {}),
       ...(ruinsCombat ? { ruinsCombat } : {}),
-      ...(templeCombat ? { templeCombat } : {}),
       players: players(room).map((player, index) => ({
         id: player.id,
         name: player.name,
@@ -702,7 +704,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       aiDirector: {
         pending: pendingAiDecisions(room),
         decisions: (room.aiDirector?.decisions || []).slice(-12),
-        encounterPlans: { 'dark-cave': room.caveCombat.tacticId, 'sunken-temple': room.templeCombat.tacticId, 'hidden-ruins': room.ruinsCombat.tacticId },
+        encounterPlans: { 'dark-cave': room.caveCombat.tacticId, 'hidden-ruins': room.ruinsCombat.tacticId },
       },
       directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) },
       emergentRules: world.emergentRules.serialize(room, viewerId),
@@ -749,7 +751,6 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     }
     tickCaveCombat(room, delta);
     tickRuinsCombat(room, delta);
-    tickTempleCombat(room, delta);
     world.emergentRules.tick(room, delta);
     maybeRevealFinaleEntrance(room);
     advanceRoom(room);

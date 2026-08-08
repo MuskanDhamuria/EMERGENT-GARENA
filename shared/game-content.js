@@ -4,10 +4,14 @@
 
 export const MAX_PLAYERS = 4;
 export const OBSERVATION_MS = 40_000;
-export const CONTENT_VERSION = '2026-08-08-ai-encounter-director-v1';
-export const TEMPLE_SHARD_TOTAL = 9;
-export const CAVE_SHARD_TOTAL = 2;
-export const RUINS_SHARD_TOTAL = 3;
+export const CONTENT_VERSION = '2026-08-08-thirteen-shard-tales-v1';
+// The AI opens two expedition maps each tale: four shards in each chosen
+// map, plus five that remain scattered across Everdawn, makes thirteen
+// recoverable shards in a single playthrough.
+export const TEMPLE_SHARD_TOTAL = 4;
+export const CAVE_SHARD_TOTAL = 4;
+export const RUINS_SHARD_TOTAL = 4;
+export const EVERDAWN_SHARD_TOTAL = 5;
 export const CAVE_PLAYER_MAX_HEALTH = 100;
 export const CAVE_DEMON_MAX_HEALTH = 75;
 export const RUINS_MUMMY_MAX_HEALTH = 80;
@@ -98,7 +102,8 @@ export const FEATURES = new Set([
 export const TERRAIN_OVERLAYS = Object.freeze([
   Object.freeze({ id: 'hidden-cave-clearing', kind: 'cave', role: 'Explorer', feature: 'hidden-cave-appears', label: 'Hidden Cave', x: -23, z: -12, w: 5, h: 4, blocksEveryoneElse: true }),
   Object.freeze({ id: 'temple-staircase-ground', kind: 'staircase', role: 'Explorer', feature: 'temple-staircase-uncovered', label: 'Temple Staircase', x: 18, z: -6, w: 5, h: 5, blocksEveryoneElse: true }),
-  Object.freeze({ id: 'forgotten-ruins-site', kind: 'ruins', role: 'Explorer', feature: 'forgotten-ruins-emerge', label: 'Forgotten Ruins', x: 4, z: -11, w: 5, h: 5, blocksEveryoneElse: true }),
+  // Keep the arch on open grass, clear of the raised blue pool beside it.
+  Object.freeze({ id: 'forgotten-ruins-site', kind: 'ruins', role: 'Explorer', feature: 'forgotten-ruins-emerge', label: 'Forgotten Ruins', x: 10, z: -11, w: 5, h: 5, blocksEveryoneElse: true }),
   Object.freeze({ id: 'guardian-bridge', kind: 'bridge', role: 'Guardian', label: 'Warden Bridge', x: 9, z: -3, w: 7, h: 2, blocksEveryoneElse: true }),
   Object.freeze({ id: 'spirit-path', kind: 'spirit', role: 'Loner', label: 'Veil Path', x: -6, z: 8, w: 6, h: 5, blocksEveryoneElse: true }),
 ]);
@@ -109,17 +114,14 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'vault-amber', type: 'relic', x: 14, z: 8, role: 'Collector', terrain: 'echo-water', label: 'Vault Amber' }),
   Object.freeze({ id: 'hidden-cave-mouth', type: 'cave', x: -21, z: -11, role: 'Explorer', terrain: 'hidden-cave-clearing', feature: 'hidden-cave-appears', label: 'Hidden Cave' }),
   Object.freeze({ id: 'hidden-temple-entrance', type: 'temple-entrance', x: 20, z: -8, role: 'Explorer', terrain: 'temple-staircase-ground', feature: 'temple-staircase-uncovered', label: 'Hidden Temple Entrance' }),
-  Object.freeze({ id: 'hidden-ruins-entrance', type: 'ruins-entrance', x: 6, z: -9, role: 'Explorer', terrain: 'forgotten-ruins-site', feature: 'forgotten-ruins-emerge', label: 'Buried Ruins Arch' }),
+  // The Explorer reveals this location through exploration; once visible, the
+  // doorway is cooperative so the Collector can enter and recover Sunstones.
+  Object.freeze({ id: 'hidden-ruins-entrance', type: 'ruins-entrance', x: 12, z: -9, terrain: 'forgotten-ruins-site', feature: 'forgotten-ruins-emerge', label: 'Buried Ruins Arch' }),
   Object.freeze({ id: 'sunken-temple-exit', type: 'temple-exit', x: 0, z: 13, zone: 'sunken-temple', label: 'Return Staircase' }),
   Object.freeze({ id: 'tideglass-shard-west', type: 'relic', x: -14, z: 0, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Western Tideglass Shard' }),
   Object.freeze({ id: 'tideglass-shard-north', type: 'relic', x: 0, z: -10, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Northern Tideglass Shard' }),
   Object.freeze({ id: 'tideglass-shard-east', type: 'relic', x: 14, z: 0, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Eastern Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-northwest', type: 'relic', x: -7, z: -11, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Northwest Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-northeast', type: 'relic', x: 7, z: -11, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Northeast Tideglass Shard' }),
   Object.freeze({ id: 'tideglass-shard-heart', type: 'relic', x: 0, z: 0, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Heart Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-southwest', type: 'relic', x: -12, z: 9, role: 'Collector', feature: 'sunken-temple-open', label: 'Wayward Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-southeast', type: 'relic', x: 2, z: -7, role: 'Collector', feature: 'sunken-temple-open', label: 'Wayward Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-depths', type: 'relic', x: 17, z: 2, role: 'Collector', feature: 'sunken-temple-open', label: 'Wayward Tideglass Shard' }),
   Object.freeze({ id: 'guardian-shrine', type: 'shrine', x: 14, z: -2, role: 'Guardian', terrain: 'guardian-bridge', label: 'Awakened Shrine' }),
   Object.freeze({ id: 'spirit-portal', type: 'spirit-portal', x: -3, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Spirit Portal' }),
   Object.freeze({ id: 'explorer-waystone', type: 'waystone', x: -16, z: -10, role: 'Explorer', terrain: 'moss-trail', label: 'Trail Waystone', feature: 'hidden-cave' }),
@@ -135,11 +137,21 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'final-gate', type: 'final-gate', x: 19, z: 6, role: 'Loner', label: 'Final Gate', feature: 'final-gate' }),
   Object.freeze({ id: 'dark-cave-exit', type: 'cave-exit', x: 0, z: 12, zone: 'dark-cave', label: 'Forest Passage' }),
   Object.freeze({ id: 'gloom-shard-west', type: 'relic', x: -14, z: -2, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Umbral Shard' }),
+  Object.freeze({ id: 'gloom-shard-north', type: 'relic', x: 0, z: -10, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Starlit Gloom Shard' }),
   Object.freeze({ id: 'gloom-shard-east', type: 'relic', x: 13, z: -3, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Fossil Shard' }),
+  Object.freeze({ id: 'gloom-shard-deep', type: 'relic', x: -6, z: 5, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Deep Gloom Shard' }),
   Object.freeze({ id: 'hidden-ruins-exit', type: 'ruins-exit', x: 0, z: 12, zone: 'hidden-ruins', label: 'Sunlit Archway' }),
   Object.freeze({ id: 'sunstone-shard-west', type: 'relic', x: -12, z: 5, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Western Sunstone Shard' }),
   Object.freeze({ id: 'sunstone-shard-east', type: 'relic', x: 12, z: 5, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Eastern Sunstone Shard' }),
   Object.freeze({ id: 'sunstone-shard-crown', type: 'relic', x: 0, z: -11, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Crown Sunstone Shard' }),
+  Object.freeze({ id: 'sunstone-shard-heart', type: 'relic', x: 0, z: 0, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Heart Sunstone Shard' }),
+  // These five are always part of the tale. They keep the overworld useful
+  // between expeditions, while the AI selects which two four-shard realms open.
+  Object.freeze({ id: 'everdawn-shard-campfire', type: 'relic', x: -9, z: 4, role: 'Collector', label: 'Emberglass Shard' }),
+  Object.freeze({ id: 'everdawn-shard-meadow', type: 'relic', x: 2, z: -4, role: 'Collector', label: 'Meadowglass Shard' }),
+  Object.freeze({ id: 'everdawn-shard-orchard', type: 'relic', x: 16, z: -1, role: 'Collector', label: 'Orchardglass Shard' }),
+  Object.freeze({ id: 'everdawn-shard-south', type: 'relic', x: 4, z: 7, role: 'Collector', label: 'Wayfinder Shard' }),
+  Object.freeze({ id: 'everdawn-shard-westwood', type: 'relic', x: -14, z: 8, role: 'Collector', label: 'Woodland Shard' }),
 ]);
 
 export const EVOLUTION_LIBRARY = Object.freeze({

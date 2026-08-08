@@ -72,7 +72,7 @@ export function createRenderer(canvas, session) {
     if (kind.includes('ruins-entrance')) {
       // This is the actual doorway from the ruins set, not the loose rock pile
       // that previously made the entrance look pasted onto the grass.
-      drawGroundedDecor(art.sandRuin1, entity.x - 30, entity.y - 17, 56, 56); return;
+      drawGroundedDecor(art.sandRuin1, entity.x - 30, entity.y - 17, 88, 88); return;
     }
     if (kind.includes('ruins-exit')) return;
     if (kind.includes('ruins') || kind.includes('observatory') || kind.includes('hidden-path') || entity.id === 'forest-wayfinder-shard') return;
@@ -96,6 +96,16 @@ export function createRenderer(canvas, session) {
       ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(X + 10, Y + 10, 25 * pulse, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#fff1a5'; ctx.beginPath(); ctx.moveTo(X + 10, Y - 1); ctx.lineTo(X + 18, Y + 8); ctx.lineTo(X + 10, Y + 21); ctx.lineTo(X + 2, Y + 8); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#e6952e'; ctx.fillRect(X + 8, Y + 4, 4, 12); return;
+    }
+    if (String(entity.id || '').startsWith('everdawn-shard-')) {
+      const X = px(entity.x), Y = py(entity.y), pulse = 1 + Math.sin(state.frame * 1.05) * .14;
+      const glow = ctx.createRadialGradient(X + 10, Y + 10, 1, X + 10, Y + 10, 23 * pulse);
+      glow.addColorStop(0, 'rgba(214,255,180,.7)'); glow.addColorStop(.4, 'rgba(117,222,128,.28)'); glow.addColorStop(1, 'rgba(37,112,78,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(X + 10, Y + 10, 23 * pulse, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(X + 10, Y + 10); ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = '#edffd0'; ctx.fillRect(-6, -6, 12, 12);
+      ctx.fillStyle = '#71d987'; ctx.fillRect(-3, -3, 6, 6);
+      ctx.restore(); return;
     }
     if (kind.includes('cave')) {
       const X = px(entity.x), Y = py(entity.y);
@@ -201,13 +211,22 @@ export function createRenderer(canvas, session) {
   function drawMummy(enemy) {
     if (!enemy?.alive) return;
     const X = px(enemy.x + 30), Y = py(enemy.z + 17), sprite = art[enemy.sprite];
+    const phase = [...String(enemy.id || '')].reduce((total, character) => total + character.charCodeAt(0), 0) * .13;
+    // The Ruins are deliberately still and weighty. Mummies only move when
+    // striking; a constant idle bob made the whole chamber feel floaty.
     const lunge = drawEnemyStrike(enemy, X, Y, '#ffc44f'), drawX = X + lunge.x, drawY = Y + lunge.y;
     ctx.fillStyle = 'rgba(64,36,13,.42)'; ctx.beginPath(); ctx.ellipse(drawX, drawY + 3, 22, 6, 0, 0, Math.PI * 2); ctx.fill();
     if (sprite) {
-      ctx.save(); ctx.translate(drawX, 0); if (enemy.variant) ctx.scale(-1, 1);
+      ctx.save(); ctx.translate(drawX, drawY); if (enemy.variant) ctx.scale(-1, 1);
+      if (enemy.attacking) { ctx.rotate(Math.sin(state.frame * 18 + phase) * .09); ctx.scale(1.08, .94); }
       if (enemy.theme === 'tide') ctx.filter = 'hue-rotate(145deg) saturate(.72) brightness(1.22)';
       if (enemy.hit) { ctx.globalAlpha = .5; ctx.filter = 'brightness(2.7)'; }
-      ctx.drawImage(sprite, -27, drawY - 57, 54, 64); ctx.restore();
+      ctx.drawImage(sprite, -27, -57, 54, 64); ctx.restore();
+    }
+    if (enemy.attacking) {
+      const flicker = 18 + Math.sin(state.frame * 20 + phase) * 4;
+      ctx.save(); ctx.strokeStyle = 'rgba(255,204,82,.78)'; ctx.shadowColor = '#ffc44f'; ctx.shadowBlur = 10; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(drawX, drawY - 27, flicker, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
     drawHealthBar(X - 25, Y - 67, 50, enemy.health, enemy.maxHealth, '#d6a72d');
     ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe3a0'; ctx.fillText(enemy.name, X, Y - 77);
@@ -318,15 +337,16 @@ export function createRenderer(canvas, session) {
       const { x, z, radiusX: rx, radiusZ: rz } = rift;
       const X = px(x + 30), Y = py(z + 17); const pool = ctx.createRadialGradient(X,Y,2,X,Y,rx*T);
       if (rift.setback) {
-        // The false floor must look different from the two real rifts.  It is
-        // a cracked stone patch, not another indistinguishable black hole.
-        ctx.save(); ctx.translate(X, Y); ctx.rotate(.08);
-        ctx.fillStyle = 'rgba(61,53,75,.94)'; ctx.fillRect(-rx*T, -rz*T, rx*T*2, rz*T*2);
-        ctx.fillStyle = 'rgba(91,76,109,.62)'; ctx.fillRect(-rx*T + 4, -rz*T + 4, rx*T*2 - 8, rz*T*2 - 8);
-        ctx.strokeStyle = 'rgba(216,178,255,.72)'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(-rx*T + 6, -rz*T + 8); ctx.lineTo(-6, -3); ctx.lineTo(4, rz*T - 5); ctx.moveTo(rx*T - 8, -rz*T + 7); ctx.lineTo(7, 1); ctx.lineTo(-5, rz*T - 7); ctx.stroke();
-        ctx.fillStyle = 'rgba(23,14,32,.88)'; ctx.fillRect(-5, -4, 10, 8);
-        ctx.restore();
+      // This is still the setback rift mechanically, but it should read as a
+      // portal just like the others. Its unstable violet rim is the only clue.
+      pool.addColorStop(0, 'rgba(7,2,17,.98)');
+      pool.addColorStop(.68, 'rgba(5,7,18,.94)');
+      pool.addColorStop(1, 'rgba(167,106,214,.34)');
+      ctx.fillStyle = pool;
+      ctx.beginPath(); ctx.ellipse(X, Y, rx*T, rz*T, .08, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = `rgba(205,156,255,${.30 + Math.sin(state.frame * 3) * .10})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
       } else {
         pool.addColorStop(0,'rgba(0,2,7,.96)'); pool.addColorStop(.72,'rgba(4,11,20,.9)'); pool.addColorStop(1,'rgba(63,99,107,.24)');
         ctx.fillStyle = pool; ctx.beginPath(); ctx.ellipse(X,Y,rx*T,rz*T,.08,0,Math.PI*2); ctx.fill();
@@ -400,9 +420,11 @@ export function createRenderer(canvas, session) {
     ctx.strokeStyle = 'rgba(238,197,113,.22)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(px(30), py(29)); ctx.lineTo(px(30), py(7)); ctx.stroke();
     for (const z of [7, 13, 19]) { ctx.beginPath(); ctx.moveTo(px(20), py(z)); ctx.lineTo(px(40), py(z)); ctx.stroke(); }
+    // Keep the Ruins still and grounded. The old pulsing/rotating seal made
+    // the room look like every prop was flickering or bouncing.
     const sigilX = px(30), sigilY = py(14);
     ctx.strokeStyle = 'rgba(255,214,112,.3)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(sigilX, sigilY, 47, 0, Math.PI * 2); ctx.stroke();
-    ctx.beginPath(); for (let i = 0; i < 8; i += 1) { const angle = i * Math.PI / 4; ctx.moveTo(sigilX + Math.cos(angle) * 26, sigilY + Math.sin(angle) * 26); ctx.lineTo(sigilX + Math.cos(angle) * 43, sigilY + Math.sin(angle) * 43); } ctx.stroke();
+    ctx.save(); ctx.translate(sigilX, sigilY); ctx.beginPath(); for (let i = 0; i < 8; i += 1) { const angle = i * Math.PI / 4; ctx.moveTo(Math.cos(angle) * 26, Math.sin(angle) * 26); ctx.lineTo(Math.cos(angle) * 43, Math.sin(angle) * 43); } ctx.stroke(); ctx.restore();
     ctx.restore();
 
     // Transparent sandstone pieces sit directly on the floor; their irregular
@@ -415,7 +437,8 @@ export function createRenderer(canvas, session) {
     drawCaveAsset(art.sandRuin5, 5.2, -12.2, 47, 47, null, .9);
 
     for (const [x, z] of [[-11,9],[11,9],[-9,-9],[9,-9]]) {
-      const X = px(x + 30), Y = py(z + 17); ctx.fillStyle = 'rgba(255,174,58,.12)'; ctx.beginPath(); ctx.arc(X, Y - 10, 25, 0, Math.PI * 2); ctx.fill();
+      const X = px(x + 30), Y = py(z + 17);
+      ctx.fillStyle = 'rgba(255,174,58,.14)'; ctx.beginPath(); ctx.arc(X, Y - 10, 25, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#5b3921'; ctx.fillRect(X - 5, Y - 23, 10, 25); ctx.fillStyle = '#f0b34f'; ctx.fillRect(X - 2, Y - 23, 4, 9);
     }
 
@@ -459,11 +482,13 @@ export function createRenderer(canvas, session) {
     }
     const caveProgress = mine?.zone === 'dark-cave' ? state.world?.caveShardProgress : null;
     const ruinsProgress = mine?.zone === 'hidden-ruins' ? state.world?.ruinsShardProgress : null;
-    const visibleProgress = caveProgress || ruinsProgress || state.world?.shardProgress;
+    const templeProgress = mine?.zone === 'sunken-temple' ? state.world?.shardProgress : null;
+    const everdawnProgress = mine?.zone === 'overworld' ? state.world?.everdawnShardProgress : null;
+    const visibleProgress = caveProgress || ruinsProgress || templeProgress || everdawnProgress;
     if (visibleProgress) {
       const progress = visibleProgress;
       panel(350, 14, 245, 58); ctx.textAlign = 'center';
-      ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#9cebed'; ctx.fillText(`${caveProgress ? 'GLOOM' : ruinsProgress ? 'SUNSTONE' : 'TIDEGLASS'} SHARDS  ${progress.collected} / ${progress.total}`, 472, 37);
+      ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#9cebed'; ctx.fillText(`${caveProgress ? 'GLOOM' : ruinsProgress ? 'SUNSTONE' : templeProgress ? 'TIDEGLASS' : 'EVERDAWN'} SHARDS  ${progress.collected} / ${progress.total}`, 472, 37);
       ctx.font = '9px monospace'; ctx.fillStyle = progress.collected === progress.total ? '#fff2bd' : '#92aeb3';
       ctx.fillText(progress.collected === progress.total ? 'COLLECTION COMPLETE' : `${progress.total - progress.collected} SHARDS REMAIN`, 472, 55);
     }
@@ -751,6 +776,6 @@ export function createRenderer(canvas, session) {
     ctx.font = '10px monospace'; ctx.fillStyle = '#71907a'; ctx.fillText('CLICK ANYWHERE TO BEGIN', 480, 454);
   }
   function drawLobby() { ctx.fillStyle = 'rgba(20,42,57,.74)'; ctx.fillRect(0, 0, canvas.width, canvas.height); panel(212, 214, 536, 188); ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('GATHERING THE EXPEDITION', 480, 255); ctx.font = 'bold 44px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${state.players.length} / 4`, 480, 315); ctx.font = '12px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText('The game begins exactly when four lanterns are present.', 480, 347); }
-  function render() { ctx.clearRect(0, 0, canvas.width, canvas.height); if (!state.joined) { drawStart(); return; } if (drawTempleFinale() || drawGuardianTrial()) return; const zone = state.mine?.zone || 'overworld'; if (zone === 'sunken-temple') drawSunkenTemple(); else if (zone === 'dark-cave') drawDarkCave(); else if (zone === 'hidden-ruins') drawHiddenRuins(); else { const minX = Math.floor(state.camera.x - 25), maxX = Math.ceil(state.camera.x + 25), minY = Math.floor(state.camera.y - 17), maxY = Math.ceil(state.camera.y + 17); for (let y = minY; y <= maxY; y += 1) for (let x = minX; x <= maxX; x += 1) drawTile(x, y); (state.world?.terrain || []).forEach(drawTerrain); drawOverworldDecor(); const mood = state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId; if (mood === 'mist') { ctx.fillStyle = 'rgba(220,236,242,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } if (mood === 'storm') { ctx.fillStyle = 'rgba(54,67,105,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } if (mood === 'starlight') { ctx.fillStyle = 'rgba(82,57,132,.16)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } (state.world?.emergentRules?.markers || []).forEach(drawEmergentMarker); } activeEntities().forEach(drawWorldEntity); if (zone === 'dark-cave') (state.world?.caveCombat?.enemies || []).forEach(drawDemon); if (zone === 'hidden-ruins') (state.world?.ruinsCombat?.enemies || []).forEach(drawMummy); if (zone === 'sunken-temple') (state.world?.templeCombat?.enemies || []).forEach(drawMummy); const localPlayers = state.players.filter((player) => (player.zone || 'overworld') === zone); localPlayers.forEach((player) => character(player)); localPlayers.forEach((player) => label(player.name, player.x, player.y, player.color, ['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(player.zone) ? 48 : 34)); drawMinimalHud(); drawDirectorHud(); if (!gameReady()) drawLobby(); }
+  function render() { ctx.clearRect(0, 0, canvas.width, canvas.height); if (!state.joined) { drawStart(); return; } if (drawTempleFinale() || drawGuardianTrial()) return; const zone = state.mine?.zone || 'overworld'; if (zone === 'sunken-temple') drawSunkenTemple(); else if (zone === 'dark-cave') drawDarkCave(); else if (zone === 'hidden-ruins') drawHiddenRuins(); else { const minX = Math.floor(state.camera.x - 25), maxX = Math.ceil(state.camera.x + 25), minY = Math.floor(state.camera.y - 17), maxY = Math.ceil(state.camera.y + 17); for (let y = minY; y <= maxY; y += 1) for (let x = minX; x <= maxX; x += 1) drawTile(x, y); (state.world?.terrain || []).forEach(drawTerrain); drawOverworldDecor(); const mood = state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId; if (mood === 'mist') { ctx.fillStyle = 'rgba(220,236,242,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } if (mood === 'storm') { ctx.fillStyle = 'rgba(54,67,105,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } if (mood === 'starlight') { ctx.fillStyle = 'rgba(82,57,132,.16)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } (state.world?.emergentRules?.markers || []).forEach(drawEmergentMarker); } activeEntities().forEach(drawWorldEntity); if (zone === 'dark-cave') (state.world?.caveCombat?.enemies || []).forEach(drawDemon); if (zone === 'hidden-ruins') (state.world?.ruinsCombat?.enemies || []).forEach(drawMummy); const localPlayers = state.players.filter((player) => (player.zone || 'overworld') === zone); localPlayers.forEach((player) => character(player)); localPlayers.forEach((player) => label(player.name, player.x, player.y, player.color, ['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(player.zone) ? 48 : 34)); drawMinimalHud(); drawDirectorHud(); if (!gameReady()) drawLobby(); }
   return { render };
 }

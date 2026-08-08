@@ -142,13 +142,16 @@ export function createSession() {
       const shard = String(entity.id || '').startsWith('tideglass-shard-');
       const caveShard = String(entity.id || '').startsWith('gloom-shard-');
       const ruinsShard = String(entity.id || '').startsWith('sunstone-shard-');
-      const progress = state.world?.shardProgress || { collected: 0, total: 9 };
-      const caveProgress = state.world?.caveShardProgress || { collected: 0, total: 2 };
-      const ruinsProgress = state.world?.ruinsShardProgress || { collected: 0, total: 3 };
+      const everdawnShard = String(entity.id || '').startsWith('everdawn-shard-');
+      const progress = state.world?.shardProgress || { collected: 0, total: 4 };
+      const caveProgress = state.world?.caveShardProgress || { collected: 0, total: 4 };
+      const ruinsProgress = state.world?.ruinsShardProgress || { collected: 0, total: 4 };
+      const everdawnProgress = state.world?.everdawnShardProgress || { collected: 0, total: 5 };
       const nextShardCount = Math.min(progress.total, progress.collected + (shard ? 1 : 0));
       const nextCaveShardCount = Math.min(caveProgress.total, caveProgress.collected + (caveShard ? 1 : 0));
       const nextRuinsShardCount = Math.min(ruinsProgress.total, ruinsProgress.collected + (ruinsShard ? 1 : 0));
-      const success = action === 'enter-dark-cave' ? 'Cold air rises from the Black Hollow.' : action === 'exit-dark-cave' ? 'You climb back into the western forest.' : action === 'enter-sunken-temple' ? 'The temple stretches far beneath the lake.' : action === 'exit-sunken-temple' ? 'You return to Everdawn.' : action === 'enter-hidden-ruins' ? 'Dry air and old bandages stir beyond the buried arch.' : action === 'exit-hidden-ruins' ? 'You step back into Everdawn.' : ruinsShard ? `Sunstone recovered — ${nextRuinsShardCount}/${ruinsProgress.total}.` : caveShard ? `Gloom shard recovered — ${nextCaveShardCount}/${caveProgress.total}.` : shard ? `Tideglass recovered — ${nextShardCount}/${progress.total}.${nextShardCount === 5 ? ' The fragments reveal a purpose: carry the complete set to the ancient altar.' : nextShardCount === progress.total ? ' The collection is complete.' : ''}` : `You activated ${entity.label || action.replaceAll('-', ' ')}.`;
+      const nextEverdawnShardCount = Math.min(everdawnProgress.total, everdawnProgress.collected + (everdawnShard ? 1 : 0));
+      const success = action === 'enter-dark-cave' ? 'Cold air rises from the Black Hollow.' : action === 'exit-dark-cave' ? 'You climb back into the western forest.' : action === 'enter-sunken-temple' ? 'The temple stretches far beneath the lake.' : action === 'exit-sunken-temple' ? 'You return to Everdawn.' : action === 'enter-hidden-ruins' ? 'Dry air and old bandages stir beyond the buried arch.' : action === 'exit-hidden-ruins' ? 'You step back into Everdawn.' : everdawnShard ? `Everdawn shard recovered — ${nextEverdawnShardCount}/${everdawnProgress.total}.` : ruinsShard ? `Sunstone recovered — ${nextRuinsShardCount}/${ruinsProgress.total}.` : caveShard ? `Gloom shard recovered — ${nextCaveShardCount}/${caveProgress.total}.` : shard ? `Tideglass recovered — ${nextShardCount}/${progress.total}.${nextShardCount === progress.total ? ' The collection is complete.' : ''}` : `You activated ${entity.label || action.replaceAll('-', ' ')}.`;
       note(reply?.ok ? success : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
     });
   }
@@ -183,19 +186,19 @@ export function createSession() {
       if (doorway && state.encounterHintTarget !== doorway.id) {
         state.encounterHintTarget = doorway.id;
         const hints = {
-          'hidden-cave-mouth': 'A breath of cold air moves behind the stone. Press E to enter.',
-          'dark-cave-exit': 'The forest air reaches you through the passage. Press E to leave.',
-          'hidden-temple-entrance': 'The submerged doorway answers your lantern. Press E to enter.',
-          'sunken-temple-exit': 'The return staircase leads back to Everdawn. Press E to leave.',
-          'hidden-ruins-entrance': 'Sand slips from a sealed arch. Press E to cross the threshold.',
-          'hidden-ruins-exit': 'Warm daylight reaches through the archway. Press E to leave.',
+          'hidden-cave-mouth': 'Enter with E. Strike nearby demons with SPACE.',
+          'dark-cave-exit': 'Press E to leave.',
+          'hidden-temple-entrance': 'Press E to enter.',
+          'sunken-temple-exit': 'Press E to leave.',
+          'hidden-ruins-entrance': 'Enter with E. Strike nearby mummies with SPACE.',
+          'hidden-ruins-exit': 'Press E to leave.',
         };
         note(hints[doorway.id], 4);
       }
       if (!doorway) state.encounterHintTarget = null;
-      if (['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(mine.zone) && !state.combatHintsShown[mine.zone]) {
+      if (['dark-cave', 'hidden-ruins'].includes(mine.zone) && !state.combatHintsShown[mine.zone]) {
         state.combatHintsShown[mine.zone] = true;
-        note(mine.zone === 'hidden-ruins' ? 'Bandages stir between the pillars. Stay close and press SPACE to strike.' : 'Three shapes move in the dark. Stay close and press SPACE to strike.', 5);
+        note(mine.zone === 'hidden-ruins' ? 'Mummies guard these halls. Press SPACE near one to deal damage.' : 'Demons hunt in the dark. Press SPACE near one to deal damage.', 5);
       }
     }
     if (mine) {

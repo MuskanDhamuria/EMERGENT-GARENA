@@ -454,7 +454,7 @@ export function createRenderer(canvas, session) {
     const remaining = Number(state.world?.observationSecondsRemaining);
     const status = !state.network.connected ? 'CONNECTING…' : !gameReady() ? `${state.players.length}/4 LANTERNS` : mine?.zone === 'sunken-temple' ? 'SUNKEN TEMPLE' : mine?.zone === 'dark-cave' ? 'THE BLACK HOLLOW' : mine?.zone === 'hidden-ruins' ? 'THE HIDDEN RUINS' : state.world?.phase === 'observing' ? remaining > 0 ? `THE WORLD IS WATCHING · ${remaining}s` : 'THE CALLINGS AWAKEN' : mine?.archetype ? `${mine.archetype.toUpperCase()}` : 'YOUR STORY IS FORMING';
     ctx.fillText(status, 27, 54);
-    if (['dark-cave', 'hidden-ruins'].includes(mine?.zone)) {
+    if (['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(mine?.zone)) {
       ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#f7d25c'; ctx.fillText('SPACE · STRIKE', 27, 66);
     }
     const caveProgress = mine?.zone === 'dark-cave' ? state.world?.caveShardProgress : null;
@@ -470,7 +470,13 @@ export function createRenderer(canvas, session) {
     panel(760, 14, 186, 98); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd';
     ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, 774, 34);
     state.players.forEach((player, index) => { ctx.fillStyle = player.color; ctx.fillRect(775, 43 + index * 15, 7, 7); ctx.fillStyle = '#fff'; ctx.fillText(player.name, 788, 50 + index * 15); });
-    if (!suppressNotice && (state.noticeTimer > 0 || !gameReady())) { panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.notice, 480, 573, 570, 16); }
+    const hasNotice = state.noticeTimer > 0 || !gameReady();
+    const message = hasNotice ? state.notice : state.guidance?.message;
+    if (!suppressNotice && message) {
+      panel(165, 548, 630, 66); ctx.textAlign = 'center';
+      if (!hasNotice && state.guidance) { ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText('THE GAME MASTER ADVISES YOU', 480, 564); }
+      ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(message, 480, hasNotice ? 573 : 584, 570, 16);
+    }
   }
   function drawDirectorHud() {
     const { directives } = normalizeDirectorState(state.world, state.network.playerId);
@@ -604,8 +610,9 @@ export function createRenderer(canvas, session) {
     const summary = spirits === 1 ? '1 SPIRIT REMAINS' : `${spirits} SPIRITS REMAIN`;
     ctx.fillText(summary, 480, 53);
     panel(14, 214, 365, 56); ctx.textAlign = 'left'; ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#9de3ff';
-    ctx.fillText('THE GAME MASTER WATCHES', 27, 234);
-    ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.publicEvent || trial.rule, 27, 251, 335, 12);
+    const advice = state.guidance?.message || state.publicEvent || trial.rule;
+    ctx.fillText(state.guidance ? 'THE GAME MASTER ADVISES YOU' : 'THE GAME MASTER WATCHES', 27, 234);
+    ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; wrap(advice, 27, 251, 335, 12);
     panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5';
     wrap(status, 480, 573, 570, 16);
   }

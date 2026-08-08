@@ -7,6 +7,7 @@ import { createDirectorRules } from './director-rules.mjs';
 import { createEmergentRules } from './emergent-rules.mjs';
 import { createPortalSystem } from './portal-system.mjs';
 import { createRealmSystem } from './realm-system.mjs';
+import { createGameMasterGuidance } from './gm-guidance.mjs';
 
 const ACTIVE_PHASES = new Set(['observing', 'evolving', 'finale']);
 const ROLE_ACTIONS = Object.freeze({ relic: 'relic', 'discover-temple': 'temple-entrance', 'trace-waystone': 'waystone', 'enter-dark-cave': 'cave', 'exit-dark-cave': 'cave-exit', 'enter-sunken-temple': 'temple-entrance', 'exit-sunken-temple': 'temple-exit', 'enter-hidden-ruins': 'ruins-entrance', 'exit-hidden-ruins': 'ruins-exit', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'read-veil': 'veil-mirror', 'enter-shadow-forest': 'realm-portal', 'enter-moon-shrine': 'realm-portal', 'enter-ghost-village': 'realm-portal', 'enter-final-temple': 'finale-entrance', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' });
@@ -111,6 +112,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const item = { id: `${now()}-${Math.random().toString(36).slice(2, 8)}`, at: now(), type, message: cleanText(message, 'The world shifts.'), ...options };
     room.events.push(item); if (room.events.length > 40) room.events.shift(); emitEvent(room, item); return item;
   };
+  const guidance = createGameMasterGuidance({ event, now });
   const recordAiDecision = (room, type, choice, reason, source = 'AI Game Master', details = {}) => {
     room.aiDirector ||= freshAiDirector();
     const decision = {
@@ -173,19 +175,20 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   }
   function createPlayer(id, name, index) {
     const [x, z] = spawns[index];
-    return { id, name: cleanText(name, 'Wanderer', 16), color: colors[index], sprite: playerSprites[index], facing: 'down', x, z, zone: 'overworld', realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], privateRules: [], emergent: freshPlayerEmergentState(), health: CAVE_PLAYER_MAX_HEALTH, maxHealth: CAVE_PLAYER_MAX_HEALTH, hurtUntil: 0, lastDamage: 0, caveLocked: false, ruinsLocked: false, templeLocked: false, caveSafeX: 0, caveSafeZ: 11, portalCooldownUntil: 0, lastCombatAttackAt: -Infinity, lastCaveAttackAt: -Infinity, lastTelemetryAt: now() };
+    return { id, name: cleanText(name, 'Wanderer', 16), color: colors[index], sprite: playerSprites[index], facing: 'down', x, z, zone: 'overworld', realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], privateRules: [], guidanceSeen: new Set(), guidance: null, emergent: freshPlayerEmergentState(), health: CAVE_PLAYER_MAX_HEALTH, maxHealth: CAVE_PLAYER_MAX_HEALTH, hurtUntil: 0, lastDamage: 0, caveLocked: false, ruinsLocked: false, templeLocked: false, caveSafeX: 0, caveSafeZ: 11, portalCooldownUntil: 0, lastCombatAttackAt: -Infinity, lastCaveAttackAt: -Infinity, lastTelemetryAt: now() };
   }
   function resetRoomForRoster(room, reason) {
     Object.assign(room, { phase: 'waiting-for-four', observationEndsAt: null, archetypesAssignedAt: null, finalObjective: null, finaleEntrance: null, templeFinale: null, world: { unlocked: new Set(['starting-village']), privateUnlocks: new Map(), selectedExpeditions: [] }, aiDirector: freshAiDirector(), directorState: { activeRules: [], history: [], sequence: 0 }, emergentState: freshEmergentState(), entities: ENTITY_DEFINITIONS.map((entity) => ({ ...entity, collectedBy: null })), caveCombat: freshCaveCombat(), ruinsCombat: freshRuinsCombat(), templeCombat: freshTempleCombat() });
     for (const [index, player] of players(room).entries()) {
       const [x, z] = spawns[index];
-      Object.assign(player, { x, z, color: colors[index], sprite: playerSprites[index], facing: 'down', zone: 'overworld', realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, privateRules: [], emergent: freshPlayerEmergentState(), health: CAVE_PLAYER_MAX_HEALTH, maxHealth: CAVE_PLAYER_MAX_HEALTH, hurtUntil: 0, lastDamage: 0, caveLocked: false, ruinsLocked: false, templeLocked: false, caveSafeX: 0, caveSafeZ: 11, portalCooldownUntil: 0, lastCombatAttackAt: -Infinity, lastCaveAttackAt: -Infinity });
+      Object.assign(player, { x, z, color: colors[index], sprite: playerSprites[index], facing: 'down', zone: 'overworld', realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0, locationId: locationFor(x, z), archetype: null, evolutions: [], visited: new Set(['starting-village']), relicIds: new Set(), roleObjectives: new Set(), guardianPortal: null, interactions: {}, movement: 0, movementSamples: 0, nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, privateRules: [], guidanceSeen: new Set(), guidance: null, emergent: freshPlayerEmergentState(), health: CAVE_PLAYER_MAX_HEALTH, maxHealth: CAVE_PLAYER_MAX_HEALTH, hurtUntil: 0, lastDamage: 0, caveLocked: false, ruinsLocked: false, templeLocked: false, caveSafeX: 0, caveSafeZ: 11, portalCooldownUntil: 0, lastCombatAttackAt: -Infinity, lastCaveAttackAt: -Infinity });
     }
     room.director = { narration: reason, source: 'server', at: now() };
   }
   function beginObservation(room) {
     if (room.players.size !== MAX_PLAYERS) return;
     room.phase = 'observing'; room.observationEndsAt = now() + observationMs; room.director = { narration: 'All four lanterns are lit. The Game Master is observing your first choices.', source: 'server', at: now() }; event(room, 'four-player-start', 'All four lanterns are lit. The shared tale has begun.');
+    guidance.introduce(room, players(room));
   }
   function playerTelemetry(room, player) {
     const elapsed = Math.max(1, (now() - (room.observationEndsAt ? room.observationEndsAt - observationMs : room.createdAt)) / 1000);
@@ -241,6 +244,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     // room of default-named "Wanderers" look as if the local player had been
     // assigned several different callings.
     event(room, 'archetypes-awakened', 'Four callings awaken. Your own is shown in the upper-left corner.', { assignments: assignments.map(({ playerId, archetype }) => ({ playerId, archetype })) });
+    for (const { playerId } of assignments) guidance.roleAwakened(room, getPlayer(room, playerId));
     recordAiDecision(room, 'role-assignment', assignments.map(({ playerId, archetype }) => `${getPlayer(room, playerId)?.name}:${archetype}`).join(', '), 'Each role was inferred from the player\'s movement, proximity, collecting, exploration, and risk-taking.', source, { assignments: assignments.map(({ playerId, archetype }) => ({ playerId, archetype })) });
     room.phase = 'evolving'; room.archetypesAssignedAt = now(); room.director = { narration: 'Four distinct callings have awakened. Each opens a different way through Everdawn.', source, at: now() }; return { ok: true, assignments, expeditions: selected.expeditions };
   }
@@ -285,6 +289,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     room.finalObjective.status = 'active';
     room.director = { narration: 'All four have crossed the threshold. Four pillars await four different stories.', source: 'portal-director', at: now() };
     event(room, 'temple-opened', 'The Game Master gathers every completed path inside the Ancient Temple.', { temple: portals.serializeFinale(room.templeFinale) });
+    for (const bearer of players(room)) guidance.templeOpened(room, bearer);
     return { ok: true, entered: true, templeOpened: true };
   }
   function evolve(room, playerId, source = 'server') {
@@ -300,7 +305,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       const chosen = player.guardianPortal.selectedTrialIds.map((id) => portals.guardianTrials().find((trial) => trial.id === id)?.title).filter(Boolean).join(' and ');
       narration = `${narration} The Game Master has shaped ${chosen} for this Guardian.`;
     }
-    recordAiDecision(room, 'ability-evolution', `${player.name}:${feature}`, `The ${player.archetype} ability was awakened after the player\'s behaviour made it relevant.`, source, { playerId: player.id, archetype: player.archetype, feature }); room.director = { narration, source, at: now() }; event(room, 'archetype-evolved', `${player.name}'s ${player.archetype} has evolved.`, { playerId: player.id, archetype: player.archetype, feature }); maybeCreateFinale(room, source); return { ok: true, playerId: player.id, archetype: player.archetype, feature };
+    recordAiDecision(room, 'ability-evolution', `${player.name}:${feature}`, `The ${player.archetype} ability was awakened after the player\'s behaviour made it relevant.`, source, { playerId: player.id, archetype: player.archetype, feature }); room.director = { narration, source, at: now() }; event(room, 'archetype-evolved', `${player.name}'s ${player.archetype} has evolved.`, { playerId: player.id, archetype: player.archetype, feature }); guidance.evolutionAwakened(room, player, feature); maybeCreateFinale(room, source); return { ok: true, playerId: player.id, archetype: player.archetype, feature };
   }
   function chooseGuardianTrials(room, playerId, trialIds, source = 'MCP Game Master') {
     const player = getPlayer(room, playerId);
@@ -500,7 +505,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (action === 'enter-guardian-portal') {
       if (!entity || entity.type !== 'guardian-portal' || !hasRole(player, 'Guardian') || distance(player, entity) > 3.25) return { ok: false, error: 'Move beside one of the Guardian portals first.' };
       const entered = portals.enterGuardianPortal(player.guardianPortal, entity.trialId);
-      if (entered.ok) { room.director = { narration: `The ${entered.trial.title} opens around ${player.name}. The Game Master still watches every step.`, source: 'portal-director', at: now() }; event(room, 'guardian-portal-entered', room.director.narration, { playerId: player.id, trialId: entity.trialId }); }
+      if (entered.ok) { room.director = { narration: `The ${entered.trial.title} opens around ${player.name}. The Game Master still watches every step.`, source: 'portal-director', at: now() }; event(room, 'guardian-portal-entered', room.director.narration, { playerId: player.id, trialId: entity.trialId }); guidance.guardianTrialEntered(room, player, entity.trialId); }
       return entered;
     }
     if (!entity || !Object.hasOwn(ROLE_ACTIONS, action)) return { ok: false, error: 'That interaction target is invalid.' };
@@ -532,6 +537,8 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     } else if (action === 'exit-hidden-ruins') {
       player.zone = 'overworld'; player.x = 6; player.z = -7; player.inputX = 0; player.inputZ = 0; player.locationId = locationFor(player.x, player.z);
     } else if (entity.role && !hasRole(player, entity.role)) return { ok: false, error: `Only the ${entity.role} can use ${entity.label}.` };
+    const expedition = { 'enter-dark-cave': 'dark-cave', 'enter-sunken-temple': 'sunken-temple', 'enter-hidden-ruins': 'hidden-ruins' }[action];
+    if (expedition) guidance.expeditionEntered(room, player, expedition);
     if (entity.id.startsWith('gloom-shard-') && !room.caveCombat.cleared) return { ok: false, error: 'The demons guard this shard. The party must clear the Black Hollow first.' };
     if (entity.id.startsWith('sunstone-shard-') && !room.ruinsCombat.cleared) return { ok: false, error: 'The mummy wardens guard this shard. The party must defeat both of them first.' };
     if (entity.id.startsWith('tideglass-shard-') && !room.templeCombat.cleared) return { ok: false, error: 'The Tide Wardens guard this shard. The party must clear the Sunken Temple first.' };
@@ -540,7 +547,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const realmFeature = action === 'enter-spirit-realm' ? 'spirit-realm' : action === 'enter-shadow-forest' ? 'shadow-forest' : action === 'enter-moon-shrine' ? 'moon-shrine' : action === 'enter-ghost-village' ? 'ghost-village' : null;
     if (realmFeature) {
       const entered = realms.enter(room, player, realmFeature);
-      if (entered.ok) event(room, 'realm-entered', `${player.name} steps into the ${entity.label}.`, { playerId: player.id, realm: player.realm });
+      if (entered.ok) { event(room, 'realm-entered', `${player.name} steps into the ${entity.label}.`, { playerId: player.id, realm: player.realm }); guidance.realmEntered(room, player, player.realm); }
       return entered;
     }
     const emergentInteraction = world.emergentRules.validateInteraction(room, player, action, entity); if (!emergentInteraction.ok) return emergentInteraction;
@@ -701,6 +708,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       emergentRules: world.emergentRules.serialize(room, viewerId),
       events: room.events.filter((item) => !item.privateTo || item.privateTo === viewerId).slice(-8),
       yourPrivateRules: viewer?.privateRules || [],
+      yourGuidance: viewer?.guidance || null,
     };
   }
   function broadcastState(room) { for (const player of players(room)) emitState(player.id, serializeRoom(room, player.id)); }

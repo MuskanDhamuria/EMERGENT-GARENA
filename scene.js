@@ -54,6 +54,13 @@ function inputKey(event) {
   return ({ KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', ArrowUp: 'arrowup', ArrowDown: 'arrowdown', ArrowLeft: 'arrowleft', ArrowRight: 'arrowright' })[event.code] || event.key.toLowerCase();
 }
 
+function isTypingTarget(target) {
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || Boolean(target?.isContentEditable);
+}
+
 function showLanternGate(error = '') {
   if (document.getElementById('lantern-gate')) return;
   const gate = document.createElement('form');
@@ -70,13 +77,16 @@ function showLanternGate(error = '') {
 
 addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !howModal.hidden) { event.preventDefault(); closeHowItWorks(); return; }
+  // The join form belongs to the browser, not the game.  In particular, E in
+  // a name must remain a letter rather than opening an interaction.
+  if (isTypingTarget(event.target)) return;
   const key = inputKey(event); keys[key] = true;
   if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'e', ' '].includes(key)) event.preventDefault();
   if (key === 'e') interact();
   if (key === ' ') attack();
   if (key === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
-addEventListener('keyup', (event) => { keys[inputKey(event)] = false; });
+addEventListener('keyup', (event) => { if (!isTypingTarget(event.target)) keys[inputKey(event)] = false; });
 addEventListener('blur', () => { for (const key of Object.keys(keys)) keys[key] = false; });
 canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
 canvas.addEventListener('click', (event) => {
@@ -108,6 +118,7 @@ window.render_game_to_text = () => JSON.stringify({
   room: state.network.roomCode, playerCount: state.players.length,
   phase: state.world?.phase || 'unjoined',
   notice: state.noticeTimer > 0 ? state.notice : null,
+  guidance: state.guidance?.message || null,
   player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), zone: state.mine.zone || 'overworld', archetype: state.mine.archetype, health: state.mine.health, maxHealth: state.mine.maxHealth, hurt: state.mine.hurt, lastDamage: state.mine.lastDamage, caveLocked: state.mine.caveLocked, ruinsLocked: state.mine.ruinsLocked, evolutions: state.mine.evolutions || [] },
   targets: activeEntities().map((entity) => ({ id: entity.targetId || entity.id, action: entity.action, x: +Number(entity.x).toFixed(1), y: +Number(entity.y).toFixed(1) })),
   guardianTrial: state.world?.guardianTrial && { status: state.world.guardianTrial.status, active: state.world.guardianTrial.activeTrial?.id || null, position: state.world.guardianTrial.position || null, wards: state.world.guardianTrial.activatedObjectiveIds?.length || 0, completed: state.world.guardianTrial.completedTrialIds?.length || 0, mechanic: state.world.guardianTrial.mechanic || null },

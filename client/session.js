@@ -21,7 +21,7 @@ export function createSession() {
     encounterHintTarget: null,
     combatHintsShown: {},
     network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '', serverOutdated: false },
-    world: null, players: [], mine: null, privateRule: null, publicEvent: null,
+    world: null, players: [], mine: null, privateRule: null, guidance: null, publicEvent: null,
   };
   const socket = io({ autoConnect: false, timeout: 5_000, reconnectionAttempts: 3 });
 
@@ -107,6 +107,10 @@ export function createSession() {
       state.noticeTimer = 0;
     }
     state.privateRule = (world.yourPrivateRules || []).at(-1) || null;
+    // A reconnect receives its player-specific guidance in the authoritative
+    // event history, so it never loses the current instruction mid-rite.
+    const latestGuidance = world.yourGuidance || (world.events || []).filter((event) => event?.type === 'gm-guidance').at(-1);
+    if (latestGuidance) state.guidance = latestGuidance;
     if (world.director?.narration) state.publicEvent = world.director.narration;
     if (!gameReady() && state.joined) state.notice = `Waiting for all ${MAX_PLAYERS} lanterns — ${roomPlayerCount()}/${MAX_PLAYERS} joined.`;
   }
@@ -150,7 +154,7 @@ export function createSession() {
   }
   function attack() {
     const trial = guardianTrial();
-    if (!gameReady() || !state.mine || (!trial?.activeTrial && !['dark-cave', 'hidden-ruins'].includes(state.mine.zone))) return;
+    if (!gameReady() || !state.mine || (!trial?.activeTrial && !['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(state.mine.zone))) return;
     socket.emit('attack', (reply) => {
       if (reply?.ok) {
         if (trial?.activeTrial && reply.defeated) { note('Your ward scatters the spirit. The Game Master watches your resolve.', 2.5); return; }
@@ -189,7 +193,7 @@ export function createSession() {
         note(hints[doorway.id], 4);
       }
       if (!doorway) state.encounterHintTarget = null;
-      if (['dark-cave', 'hidden-ruins'].includes(mine.zone) && !state.combatHintsShown[mine.zone]) {
+      if (['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(mine.zone) && !state.combatHintsShown[mine.zone]) {
         state.combatHintsShown[mine.zone] = true;
         note(mine.zone === 'hidden-ruins' ? 'Bandages stir between the pillars. Stay close and press SPACE to strike.' : 'Three shapes move in the dark. Stay close and press SPACE to strike.', 5);
       }
@@ -208,7 +212,12 @@ export function createSession() {
   socket.on('connect_error', () => { state.network.error = 'Unable to reach the game server.'; });
   socket.on('world-state', applyWorldState);
   socket.on('gm-event', (event) => { if (event?.message) { state.publicEvent = event.message; note(event.message, 6); } });
-  socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
+  socket.on('gm-private', (event) => {
+    if (!event?.message) return;
+    if (event.type === 'gm-guidance') state.guidance = event;
+    else state.privateRule = event;
+    note(event.message, 7);
+  });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
   return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, abilityProgress, relics, guardianTrial, templeFinale, activeEntities, joinRoom, interact, attack, aimAt, update };

@@ -12,10 +12,12 @@
     "preview": "vite preview",
     "serve": "node server.mjs",
     "test:emergent": "node tests/emergent-rules.mjs",
+    "test:guidance": "node tests/gm-guidance.test.mjs",
+    "test:input": "node tests/name-input.test.mjs",
     "test:game": "node tests/four-player-smoke.mjs",
     "test:realms": "node tests/spirit-dungeon.test.mjs && node tests/shadow-forest.test.mjs && node tests/moon-shrine.test.mjs && node tests/ghost-village.test.mjs && node tests/realm-integration.test.mjs && node tests/finale-system.test.mjs",
     "test:explorer": "node tests/explorer-abilities.mjs",
-    "test:full": "npm run test:emergent && npm run test:explorer && npm run test:realms && node tests/portal-system.test.mjs && node tests/finale-entrance.test.mjs && node tests/temple-finale-browser-smoke.mjs && npm run test:game"
+    "test:full": "npm run test:emergent && npm run test:guidance && npm run test:input && npm run test:explorer && npm run test:realms && node tests/portal-system.test.mjs && node tests/finale-entrance.test.mjs && node tests/temple-finale-browser-smoke.mjs && npm run test:game"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",

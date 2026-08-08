@@ -8,25 +8,45 @@ const GUARDIAN_TRIALS = Object.freeze([
     id: 'wardkeepers-circuit', title: "Wardkeeper's Circuit", theme: 'Restore the forest wards in the order their lanterns awaken.',
     map: 'sunlit-grove', bounds: { minX: 0, maxX: 24, minZ: 0, maxZ: 16 }, spawn: { x: 2, z: 8 },
     objectives: [{ id: 'root-ward', label: 'Root Ward', x: 7, z: 4 }, { id: 'brook-ward', label: 'Brook Ward', x: 13, z: 12 }, { id: 'sky-ward', label: 'Sky Ward', x: 20, z: 5 }],
-    mechanic: 'ordered-circuit', rule: 'Awaken the three wards in their marked order.',
+    mechanic: 'ordered-circuit', rule: 'Defeat each ward wisp, then awaken the three wards in their marked order.',
+    threats: [
+      { id: 'root-wisp', label: 'Root Wisp', blocksObjectiveId: 'root-ward', x: 7, z: 5.5, health: 2 },
+      { id: 'brook-wisp', label: 'Brook Wisp', blocksObjectiveId: 'brook-ward', x: 13, z: 10.5, health: 2 },
+      { id: 'sky-wisp', label: 'Sky Wisp', blocksObjectiveId: 'sky-ward', x: 20, z: 6.5, health: 3 },
+    ],
   },
   {
     id: 'lost-lanterns', title: 'The Lost Lanterns', theme: 'Guide abandoned camp lanterns back into the Guardian’s light.',
     map: 'campfire-clearing', bounds: { minX: 0, maxX: 24, minZ: 0, maxZ: 16 }, spawn: { x: 2, z: 8 },
     objectives: [{ id: 'north-lantern', label: 'North Guardian', x: 8, z: 3 }, { id: 'west-lantern', label: 'West Guardian', x: 8, z: 13 }, { id: 'hearth', label: 'Hearth Guardian', x: 20, z: 8 }],
-    mechanic: 'carry-lanterns', rule: 'Pick up one lost lantern at a time, then carry its flame to the Hearth Guardian.',
+    mechanic: 'carry-lanterns', rule: 'Defeat each camp wisp, then escort one flame at a time while its hunter follows you.',
+    threats: [
+      { id: 'north-camp-wisp', label: 'North Camp Wisp', blocksObjectiveId: 'north-lantern', x: 9.5, z: 3, health: 2 },
+      { id: 'west-camp-wisp', label: 'West Camp Wisp', blocksObjectiveId: 'west-lantern', x: 9.5, z: 13, health: 2 },
+    ],
   },
   {
     id: 'shelter-march', title: 'Shelter March', theme: 'Carry a protective blessing through a mountain pass before it fades.',
     map: 'mountain-pass', bounds: { minX: 0, maxX: 28, minZ: 0, maxZ: 14 }, spawn: { x: 2, z: 7 },
     objectives: [{ id: 'pass-gate', label: 'Pass Gate', x: 9, z: 7 }, { id: 'watch-stone', label: 'Watch Stone', x: 17, z: 4 }, { id: 'shelter-gate', label: 'Shelter Gate', x: 25, z: 8 }],
-    mechanic: 'timed-relay', rule: 'Begin at the Pass Gate and reach each marker before the blessing fades.',
+    mechanic: 'timed-relay', rule: 'Break the gate wardens, then race the blessing through the pass before it fades.',
+    threats: [
+      { id: 'pass-wraith', label: 'Pass Wraith', blocksObjectiveId: 'pass-gate', x: 10.5, z: 7, health: 2 },
+      { id: 'watch-wraith', label: 'Watch Wraith', blocksObjectiveId: 'watch-stone', x: 17, z: 5.5, health: 3 },
+      { id: 'shelter-wraith', label: 'Shelter Wraith', blocksObjectiveId: 'shelter-gate', x: 24, z: 8, health: 3 },
+    ],
   },
   {
     id: 'shrine-of-return', title: 'Shrine of Return', theme: 'Cleanse a quiet shrine and make it safe for wandering spirits.',
     map: 'shrine-garden', bounds: { minX: 0, maxX: 24, minZ: 0, maxZ: 18 }, spawn: { x: 2, z: 9 },
     objectives: [{ id: 'flower-ward', label: 'Flower Ward', x: 7, z: 4 }, { id: 'water-ward', label: 'Water Ward', x: 12, z: 14 }, { id: 'stone-ward', label: 'Stone Ward', x: 18, z: 5 }, { id: 'return-shrine', label: 'Shrine of Return', x: 21, z: 14 }],
-    mechanic: 'stillness-channel', rule: 'Stand perfectly still while each ward is cleansed; then awaken the return shrine.',
+    mechanic: 'stillness-channel', rule: 'Clear every spirit wave, then stand perfectly still while each ward is cleansed.',
+    threats: [
+      { id: 'flower-spirit', label: 'Flower Spirit', blocksObjectiveId: 'flower-ward', x: 8.5, z: 4, health: 2 },
+      { id: 'water-spirit', label: 'Water Spirit', blocksObjectiveId: 'water-ward', x: 13.5, z: 14, health: 3 },
+      { id: 'stone-spirit', label: 'Stone Spirit', blocksObjectiveId: 'stone-ward', x: 19.5, z: 5, health: 3 },
+      { id: 'return-spirit', label: 'Return Spirit', blocksObjectiveId: 'return-shrine', x: 20, z: 14, health: 4 },
+    ],
   },
 ]);
 
@@ -39,6 +59,7 @@ const PEDESTALS = Object.freeze({
 const TEMPLE_BOUNDS = Object.freeze({ minX: 0, maxX: 48, minZ: 0, maxZ: 32 });
 const SHELTER_BLESSING_MS = 14_000;
 const SHRINE_CHANNEL_MS = 1_500;
+const GUARD_STRIKE_COOLDOWN_MS = 260;
 
 const copy = (value) => JSON.parse(JSON.stringify(value));
 const distance = (left, right) => Math.hypot(Number(left.x) - Number(right.x), Number(left.z) - Number(right.z));
@@ -65,11 +86,20 @@ export function createGuardianPortalState({ playerId, selectedTrialIds, now = Da
     completedTrialIds: [], position: null, activatedObjectiveIds: [], nextObjectiveIndex: 0,
     carriedLanternId: null, deliveredLanternIds: [], blessingExpiresAt: null,
     channelObjectiveId: null, channelEndsAt: null,
+    guardianThreats: [], lastThreatTickAt: now, lastGuardStrikeAt: -Infinity, lastThreatHitAt: 0,
     lastMovedAt: now, lastNudgeAt: 0, status: 'ready', narration: [],
   };
 }
 
 function activeTrial(state) { return GUARDIAN_TRIALS.find((trial) => trial.id === state?.activeTrialId) || null; }
+function activeThreats(state) { return (state?.guardianThreats || []).filter((threat) => !threat.defeated); }
+function threatBlocking(state, objectiveId) { return activeThreats(state).some((threat) => threat.blocksObjectiveId === objectiveId); }
+function resetEscort(state, trial, now, message) {
+  const carried = state.carriedLanternId;
+  state.carriedLanternId = null;
+  state.guardianThreats = state.guardianThreats.filter((threat) => !threat.escort);
+  if (carried) tell(state, 'lantern-lost', message || 'The flame hunter scatters your lantern. Return to its campfire and rescue it again.', now, { trialId: trial.id, objectiveId: carried });
+}
 function tell(state, type, message, now, details = {}) {
   const entry = { type, message, at: now, ...details };
   state.narration.push(entry); if (state.narration.length > 16) state.narration.shift(); return entry;
@@ -83,6 +113,8 @@ export function enterGuardianPortal(state, trialId, now = Date.now()) {
   state.activeTrialId = trialId; state.position = copy(trial.spawn); state.activatedObjectiveIds = []; state.nextObjectiveIndex = 0;
   state.carriedLanternId = null; state.deliveredLanternIds = []; state.blessingExpiresAt = null;
   state.channelObjectiveId = null; state.channelEndsAt = null;
+  state.guardianThreats = (trial.threats || []).map((threat) => ({ ...copy(threat), maxHealth: threat.health, defeated: false, escort: false }));
+  state.lastThreatTickAt = now; state.lastGuardStrikeAt = -Infinity; state.lastThreatHitAt = 0;
   state.lastMovedAt = now; state.lastNudgeAt = 0; state.status = 'in-trial';
   tell(state, 'portal-entered', `The ${trial.title} opens. ${trial.rule}`, now, { trialId });
   return { ok: true, trial: copy(trial), position: copy(state.position) };
@@ -137,6 +169,7 @@ export function activateGuardianObjective(state, objectiveId, now = Date.now()) 
   if (!objective) return { ok: false, error: 'That objective does not belong to this portal.' };
   if (state.activatedObjectiveIds.includes(objectiveId)) return { ok: false, error: 'That ward is already safe.' };
   if (distance(state.position, objective) > 1.6) return { ok: false, error: 'Move to the ward before restoring it.' };
+  if (threatBlocking(state, objectiveId)) return { ok: false, error: 'A spirit still guards this place. Move close and press SPACE to raise your ward.' };
   if (trial.mechanic === 'timed-relay' && state.blessingExpiresAt && now >= state.blessingExpiresAt) {
     state.activatedObjectiveIds = []; state.nextObjectiveIndex = 0; state.blessingExpiresAt = null;
     tell(state, 'blessing-faded', 'The mountain blessing faded before it reached shelter. Return to the Pass Gate and begin the relay again.', now, { trialId: trial.id });
@@ -146,6 +179,7 @@ export function activateGuardianObjective(state, objectiveId, now = Date.now()) 
     if (!canActivate(trial, state, objective)) return { ok: false, error: 'Carry one flame at a time, and return it to the Hearth Guardian.' };
     if (objective.id !== 'hearth') {
       state.carriedLanternId = objective.id; state.lastMovedAt = now;
+      state.guardianThreats.push({ id: `flame-hunter-${objective.id}`, label: 'Flame Hunter', x: state.position.x + 2.3, z: state.position.z + .5, health: 2, maxHealth: 2, defeated: false, escort: true, blocksObjectiveId: 'hearth' });
       tell(state, 'lantern-picked-up', `${objective.label}'s flame follows you. Carry it safely to the Hearth Guardian.`, now, { trialId: trial.id, objectiveId });
       return { ok: true, complete: false, carrying: objective.id };
     }
@@ -180,9 +214,39 @@ export function activateGuardianObjective(state, objectiveId, now = Date.now()) 
   return { ok: true, complete: true, trialId: trial.id, guardianReadyForFinale: state.completedTrialIds.length === 2 };
 }
 
+export function guardGuardianTrial(state, now = Date.now()) {
+  const trial = activeTrial(state);
+  if (!trial || state.status !== 'in-trial') return { ok: false, error: 'Raise your ward only inside an active Guardian trial.' };
+  if (now - state.lastGuardStrikeAt < GUARD_STRIKE_COOLDOWN_MS) return { ok: false, cooldown: true, error: 'Your ward is reforming.' };
+  const target = activeThreats(state).sort((left, right) => distance(state.position, left) - distance(state.position, right))[0];
+  if (!target || distance(state.position, target) > 2.65) return { ok: false, error: 'Move closer to a spirit before raising your ward.' };
+  state.lastGuardStrikeAt = now; target.health = Math.max(0, target.health - 1);
+  tell(state, 'guardian-strike', `${target.label} recoils from your warding light.`, now, { trialId: trial.id, threatId: target.id, remainingHealth: target.health });
+  if (target.health > 0) return { ok: true, targetId: target.id, targetHealth: target.health, defeated: false };
+  target.defeated = true;
+  tell(state, 'spirit-banished', `${target.label} dissolves. The Game Master sees your resolve harden.`, now, { trialId: trial.id, threatId: target.id });
+  return { ok: true, targetId: target.id, targetHealth: 0, defeated: true };
+}
+
+function tickGuardianThreats(state, trial, now) {
+  const elapsed = Math.min(.25, Math.max(0, now - (state.lastThreatTickAt || now)) / 1000);
+  state.lastThreatTickAt = now;
+  for (const threat of activeThreats(state).filter((entry) => entry.escort)) {
+    const dx = state.position.x - threat.x, dz = state.position.z - threat.z, range = Math.hypot(dx, dz);
+    if (range > .05) { const step = Math.min(range, 1.7 * elapsed); threat.x += dx / range * step; threat.z += dz / range * step; }
+    if (range <= 1.2 && now - state.lastThreatHitAt >= 950) {
+      state.lastThreatHitAt = now;
+      resetEscort(state, trial, now, 'The Flame Hunter tears the lantern from your hands. The Game Master asks you to recover it again.');
+      return state.narration.at(-1);
+    }
+  }
+  return null;
+}
+
 export function tickGuardianPortal(state, now = Date.now(), { inactivityMs = 8_000, nudgeCooldownMs = 8_000 } = {}) {
   const trial = activeTrial(state);
   if (!trial || state.status !== 'in-trial') return null;
+  const threatEvent = tickGuardianThreats(state, trial, now); if (threatEvent) return threatEvent;
   if (trial.mechanic === 'timed-relay' && state.blessingExpiresAt && now >= state.blessingExpiresAt) {
     state.activatedObjectiveIds = []; state.nextObjectiveIndex = 0; state.blessingExpiresAt = null;
     return tell(state, 'blessing-faded', 'The mountain blessing fades. The Game Master asks you to begin the relay again at the Pass Gate.', now, { trialId: trial.id });
@@ -209,8 +273,13 @@ export function serializeGuardianPortal(state) {
       id: trial.mechanic, carriedLanternId: state.carriedLanternId, carriedLanternLabel: carried?.label || null,
       deliveredLanternIds: [...state.deliveredLanternIds], blessingExpiresAt: state.blessingExpiresAt,
       channelObjectiveId: state.channelObjectiveId, channelEndsAt: state.channelEndsAt,
+      threats: copy(state.guardianThreats),
     } : null,
   };
+}
+
+export function guardianMovementMultiplier(state) {
+  return state?.activeTrialId && state?.carriedLanternId ? .62 : 1;
 }
 
 function validFinalePlayers(players) {
@@ -283,8 +352,10 @@ export function createPortalSystem({ clock = () => Date.now() } = {}) {
     enterGuardianPortal: (state, trialId) => enterGuardianPortal(state, trialId, now()),
     moveGuardian: (state, position) => moveGuardianInTrial(state, position, now()),
     activateGuardianObjective: (state, objectiveId) => activateGuardianObjective(state, objectiveId, now()),
+    guardGuardianTrial: (state) => guardGuardianTrial(state, now()),
     tickGuardian: (state, options) => tickGuardianPortal(state, now(), options),
     serializeGuardian: serializeGuardianPortal,
+    guardianMovementMultiplier,
     createFinale: (args) => createTempleFinale({ ...args, now: args?.now ?? now() }),
     moveFinale: (state, playerId, position) => moveTemplePlayer(state, playerId, position, now()),
     setFinaleObjectiveCount,

@@ -149,9 +149,11 @@ export function createSession() {
     });
   }
   function attack() {
-    if (!gameReady() || !state.mine || !['dark-cave', 'hidden-ruins'].includes(state.mine.zone)) return;
+    const trial = guardianTrial();
+    if (!gameReady() || !state.mine || (!trial?.activeTrial && !['dark-cave', 'hidden-ruins'].includes(state.mine.zone))) return;
     socket.emit('attack', (reply) => {
       if (reply?.ok) {
+        if (trial?.activeTrial && reply.defeated) { note('Your ward scatters the spirit. The Game Master watches your resolve.', 2.5); return; }
         if (reply.defeated) note(state.mine.zone === 'hidden-ruins' ? 'The mummy collapses. One warden may still be moving.' : 'The demon falls. Stay together—the others are still hunting.', 2.5);
       } else if (!reply?.cooldown) note(reply?.error || 'The strike did not connect.', 2.5);
     });

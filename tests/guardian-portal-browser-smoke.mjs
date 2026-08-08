@@ -58,14 +58,25 @@ try {
     }
     throw new Error(`Guardian could not reach ${target.id} in ${trialId}.`);
   }
+  async function defeatThreatFor(objective, trialId) {
+    await moveInTrialTo(objective, trialId);
+    for (let hit = 0; hit < 5; hit += 1) {
+      const current = await playerState(guardianPage);
+      const blocked = current.guardianTrial?.mechanic?.threats?.some((threat) => !threat.defeated && threat.blocksObjectiveId === objective.id);
+      if (!blocked) return;
+      await guardianPage.keyboard.press(' '); await sleep(320);
+    }
+    await waitFor(async () => { const current = await playerState(guardianPage); return !current.guardianTrial?.mechanic?.threats?.some((threat) => !threat.defeated && threat.blocksObjectiveId === objective.id) ? current : null; }, `${objective.label} spirit to be defeated`);
+  }
   async function completeTrial(index, trialId) {
     const trial = trialsById[trialId]; assert.ok(trial, `Unknown trial ${trialId}`);
     await enterPortal(index, trialId);
     await guardianPage.screenshot({ path: `output/web-game/guardian-portal/${trialId}.png` });
     if (trial.mechanic === 'carry-lanterns') {
       for (const lantern of trial.objectives.filter((objective) => objective.id !== 'hearth')) {
-        await moveInTrialTo(lantern, trialId); await guardianPage.keyboard.press('e');
+        await defeatThreatFor(lantern, trialId); await guardianPage.keyboard.press('e');
         await waitFor(async () => (await playerState(guardianPage)).guardianTrial?.mechanic?.carriedLanternId === lantern.id, `${lantern.label} to be carried`);
+        for (let hit = 0; hit < 3; hit += 1) { await guardianPage.keyboard.press(' '); await sleep(320); }
         const before = await playerState(guardianPage), hearth = trial.objectives.find((objective) => objective.id === 'hearth');
         await moveInTrialTo(hearth, trialId); await guardianPage.keyboard.press('e');
         await waitFor(async () => { const current = await playerState(guardianPage); return current.guardianTrial.completed > before.guardianTrial.completed || current.guardianTrial.wards > before.guardianTrial.wards ? current : null; }, `${lantern.label} to reach the Hearth Guardian`);
@@ -73,7 +84,7 @@ try {
     } else {
       for (const objective of trial.objectives) {
         const before = await playerState(guardianPage);
-        await moveInTrialTo(objective, trialId);
+        await defeatThreatFor(objective, trialId);
         await guardianPage.keyboard.press('e');
         if (trial.mechanic === 'stillness-channel' && objective.id !== trial.objectives.at(-1).id) {
           await waitFor(async () => (await playerState(guardianPage)).guardianTrial?.mechanic?.channelObjectiveId === objective.id, `${objective.label} channel to start`);

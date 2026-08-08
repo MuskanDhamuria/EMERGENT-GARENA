@@ -446,7 +446,7 @@ export function createRenderer(canvas, session) {
     });
     if (state.privateRule && progress.length < 4) { ctx.fillStyle = '#e8b8ff'; ctx.fillText(`PRIVATE: ${state.privateRule.title || 'A hidden law is active'}`, 27, 190); }
   }
-  function drawMinimalHud() {
+  function drawMinimalHud({ suppressNotice = false } = {}) {
     const mine = state.mine;
     panel(14, 14, 282, 58); ctx.textAlign = 'left';
     ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EVERDAWN', 27, 35);
@@ -470,7 +470,7 @@ export function createRenderer(canvas, session) {
     panel(760, 14, 186, 98); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd';
     ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, 774, 34);
     state.players.forEach((player, index) => { ctx.fillStyle = player.color; ctx.fillRect(775, 43 + index * 15, 7, 7); ctx.fillStyle = '#fff'; ctx.fillText(player.name, 788, 50 + index * 15); });
-    if (state.noticeTimer > 0 || !gameReady()) { panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.notice, 480, 573, 570, 16); }
+    if (!suppressNotice && (state.noticeTimer > 0 || !gameReady())) { panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.notice, 480, 573, 570, 16); }
   }
   function drawDirectorHud() {
     const { directives } = normalizeDirectorState(state.world, state.network.playerId);
@@ -565,25 +565,73 @@ export function createRenderer(canvas, session) {
     ctx.fillStyle = '#19354a';
     ctx.fillText(ward.label, point.x, point.y - 77);
   }
+  function drawGuardianThreat(threat, point) {
+    const pulse = 1 + Math.sin(state.frame * 1.8 + point.x * .03) * .12;
+    const glow = ctx.createRadialGradient(point.x, point.y - 10, 2, point.x, point.y - 10, 27 * pulse);
+    glow.addColorStop(0, 'rgba(255,245,183,.86)'); glow.addColorStop(.32, 'rgba(181,104,225,.46)'); glow.addColorStop(1, 'rgba(104,53,142,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(point.x, point.y - 10, 27 * pulse, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = threat.escort ? '#e77d57' : '#b77ada'; ctx.beginPath(); ctx.moveTo(point.x, point.y - 31); ctx.lineTo(point.x + 13, point.y - 8); ctx.lineTo(point.x, point.y + 6); ctx.lineTo(point.x - 13, point.y - 8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff3bd'; ctx.fillRect(point.x - 3, point.y - 17, 6, 5);
+    const ratio = Math.max(0, threat.health / Math.max(1, threat.maxHealth || threat.health));
+    ctx.fillStyle = 'rgba(29,36,61,.9)'; ctx.fillRect(point.x - 18, point.y + 10, 36, 6); ctx.fillStyle = threat.escort ? '#ef8b55' : '#d59aeb'; ctx.fillRect(point.x - 17, point.y + 11, 34 * ratio, 4);
+    ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#283a51'; ctx.fillText(threat.label, point.x, point.y - 39);
+  }
+  function drawGuardianSanctumBackdrop(theme) {
+    const palette = theme === 'shrine-garden'
+      ? ['#183e43', '#0d2028', '#050b11']
+      : theme === 'mountain-pass'
+        ? ['#38424a', '#1a252d', '#080d14']
+        : ['#1a3c35', '#0c2526', '#050c11'];
+    const glow = ctx.createRadialGradient(480, 285, 72, 480, 285, 630);
+    glow.addColorStop(0, palette[0]); glow.addColorStop(.56, palette[1]); glow.addColorStop(1, palette[2]);
+    ctx.fillStyle = glow; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // The other adventure spaces keep a little life beyond their playable
+    // floor. This quiet drifting light replaces the old flat cyan surround.
+    for (let index = 0; index < 34; index += 1) {
+      const x = (index * 149 + state.frame * (index % 4 + 1) * .22) % canvas.width;
+      const y = (index * 71 + Math.sin(state.frame * .22 + index) * 24 + 620) % canvas.height;
+      ctx.fillStyle = index % 3 ? 'rgba(157,218,197,.13)' : 'rgba(249,223,147,.18)';
+      ctx.fillRect(x, y, index % 5 ? 2 : 3, index % 5 ? 2 : 3);
+    }
+  }
+  function drawGuardianTrialHud(trial, status, spirits) {
+    // Reuse the normal expedition shell: world identity, roster, and the
+    // familiar gold-edged panels stay constant even in a private rite.
+    drawMinimalHud({ suppressNotice: true });
+    panel(334, 14, 292, 58); ctx.textAlign = 'center';
+    ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#9cebed'; ctx.fillText(trial.title.toUpperCase(), 480, 35);
+    ctx.font = '9px monospace'; ctx.fillStyle = '#fff2bd';
+    const summary = spirits === 1 ? '1 SPIRIT REMAINS' : `${spirits} SPIRITS REMAIN`;
+    ctx.fillText(summary, 480, 53);
+    panel(14, 214, 365, 56); ctx.textAlign = 'left'; ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#9de3ff';
+    ctx.fillText('THE GAME MASTER WATCHES', 27, 234);
+    ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.publicEvent || trial.rule, 27, 251, 335, 12);
+    panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5';
+    wrap(status, 480, 573, 570, 16);
+  }
   function drawGuardianTrial() {
     const trialState = state.world?.guardianTrial, trial = trialState?.activeTrial;
     if (!trial) return false;
-    ctx.fillStyle = '#bde7e9'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const box = { x: 144, y: 108, w: 672, h: 424 };
+    drawGuardianSanctumBackdrop(trial.map);
+    const box = { x: 72, y: 92, w: 816, h: 426 };
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.76)'; ctx.shadowBlur = 18; ctx.fillStyle = '#071016'; ctx.fillRect(box.x - 9, box.y - 9, box.w + 18, box.h + 18); ctx.restore();
     trialBackdrop(box, trial.map);
+    ctx.strokeStyle = '#d8bc76'; ctx.lineWidth = 2; ctx.strokeRect(box.x - 4, box.y - 4, box.w + 8, box.h + 8);
     const toScreen = (point) => ({ x: box.x + (point.x / trial.bounds.maxX) * box.w, y: box.y + (point.z / trial.bounds.maxZ) * box.h });
     for (const ward of trial.objectives) drawGuardianAngel(ward, toScreen(ward), trialState.activatedObjectiveIds.includes(ward.id));
+    const mechanic = trialState.mechanic || {};
+    for (const threat of mechanic.threats || []) if (!threat.defeated) drawGuardianThreat(threat, toScreen(threat));
     const playerPoint = toScreen(trialState.position || trial.spawn);
     character(state.mine, playerPoint.x - 14, playerPoint.y - 14, 28);
-    const mechanic = trialState.mechanic || {}, channelLeft = Math.max(0, Number(mechanic.channelEndsAt || 0) - Date.now());
+    const channelLeft = Math.max(0, Number(mechanic.channelEndsAt || 0) - Date.now());
     if (mechanic.carriedLanternId) { ctx.fillStyle = '#fff3a2'; ctx.beginPath(); ctx.arc(playerPoint.x, playerPoint.y - 23, 7, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#e28c39'; ctx.fillRect(playerPoint.x - 2, playerPoint.y - 27, 4, 8); }
     if (mechanic.channelObjectiveId) { ctx.strokeStyle = '#d8f6dc'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(playerPoint.x, playerPoint.y, 22, 0, Math.PI * 2 * Math.min(1, 1 - channelLeft / 1500)); ctx.stroke(); }
-    const status = mechanic.id === 'ordered-circuit' ? `SEQUENCE ${trialState.activatedObjectiveIds.length + 1}/${trial.objectives.length} · MOVE + E`
-      : mechanic.id === 'carry-lanterns' ? (mechanic.carriedLanternLabel ? `CARRYING ${mechanic.carriedLanternLabel.toUpperCase()} · RETURN TO HEARTH` : `FLAMES DELIVERED ${mechanic.deliveredLanternIds?.length || 0}/2 · MOVE + E`)
-        : mechanic.id === 'timed-relay' ? (mechanic.blessingExpiresAt ? `BLESSING ${Math.max(0, Math.ceil((mechanic.blessingExpiresAt - Date.now()) / 1000))}s · RUN THE RELAY` : 'BEGIN THE RELAY · MOVE + E')
-          : mechanic.channelObjectiveId ? `CHANNELING ${Math.ceil(channelLeft / 1000)}s · DO NOT MOVE` : `CLEANSED ${trialState.activatedObjectiveIds.length}/${trial.objectives.length} · MOVE + E`;
-    panel(20, 18, 920, 74); ctx.textAlign = 'left'; ctx.font = 'bold 18px monospace'; ctx.fillStyle = '#fff3bd'; ctx.fillText(`GUARDIAN SANCTUM · ${trial.title.toUpperCase()}`, 38, 45); ctx.font = '11px monospace'; ctx.fillStyle = '#ddf3e7'; wrap(trial.rule, 38, 65, 650, 13); ctx.fillStyle = '#f7d776'; ctx.fillText(status, 708, 65);
-    panel(20, 548, 920, 68); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.publicEvent || 'The Game Master watches the paths you choose.', 480, 575, 850, 16);
+    const spirits = (mechanic.threats || []).filter((threat) => !threat.defeated).length;
+    const status = mechanic.id === 'ordered-circuit' ? `SEQUENCE ${trialState.activatedObjectiveIds.length + 1}/${trial.objectives.length} · ${spirits} SPIRITS · SPACE + E`
+      : mechanic.id === 'carry-lanterns' ? (mechanic.carriedLanternLabel ? `ESCORTING ${mechanic.carriedLanternLabel.toUpperCase()} · HUNTER ${spirits} · SPACE` : `FLAMES DELIVERED ${mechanic.deliveredLanternIds?.length || 0}/2 · ${spirits} SPIRITS · SPACE + E`)
+        : mechanic.id === 'timed-relay' ? (mechanic.blessingExpiresAt ? `BLESSING ${Math.max(0, Math.ceil((mechanic.blessingExpiresAt - Date.now()) / 1000))}s · ${spirits} WARDENS · SPACE` : `BREAK WARDENS · ${spirits} SPIRITS · SPACE + E`)
+          : mechanic.channelObjectiveId ? `CHANNELING ${Math.ceil(channelLeft / 1000)}s · DO NOT MOVE` : `CLEAR SPIRITS ${spirits} · CLEANSED ${trialState.activatedObjectiveIds.length}/${trial.objectives.length} · SPACE + E`;
+    drawGuardianTrialHud(trial, status, spirits);
     return true;
   }
   const TEMPLE_ROLE_COLORS = { Explorer: '#76d7c4', Collector: '#f3c969', Guardian: '#83b9f5', Loner: '#c999ed' };

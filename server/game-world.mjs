@@ -347,6 +347,15 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     event(room, 'guardian-ward', result.complete ? 'A Guardian trial is complete.' : 'A Guardian ward is restored.', { playerId: player.id, targetId });
     return { ok: true, trialComplete: Boolean(result.complete) };
   }
+  function guardGuardianTrial(room, player) {
+    if (player.archetype !== 'Guardian' || player.guardianPortal?.status !== 'in-trial') return { ok: false, error: 'Only the active Guardian can raise a ward here.' };
+    const result = portals.guardGuardianTrial(player.guardianPortal);
+    if (result.ok && result.defeated) {
+      room.director = { narration: 'The Game Master observes a spirit yield to the Guardian’s protection.', source: 'portal-director', at: now() };
+      event(room, 'guardian-spirit-banished', room.director.narration, { playerId: player.id, threatId: result.targetId });
+    }
+    return result;
+  }
   function interactTemple(room, player) {
     const result = portals.activatePillar(room.templeFinale, player.id);
     if (result.ok) {
@@ -424,6 +433,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (player.health <= 0) (zone === 'dark-cave' ? ejectFromCave : zone === 'hidden-ruins' ? ejectFromRuins : ejectFromTemple)(room, player);
   }
   function attackEncounter(room, player) {
+    if (player.guardianPortal?.status === 'in-trial') return guardGuardianTrial(room, player);
     const zone = zoneOf(player);
     if (!['evolving', 'finale'].includes(room.phase) || !['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(zone)) return { ok: false, error: 'You can only fight inside a hostile expedition.' };
     const ruins = zone === 'hidden-ruins', temple = zone === 'sunken-temple', combat = temple ? room.templeCombat : ruins ? room.ruinsCombat : room.caveCombat;
@@ -485,7 +495,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       return realmResult;
     }
     if (room.templeFinale) return action === 'activate-temple-pillar' ? interactTemple(room, player) : { ok: false, error: 'The temple asks you to stand at your own pillar.' };
-    if (player.guardianPortal?.status === 'in-trial') return action === 'guardian-objective' ? interactGuardianTrial(room, player, cleanTargetId) : { ok: false, error: 'Restore the next ward inside the Guardian sanctum.' };
+    if (player.guardianPortal?.status === 'in-trial') return action === 'guardian-objective' ? interactGuardianTrial(room, player, cleanTargetId) : action === 'guardian-guard' ? guardGuardianTrial(room, player) : { ok: false, error: 'Restore the next ward inside the Guardian sanctum.' };
     const dynamicEntities = guardianPortalEntities(room), entity = [...room.entities, ...dynamicEntities].find((entry) => entry.id === cleanTargetId);
     if (action === 'enter-guardian-portal') {
       if (!entity || entity.type !== 'guardian-portal' || !hasRole(player, 'Guardian') || distance(player, entity) > 3.25) return { ok: false, error: 'Move beside one of the Guardian portals first.' };
@@ -709,7 +719,8 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
           const position = room.templeFinale.players[player.id]?.position;
           if (position) portals.moveFinale(room.templeFinale, player.id, { x: position.x + dx, z: position.z + dz });
         } else if (player.guardianPortal?.status === 'in-trial') {
-          portals.moveGuardian(player.guardianPortal, { x: player.guardianPortal.position.x + dx, z: player.guardianPortal.position.z + dz });
+          const speed = portals.guardianMovementMultiplier(player.guardianPortal);
+          portals.moveGuardian(player.guardianPortal, { x: player.guardianPortal.position.x + dx * speed, z: player.guardianPortal.position.z + dz * speed });
         } else if (player.realm && player.realm !== 'overworld') {
           const nextX = player.x + dx, nextZ = player.z + dz;
           if (realms.move(player, nextX, nextZ)) { player.x = nextX; player.z = nextZ; }
@@ -736,7 +747,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     advanceRoom(room);
   }
 
-  const world = { rooms, observationMs, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, selectExpeditions, adaptEncounter, unlock, evolve, chooseGuardianTrials, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact, attackDarkCave, attackEncounter, tickRoom };
+  const world = { rooms, observationMs, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, roomTelemetry, markGmActive, event, assignArchetypes, selectExpeditions, adaptEncounter, unlock, evolve, chooseGuardianTrials, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact, attackDarkCave, attackEncounter, guardGuardianTrial, tickRoom };
   world.directorRules = createDirectorRules(world);
   world.emergentRules = createEmergentRules(world, emergentOptions);
   realms = createRealmSystem(world);

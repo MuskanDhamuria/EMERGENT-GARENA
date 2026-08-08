@@ -1,44 +1,60 @@
 // Contextual, player-scoped narration. These are authored guardrails for a
-// first playthrough, not quests: the Game Master only speaks when a player's
-// current space exposes a new verb or rule.
+// first playthrough, not fixed quests: the Game Master speaks privately only
+// when a player's current role, realm, or puzzle reveals a useful new verb.
 
 const ROLE_GUIDANCE = Object.freeze({
-  Explorer: 'Explorer: uncover entrances and press E beside them.',
-  Collector: 'Collector: claim glowing relics with E.',
-  Guardian: 'Guardian: enter sanctums with E and protect their wards.',
-  Loner: 'Loner: purple paths answer you. Press E to enter.',
+  Explorer: 'I saw you testing the edges of Everdawn. You are the Explorer. Follow unusual terrain, uncover entrances, and press E beside a landmark once you reach it.',
+  Collector: 'I saw what you chose to keep. You are the Collector. Your relics reveal a pair of personal rites; their clues and answers are yours alone to read.',
+  Guardian: 'I saw you remain when others moved on. You are the Guardian. Enter a sanctum with E, protect its wards with SPACE, then restore each marked objective with E.',
+  Loner: 'I saw you listen at the edge of the group. You are the Loner. Purple paths answer only you; step into a portal with E and trust the signs hidden in the veil.',
 });
 
 const EVOLUTION_GUIDANCE = Object.freeze({
-  'hidden-cave-appears': 'Hidden Cave found. Enter with E; strike demons with SPACE.',
-  'temple-staircase-uncovered': 'Sunken Temple found. Gather there and press E.',
-  'forgotten-ruins-emerge': 'Forgotten Ruins found. Press E; defeat mummies with SPACE.',
-  'relic-vault': 'Glowing relics can be claimed with E.',
-  'healing-shrine': 'Guardian sanctums are open. Enter a portal with E.',
-  'spirit-realm': 'A purple portal is open. Press E beside it.',
-  'shadow-forest': 'Move right, jump with W, and reach the trophy.',
-  'moon-shrine': 'Follow the silver line. Press E at the altar.',
-  'ghost-village': 'Click toward ghosts. Catch all six echoes to return.',
+  'hidden-cave-appears': 'A crack has opened in the northern forest. Find the Hidden Cave entrance and press E. Inside Black Hollow, use SPACE near demons and collect the shards they guarded.',
+  'temple-staircase-uncovered': 'The water has lowered around an old stair. Gather at the Sunken Temple entrance and press E. It is a quiet exploration space: the Collector can recover Tideglass with E.',
+  'forgotten-ruins-emerge': 'A buried arch has surfaced in the east. Press E at the Forgotten Ruins entrance. Mummies guard its Sunstones; move close and use SPACE before collecting them with E.',
+  'relic-vault': 'A relic rite has taken shape from your habits. Read the private instructions I send you, gather any required clues, then press E at its landmark to begin.',
+  'healing-shrine': 'Guardian sanctums have opened. Stand beside a portal and press E. Each trial has its own rule—watch the objective text, protect the wards, and restore the marked sites.',
+  'spirit-realm': 'The Veil Portal is visible to you. Press E beside it. Your separate realm still affects the shared story, and I will warn you if you linger where movement matters.',
+  'shadow-forest': 'The Shadow Forest is a side-scrolling spirit route. Move right, use W to jump, and reach the trophy before returning to Everdawn.',
+  'moon-shrine': 'Moonlight has drawn a narrow silver route. Stay on the line, then press E at the altar when you reach it.',
+  'ghost-village': 'The Ghost Village has awakened. Click toward each echo to cast your light and catch all six before the veil closes.',
 });
 
 const TRIAL_GUIDANCE = Object.freeze({
-  'wardkeepers-circuit': 'Clear each spirit with SPACE, then awaken Root, Brook, Sky with E.',
-  'lost-lanterns': 'Clear wisps with SPACE. Carry each lantern to the hearth with E.',
-  'shelter-march': 'Clear spirits, start the gate with E, then reach each marker.',
-  'shrine-of-return': 'Clear spirits, then hold still while each ward cleanses.',
+  'wardkeepers-circuit': 'Three wards need a steady Guardian. Use SPACE to clear nearby spirits, then restore Root, Brook, and Sky with E in the order the trial reveals.',
+  'lost-lanterns': 'Clear nearby wisps with SPACE. Bring each found lantern to the hearth with E; the hearth will tell you how many are still missing.',
+  'shelter-march': 'Keep the group safe. Clear spirits with SPACE, begin the gate with E, then move through every rescue marker before the route fades.',
+  'shrine-of-return': 'The shrine rewards patience. Clear the spirits, then remain on each ward long enough for its cleansing light to finish.',
 });
 
 const EXPEDITION_GUIDANCE = Object.freeze({
-  'dark-cave': 'Defeat nearby demons with SPACE. Then claim shards with E.',
-  'sunken-temple': 'Explore together. The Collector claims Tideglass with E.',
-  'hidden-ruins': 'Defeat nearby mummies with SPACE. Then claim Sunstones with E.',
+  'dark-cave': 'Black Hollow is hostile: approach a demon, press SPACE, and claim its Gloom shards with E only after the party clears the threat.',
+  'sunken-temple': 'The Sunken Temple is peaceful. Explore its flooded rooms together; the Collector alone can claim Tideglass relics with E.',
+  'hidden-ruins': 'The Hidden Ruins are guarded. Move close to a mummy, use SPACE until it falls, and then let the Collector claim the Sunstones with E.',
 });
 
 const REALM_GUIDANCE = Object.freeze({
-  dungeon: 'Press E repeatedly at wardens, collect seals, then return.',
-  'shadow-forest': 'Move right, jump with W, and reach the trophy.',
-  'moon-shrine': 'Stay on the silver line and press E at the altar.',
-  'ghost-village': 'Click toward ghosts. Catch all six to leave.',
+  dungeon: 'In the Spirit Realm, press E repeatedly beside wardens until they yield, collect their seals with E, and find the exit when the last answer is revealed.',
+  'shadow-forest': 'Keep moving right through the Shadow Forest. W jumps; the trophy at the far end is the way home.',
+  'moon-shrine': 'The silver line is safe. Step off it and the shrine returns you to the previous point, so take each corner carefully.',
+  'ghost-village': 'Aim with the mouse and click toward a ghost. Each echo needs a direct hit before it can rejoin the village.',
+});
+
+const COLLECTOR_TRIAL_GUIDANCE = Object.freeze({
+  'crystal-mine': 'I chose this because you returned to overlooked objects. Find all five glowing crystal fractures first, excavate each with E, then rebuild the Crystal Heart at the mine.',
+  'ancient-vault': 'I chose this because you travelled far. Gather the four carved clue scrolls, then enter the rune order at the Ancient Vault.',
+  'treasure-cache': 'I chose this because you noticed varied relics. Read every appraisal clue, then identify exactly the three genuine objects in the cache.',
+  'relic-forge': 'I chose this because you worked close to others. Read the forge notes, assemble the balanced recipe, hold orange heat, strike the marked pattern, then quench in oil. Allies can pump the bellows.',
+  'sunken-relic': 'I chose this because you travelled boldly. Read the current clues and steer through the flooded passages to the Sunken Crown without fighting the water.',
+});
+
+const COLLECTOR_TITLES = Object.freeze({
+  'crystal-mine': 'Crystal Heart',
+  'ancient-vault': 'Ancient Vault',
+  'treasure-cache': 'Treasure Cache',
+  'relic-forge': 'Relic Forge',
+  'sunken-relic': 'Sunken Crown',
 });
 
 export function createGameMasterGuidance({ event, now = () => Date.now() } = {}) {
@@ -55,13 +71,52 @@ export function createGameMasterGuidance({ event, now = () => Date.now() } = {})
 
   return Object.freeze({
     introduce(room, players) {
-      return players.map((player) => speak(room, player, 'first-steps', 'I will watch before I name you. Move with WASD or the arrow keys. Explore together or apart, and press E beside a glowing object. There is no fixed quest.')).filter(Boolean);
+      return players.map((player) => speak(room, player, 'first-steps', 'I will watch before I name you. Move with WASD or the arrow keys. Explore together or apart, and press E beside a glowing object. There is no fixed quest—your choices will teach me what to build.')).filter(Boolean);
     },
     roleAwakened: (room, player) => speak(room, player, `role:${player.archetype}`, ROLE_GUIDANCE[player.archetype]),
     evolutionAwakened: (room, player, feature) => speak(room, player, `evolution:${feature}`, EVOLUTION_GUIDANCE[feature]),
     guardianTrialEntered: (room, player, trialId) => speak(room, player, `guardian-trial:${trialId}`, TRIAL_GUIDANCE[trialId]),
     expeditionEntered: (room, player, expeditionId) => speak(room, player, `expedition:${expeditionId}`, EXPEDITION_GUIDANCE[expeditionId]),
     realmEntered: (room, player, realmId) => speak(room, player, `realm:${realmId}`, REALM_GUIDANCE[realmId]),
-    templeOpened: (room, player) => speak(room, player, 'ancient-temple', 'Find your court. When all four arrive, press E at your pillar.'),
+    collectorPlan(room, player, plan) {
+      const first = plan?.plan?.[0], second = plan?.plan?.[1];
+      if (!first) return null;
+      const firstTitle = COLLECTOR_TITLES[first] || first;
+      const secondTitle = COLLECTOR_TITLES[second] || second;
+      return speak(room, player, 'collector-plan', `I watched how you gathered, travelled, and stayed near the party. I have shaped two relic rites for you: ${firstTitle}, then ${secondTitle}. The first will emerge when your calling evolves.`);
+    },
+    collectorTrial: (room, player, challenge) => challenge && speak(room, player, `collector-trial:${challenge.feature}`, COLLECTOR_TRIAL_GUIDANCE[challenge.feature] || challenge.instruction),
+    collectorStarted: (room, player, feature) => speak(room, player, `collector-started:${feature}`, `The ${COLLECTOR_TITLES[feature] || feature} is listening. Complete its rule carefully; I am still observing the choices you make inside it.`),
+    collectorCompleted(room, player, feature, completed, total) {
+      const remaining = Math.max(0, Number(total || 0) - Number(completed || 0));
+      const next = remaining ? ' A second rite will now emerge from your story.' : ' Both of your selected relic rites are complete; your answer will matter at the final altar.';
+      return speak(room, player, `collector-completed:${feature}`, `You completed the ${COLLECTOR_TITLES[feature] || feature}.${next}`);
+    },
+    templeOpened: (room, player) => speak(room, player, 'ancient-temple', 'Find the court marked with your calling. The screen separates so every player can reach their own pillar; press E only when you are standing at it.'),
+    lanternRiteEntered(room, player, rite) {
+      const waves = rite?.plan?.waveCount || rite?.waveCount || 3;
+      const guardianNote = player.archetype === 'Guardian' ? ' During the defense, target a nearby ally with Q to heal or R to raise a barrier.' : '';
+      return speak(room, player, 'lantern-rite', `The Game Master shaped a Lantern Rite around this party. Step to the glowing threshold and press E; all four must enter before ${waves} adaptive waves begin.${guardianNote}`);
+    },
+    finaleVariantEntered(room, player, variant, rite) {
+      if (variant?.id === 'echo_accord') {
+        const roleNote = {
+          Explorer: 'Read the arena edge before committing to a turn; your route is the first warning the group receives.',
+          Collector: 'Gather scattered light to lengthen your echo, but do not let a tempting orb trap your trail.',
+          Guardian: 'Watch the other trails and call danger early; steady choices keep the echoes from colliding.',
+          Loner: 'Your instinct for empty space matters here. Keep a route open when the arena becomes crowded.',
+        }[player.archetype] || 'Keep a living route open.';
+        return speak(room, player, 'echo-accord', `The Game Master chose the Echo Accord from how this group moved apart. ${roleNote}`);
+      }
+      const waves = rite?.plan?.waveCount || rite?.waveCount || 3;
+      const roleNote = {
+        Explorer: 'Scout the corridors and call out incoming raiders before they reach the core.',
+        Collector: 'Stay alert between waves: the core needs deliberate repairs before the next assault.',
+        Guardian: 'During the defense, target a nearby ally with Q to heal or R to raise a barrier.',
+        Loner: 'Circle the outer paths and intercept threats that slip past the group.',
+      }[player.archetype] || '';
+      const title = variant?.title || 'Lantern Rite';
+      return speak(room, player, `finale:${variant?.id || 'lantern_rite'}`, `The Game Master shaped ${title} around this party. Step to the glowing threshold and press E; all four must enter before ${waves} adaptive waves begin. ${roleNote}`);
+    },
   });
 }

@@ -17,7 +17,9 @@
     "test:game": "node tests/four-player-smoke.mjs",
     "test:realms": "node tests/spirit-dungeon.test.mjs && node tests/shadow-forest.test.mjs && node tests/moon-shrine.test.mjs && node tests/ghost-village.test.mjs && node tests/realm-integration.test.mjs && node tests/finale-system.test.mjs",
     "test:explorer": "node tests/explorer-abilities.mjs",
-    "test:full": "npm run test:emergent && npm run test:guidance && npm run test:input && npm run test:explorer && npm run test:realms && node tests/portal-system.test.mjs && node tests/finale-entrance.test.mjs && node tests/temple-finale-browser-smoke.mjs && npm run test:game"
+    "test:collector": "node tests/collector-system.test.mjs",
+    "test:lantern": "node tests/lantern-rite.test.mjs && node tests/lantern-rite-game-world.test.mjs && node tests/echo-accord-game-world.test.mjs",
+    "test:full": "npm run test:emergent && npm run test:guidance && npm run test:input && npm run test:explorer && npm run test:realms && npm run test:collector && npm run test:lantern && node tests/portal-system.test.mjs && node tests/finale-entrance.test.mjs && node tests/muskan-finale-browser-smoke.mjs && npm run test:game"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",

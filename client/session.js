@@ -22,6 +22,9 @@ export function createSession() {
     combatHintsShown: {},
     network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '', serverOutdated: false },
     world: null, players: [], mine: null, privateRule: null, guidance: null, publicEvent: null,
+    // Puzzle state is intentionally local presentation. The selected trials,
+    // clues, landmark, and completion remain authoritative on the server.
+    collectorGame: null,
   };
   const socket = io({ autoConnect: false, timeout: 5_000, reconnectionAttempts: 3 });
 
@@ -49,12 +52,19 @@ export function createSession() {
       'temple-staircase-uncovered': 'Temple Staircase',
       'forgotten-ruins-emerge': 'Hidden Ruins',
     };
+    const collector = state.world?.collectorTrial;
+    if (state.mine?.archetype === 'Collector' && collector?.plan?.length) {
+      const titles = { 'crystal-mine': 'Crystal Heart', 'ancient-vault': 'Ancient Vault', 'treasure-cache': 'Treasure Cache', 'relic-forge': 'Relic Forge', 'sunken-relic': 'Sunken Crown' };
+      const complete = new Set(collector.completedFeatures || []);
+      return collector.plan.map((id) => ({ id, label: titles[id] || id.replaceAll('-', ' '), awakened: complete.has(id) || collector.active?.feature === id }));
+    }
     const awakened = new Set(state.mine?.evolutions || []);
     return abilities().map((id) => ({ id, label: labels[id] || id.replaceAll('-', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()), awakened: awakened.has(id) }));
   }
   function relics() { return Array.isArray(state.world?.relics) ? state.world.relics : []; }
   function guardianTrial() { return state.world?.guardianTrial || null; }
   function templeFinale() { return state.world?.templeFinale || null; }
+  function collectorTrial() { return state.world?.collectorTrial || null; }
   function serverEntities() {
     const supplied = state.world?.world?.entities || state.world?.entities || [];
     if (supplied.length) return supplied.filter(Boolean).map((entity, index) => ({ ...entity, id: entity.id || `entity-${index}`, ...mapPoint(entity), label: entity.label || entity.name || entity.id || 'World feature', kind: entity.kind || entity.type || 'feature' }));
@@ -75,6 +85,8 @@ export function createSession() {
       const minePane = temple.panes?.find((pane) => pane.id === state.network.playerId);
       return minePane ? [{ ...minePane.pedestal, y: minePane.pedestal.z, kind: 'temple-pillar', action: 'activate-temple-pillar', targetId: 'temple-pillar', label: minePane.pedestal.label }] : [];
     }
+    if (state.mine?.realm === 'lantern-rite') return serverEntities().filter((entity) => entity.zone === 'lantern-rite');
+    if (state.mine?.realm === 'echo-accord') return [];
     const relicEntities = relics().filter((relic) => !relic.collectedBy).map((relic) => ({ ...relic, ...mapPoint(relic), kind: 'relic', label: relic.name || relic.id.replaceAll('-', ' '), action: 'relic', targetId: relic.id }));
     const zone = state.mine?.zone || 'overworld';
     return [...relicEntities, ...serverEntities().filter((entity) => !entity.collectedBy && entity.kind !== 'relic' && entity.type !== 'relic')].filter((entity) => (entity.zone || 'overworld') === zone);
@@ -107,6 +119,15 @@ export function createSession() {
       state.noticeTimer = 0;
     }
     state.privateRule = (world.yourPrivateRules || []).at(-1) || null;
+    // An authoritative completion always closes the local puzzle overlay,
+    // including after a reconnect or a server-side GM decision.
+    if (state.collectorGame && world.collectorTrial?.active?.completed) state.collectorGame = null;
+    if (state.collectorGame?.feature === 'relic-forge') {
+      const assisted = Number(world.collectorTrial?.active?.forgeAssistHeat || 0);
+      const previousAssist = Number(state.collectorGame.serverAssistHeat || 0);
+      if (assisted > previousAssist) state.collectorGame.heat = Math.min(100, state.collectorGame.heat + assisted - previousAssist);
+      state.collectorGame.serverAssistHeat = assisted;
+    }
     // A reconnect receives its player-specific guidance in the authoritative
     // event history, so it never loses the current instruction mid-rite.
     const latestGuidance = world.yourGuidance || (world.events || []).filter((event) => event?.type === 'gm-guidance').at(-1);
@@ -121,6 +142,109 @@ export function createSession() {
       state.joined = true; state.network.connected = true; state.network.playerId = reply.playerId; state.network.roomCode = reply.code;
       note('Your lantern is lit. Waiting for exactly four players.', 8); socket.emit('request-world-state');
     }));
+  }
+  function startCollectorGame(reply, entity) {
+    const feature = reply?.feature;
+    if (!feature) return;
+    const shared = {
+      feature,
+      title: reply.title || 'Relic Rite',
+      instruction: reply.instruction || 'Read the clues and complete the rite.',
+      minigame: reply.minigame,
+      landmarkId: entity.targetId || entity.id,
+      clueTotal: reply.clueTotal || 0,
+      clues: reply.clues || [],
+      hitboxes: [],
+    };
+    const puzzles = {
+      'crystal-mine': { ...shared, phase: 'rebuild', placed: [], order: [2, 4, 1, 3, 0] },
+      'ancient-vault': { ...shared, phase: 'decode', entered: [], order: ['gem', 'moon', 'flame', 'key'] },
+      'treasure-cache': { ...shared, phase: 'appraise', selected: [], genuine: [0, 2, 3] },
+      'relic-forge': { ...shared, phase: 'recipe', recipe: [], recipeOrder: ['energy', 'stability', 'iron'], heat: 58, serverAssistHeat: Number(reply.forgeAssistHeat || 0), hammer: [], hammerOrder: ['right', 'left', 'up'] },
+      'sunken-relic': { ...shared, phase: 'navigate', step: 0, route: ['right', 'up', 'up', 'right', 'down', 'right'] },
+    };
+    state.collectorGame = puzzles[feature] || null;
+    if (state.collectorGame) note(`The ${state.collectorGame.title} has opened. Follow the Game Master's private rule.`, 5);
+  }
+  function completeCollectorGame() {
+    const game = state.collectorGame;
+    if (!game) return;
+    socket.emit('interact', { type: 'collector-minigame-complete', targetId: game.landmarkId }, (reply) => {
+      if (reply?.ok) { note(`Rite complete: ${game.title}. The Game Master is shaping what comes next.`, 5); state.collectorGame = null; }
+      else note(reply?.error || 'The landmark needs one more answer.', 4);
+    });
+  }
+  function collectorMistake(game, message) {
+    game.mistakes = (game.mistakes || 0) + 1;
+    note(message, 2.6);
+  }
+  function handleCollectorPointer(hit) {
+    const game = state.collectorGame;
+    if (!game || !hit) return false;
+    const { action, value } = hit;
+    if (action === 'close') { state.collectorGame = null; note('The relic rite waits at its landmark.', 2); return true; }
+    if (game.feature === 'crystal-mine' && action === 'crystal') {
+      const expected = game.order[game.placed.length];
+      if (value !== expected) collectorMistake(game, 'That fragment does not resonate with this socket.');
+      else { game.placed.push(value); if (game.placed.length === game.order.length) completeCollectorGame(); }
+      return true;
+    }
+    if (game.feature === 'ancient-vault' && action === 'rune') {
+      const expected = game.order[game.entered.length];
+      if (value !== expected) { game.entered = []; collectorMistake(game, 'The vault rejects the order. Read the carvings again.'); }
+      else { game.entered.push(value); if (game.entered.length === game.order.length) completeCollectorGame(); }
+      return true;
+    }
+    if (game.feature === 'treasure-cache') {
+      if (action === 'relic-card') {
+        game.selected = game.selected.includes(value) ? game.selected.filter((item) => item !== value) : [...game.selected, value].slice(-3);
+      } else if (action === 'confirm-appraisal') {
+        const correct = game.selected.length === 3 && game.genuine.every((item) => game.selected.includes(item));
+        if (correct) completeCollectorGame(); else { game.selected = []; collectorMistake(game, 'The cache hums coldly. Reconsider which objects are truly relics.'); }
+      }
+      return true;
+    }
+    if (game.feature === 'relic-forge') {
+      if (game.phase === 'recipe' && action === 'ingredient') {
+        const expected = game.recipeOrder[game.recipe.length];
+        if (value !== expected) { game.recipe = []; collectorMistake(game, 'The ingredients lose their balance. Start the recipe again.'); }
+        else { game.recipe.push(value); if (game.recipe.length === game.recipeOrder.length) { game.phase = 'heat'; note('The core is assembled. Work it only while it glows orange.', 3); } }
+      } else if (game.phase === 'heat' && action === 'bellows') {
+        game.heat = Math.min(100, game.heat + 8);
+      } else if (game.phase === 'heat' && action === 'temper') {
+        if (game.heat >= 76 && game.heat <= 88) { game.phase = 'hammer'; note('The metal is ready. Strike right, left, then upper.', 3); }
+        else if (game.heat > 88) { game.heat = 52; collectorMistake(game, 'The core overheats and cools. Bring it back to orange.'); }
+        else collectorMistake(game, 'The core is still too cold. Pump the bellows.');
+      } else if (game.phase === 'hammer' && action === 'hammer') {
+        const expected = game.hammerOrder[game.hammer.length];
+        if (value !== expected) { game.hammer = []; collectorMistake(game, 'The resonance cracks. Begin the hammer pattern again.'); }
+        else { game.hammer.push(value); if (game.hammer.length === game.hammerOrder.length) { game.phase = 'quench'; note('One final choice: quench the balanced core in oil.', 3); } }
+      } else if (game.phase === 'quench' && action === 'quench') {
+        if (value === 'oil') completeCollectorGame(); else collectorMistake(game, 'That liquid scatters the resonance. Only oil will set the core.');
+      }
+      return true;
+    }
+    if (game.feature === 'sunken-relic' && action === 'current') {
+      const expected = game.route[game.step];
+      if (value !== expected) { game.step = 0; collectorMistake(game, 'The current pushes you back to the first flooded chamber.'); }
+      else { game.step += 1; if (game.step === game.route.length) completeCollectorGame(); }
+      return true;
+    }
+    return false;
+  }
+  function handleCollectorKey(key) {
+    const direction = { arrowup: 'up', w: 'up', arrowdown: 'down', s: 'down', arrowleft: 'left', a: 'left', arrowright: 'right', d: 'right' }[key];
+    if (state.collectorGame?.feature === 'sunken-relic' && direction) return handleCollectorPointer({ action: 'current', value: direction });
+    if (key === 'escape' && state.collectorGame) return handleCollectorPointer({ action: 'close' });
+    return false;
+  }
+  function lanternSupport(kind) {
+    if (!gameReady() || state.mine?.realm !== 'lantern-rite' || state.mine?.archetype !== 'Guardian') return false;
+    const target = state.players.filter((player) => player.id !== state.mine.id && player.realm === 'lantern-rite').sort((left, right) => Math.hypot(state.mine.x - left.x, state.mine.y - left.y) - Math.hypot(state.mine.x - right.x, state.mine.y - right.y))[0];
+    if (!target) { note('Move beside an ally to share a Guardian blessing.', 3); return true; }
+    const type = kind === 'heal' ? 'lantern-guardian-heal' : 'lantern-guardian-barrier';
+    socket.emit('interact', { type, targetId: target.id }, (reply) => note(reply?.ok ? (kind === 'heal' ? `Healing light reaches ${target.name}.` : `${target.name} is shielded.`) : (reply?.error || 'That blessing cannot reach an ally yet.'), 3));
+    return true;
   }
   function interact() {
     if (!gameReady() || !state.mine) return;
@@ -139,6 +263,8 @@ export function createSession() {
     const action = finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
+      if (reply?.ok && action === 'collector-minigame-start') { startCollectorGame(reply, entity); return; }
+      if (reply?.ok && action === 'collect-clue' && reply.clueText) { note(reply.clueText, 7); return; }
       const shard = String(entity.id || '').startsWith('tideglass-shard-');
       const caveShard = String(entity.id || '').startsWith('gloom-shard-');
       const ruinsShard = String(entity.id || '').startsWith('sunstone-shard-');
@@ -157,7 +283,7 @@ export function createSession() {
   }
   function attack() {
     const trial = guardianTrial();
-    if (!gameReady() || !state.mine || (!trial?.activeTrial && !['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(state.mine.zone))) return;
+    if (!gameReady() || !state.mine || (!trial?.activeTrial && !['dark-cave', 'hidden-ruins'].includes(state.mine.zone))) return;
     socket.emit('attack', (reply) => {
       if (reply?.ok) {
         if (trial?.activeTrial && reply.defeated) { note('Your ward scatters the spirit. The Game Master watches your resolve.', 2.5); return; }
@@ -180,6 +306,10 @@ export function createSession() {
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
     const mine = state.mine;
     if (gameReady() && mine) {
+      if (state.collectorGame) {
+        socket.emit('move', { x: 0, z: 0 });
+        if (state.collectorGame.feature === 'relic-forge' && state.collectorGame.phase === 'heat') state.collectorGame.heat = Math.max(0, state.collectorGame.heat - dt * 2.5);
+      } else {
       const { x, z } = input; socket.emit('move', { x, z });
       if (performance.now() - state.network.lastTelemetry > 500) { const landmark = nearest(mine, LANDMARKS, 4); socket.emit('player-telemetry', { locationId: landmark?.label?.toLowerCase().replaceAll(' ', '-') }); state.network.lastTelemetry = performance.now(); }
       const doorway = nearest(mine, activeEntities().filter((entity) => ['hidden-cave-mouth', 'dark-cave-exit', 'hidden-temple-entrance', 'sunken-temple-exit', 'hidden-ruins-entrance', 'hidden-ruins-exit'].includes(entity.id)), 7);
@@ -199,6 +329,7 @@ export function createSession() {
       if (['dark-cave', 'hidden-ruins'].includes(mine.zone) && !state.combatHintsShown[mine.zone]) {
         state.combatHintsShown[mine.zone] = true;
         note(mine.zone === 'hidden-ruins' ? 'Mummies guard these halls. Press SPACE near one to deal damage.' : 'Demons hunt in the dark. Press SPACE near one to deal damage.', 5);
+      }
       }
     }
     if (mine) {
@@ -223,5 +354,5 @@ export function createSession() {
   });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, abilityProgress, relics, guardianTrial, templeFinale, activeEntities, joinRoom, interact, attack, aimAt, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, abilityProgress, relics, guardianTrial, templeFinale, collectorTrial, activeEntities, joinRoom, interact, attack, aimAt, handleCollectorPointer, handleCollectorKey, lanternSupport, update };
 }

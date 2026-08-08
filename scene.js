@@ -38,7 +38,7 @@ howModal.querySelector('.how-got-it').addEventListener('click', closeHowItWorks)
 howModal.addEventListener('click', (event) => { if (event.target === howModal) closeHowItWorks(); });
 
 const session = createSession();
-const { state, attack, gameReady, interact, aimAt, joinRoom, update, activeEntities } = session;
+const { state, attack, gameReady, interact, aimAt, joinRoom, update, activeEntities, handleCollectorPointer, handleCollectorKey, lanternSupport } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -81,9 +81,15 @@ addEventListener('keydown', (event) => {
   // a name must remain a letter rather than opening an interaction.
   if (isTypingTarget(event.target)) return;
   const key = inputKey(event); keys[key] = true;
-  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'e', ' '].includes(key)) event.preventDefault();
+  if (state.collectorGame && handleCollectorKey(key)) {
+    event.preventDefault();
+    return;
+  }
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'e', ' ', 'q', 'r'].includes(key)) event.preventDefault();
   if (key === 'e') interact();
   if (key === ' ') attack();
+  if (key === 'q') lanternSupport('heal');
+  if (key === 'r') lanternSupport('barrier');
   if (key === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { if (!isTypingTarget(event.target)) keys[inputKey(event)] = false; });
@@ -91,6 +97,13 @@ addEventListener('blur', () => { for (const key of Object.keys(keys)) keys[key] 
 canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
 canvas.addEventListener('click', (event) => {
   if (!state.joined && !document.getElementById('lantern-gate')) { showLanternGate(); return; }
+  if (state.collectorGame) {
+    const bounds = canvas.getBoundingClientRect();
+    const x = (event.clientX - bounds.left) * canvas.width / bounds.width;
+    const y = (event.clientY - bounds.top) * canvas.height / bounds.height;
+    const hit = (state.collectorGame.hitboxes || []).find((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
+    if (handleCollectorPointer(hit)) return;
+  }
   if (state.mine?.realm === 'ghost-village') {
     const bounds = canvas.getBoundingClientRect();
     aimAt((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height, canvas.width, canvas.height);
@@ -119,10 +132,12 @@ window.render_game_to_text = () => JSON.stringify({
   phase: state.world?.phase || 'unjoined',
   notice: state.noticeTimer > 0 ? state.notice : null,
   guidance: state.guidance?.message || null,
-  player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), zone: state.mine.zone || 'overworld', archetype: state.mine.archetype, health: state.mine.health, maxHealth: state.mine.maxHealth, hurt: state.mine.hurt, lastDamage: state.mine.lastDamage, caveLocked: state.mine.caveLocked, ruinsLocked: state.mine.ruinsLocked, evolutions: state.mine.evolutions || [] },
+  player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), zone: state.mine.zone || 'overworld', realm: state.mine.realm || 'overworld', archetype: state.mine.archetype, health: state.mine.health, maxHealth: state.mine.maxHealth, hurt: state.mine.hurt, lastDamage: state.mine.lastDamage, caveLocked: state.mine.caveLocked, ruinsLocked: state.mine.ruinsLocked, evolutions: state.mine.evolutions || [] },
   targets: activeEntities().map((entity) => ({ id: entity.targetId || entity.id, action: entity.action, x: +Number(entity.x).toFixed(1), y: +Number(entity.y).toFixed(1) })),
   guardianTrial: state.world?.guardianTrial && { status: state.world.guardianTrial.status, active: state.world.guardianTrial.activeTrial?.id || null, position: state.world.guardianTrial.position || null, wards: state.world.guardianTrial.activatedObjectiveIds?.length || 0, completed: state.world.guardianTrial.completedTrialIds?.length || 0, mechanic: state.world.guardianTrial.mechanic || null },
   temple: state.world?.templeFinale && { status: state.world.templeFinale.status, layout: state.world.templeFinale.status === 'assembling' ? 'shared-map' : 'four-way-split', panes: state.world.templeFinale.panes?.map((pane) => ({ role: pane.archetype, atPillar: pane.atPedestal, awake: pane.pillarActivated })) },
+  collectorTrial: state.world?.collectorTrial && { plan: state.world.collectorTrial.plan, complete: state.world.collectorTrial.completedFeatures, active: state.world.collectorTrial.active?.feature || null, started: Boolean(state.world.collectorTrial.active?.started) },
+  lanternRite: state.world?.lanternRite && { phase: state.world.lanternRite.phase, wave: state.world.lanternRite.wave, waveCount: state.world.lanternRite.waveCount, task: state.world.lanternRite.task },
   caveCombat: state.world?.caveCombat ? { cleared: state.world.caveCombat.cleared, tacticId: state.world.caveCombat.tacticId, tacticLabel: state.world.caveCombat.tacticLabel, enemies: state.world.caveCombat.enemies.map((enemy) => ({ id: enemy.id, health: enemy.health, maxHealth: enemy.maxHealth, attacking: enemy.attacking, targetId: enemy.targetId })) } : null,
   ruinsCombat: state.world?.ruinsCombat ? { cleared: state.world.ruinsCombat.cleared, tacticId: state.world.ruinsCombat.tacticId, tacticLabel: state.world.ruinsCombat.tacticLabel, enemies: state.world.ruinsCombat.enemies.map((enemy) => ({ id: enemy.id, health: enemy.health, maxHealth: enemy.maxHealth, attacking: enemy.attacking, targetId: enemy.targetId })) } : null,
   selectedExpeditions: state.world?.world?.selectedExpeditions || [],

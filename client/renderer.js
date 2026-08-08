@@ -34,6 +34,29 @@ export function createRenderer(canvas, session) {
   loadDecor('bone-wing', '/game-art/dark-cave/demons/bone-wing.png');
   loadDecor('night-blade', '/game-art/dark-cave/demons/night-blade.png');
   loadDecor('mummy-lord', '/game-art/hidden-ruins/mummy-lord.png');
+  // Collector and Lantern Rite art arrived with Muskan's branch. Keep these
+  // as individual source assets so the merge does not depend on a stale dist
+  // bundle and each rite has its own visual language.
+  [
+    'ancient-coin', 'ancient-idol', 'ancient-vault', 'clue-scroll', 'crystal-mine',
+    'glowing-gem-cluster', 'jeweled-goblet', 'ornate-key', 'relic-forge',
+    'reliquary-box', 'sunken-crown', 'sunken-relic', 'treasure-cache',
+    'vault-flame', 'vault-gem', 'vault-key', 'vault-moon', 'vault-seal',
+  ].forEach((key) => loadDecor(key, `/game-art/collector/${key}.png`));
+  ['forge-anvil', 'forge-bellows', 'forge-flame', 'forge-hammer', 'forge-hearth', 'forge-ingot', 'quench-oil', 'quench-spirit', 'quench-water'].forEach((key) => loadDecor(key, `/game-art/generated/${key}.png`));
+  loadDecor('lanternCore', '/game-art/finale/lantern-core.png');
+  loadDecor('lanternFloor', '/game-art/finale/lantern-floor-emblem.png');
+  loadDecor('lanternSwitch', '/game-art/finale/lantern-switch.png');
+  loadDecor('dungeonTiles', '/game-art/dungeon/Dungeon_Tileset.png');
+  loadDecor('moonSky', '/game-art/moon-shrine/sky.png');
+  loadDecor('moonShrine', '/game-art/moon-shrine/shrine.png');
+  loadDecor('moonBackground', '/game-art/moon-shrine/background.png');
+  loadDecor('shadowBackground', '/game-art/shadow-forest/background.png');
+  loadDecor('shadowTerrain', '/game-art/shadow-forest/terrain.png');
+  loadDecor('shadowExit', '/game-art/shadow-forest/exit.png');
+  loadDecor('ghostBackground', '/game-art/ghost-village/background.png');
+  loadDecor('ghost', '/game-art/ghost-village/ghost.png');
+  loadDecor('ghostShard', '/game-art/ghost-village/shard.png');
   for (let index = 1; index <= 5; index += 1) loadDecor(`sandRuin${index}`, `/game-art/hidden-ruins/sand-ruin-${index}.png`);
   [['trialTerrain', '/game-art/guardian-trials/terrain-map4.png'], ['trialGarden', '/game-art/guardian-trials/garden-map4.png'], ['trialVillas', '/game-art/guardian-trials/villas-map4.png']].forEach(([key, src]) => loadDecor(key, src));
   fetch('/game-art/forest.json').then((response) => response.ok ? response.json() : null).then((layout) => { authoredForest = layout; render(); }).catch(() => {});
@@ -69,6 +92,23 @@ export function createRenderer(canvas, session) {
   function drawEntity(entity) { const X = px(entity.x), Y = py(entity.y), kind = String(entity.kind || entity.type || '').toLowerCase(); if (kind.includes('relic')) { ctx.fillStyle = C.gold; ctx.fillRect(X + 6, Y + 4, 8, 12); ctx.fillStyle = '#fff4b5'; ctx.fillRect(X + 8, Y + 2, 4, 5); } else if (kind.includes('cave')) { ctx.fillStyle = '#26343d'; ctx.fillRect(X + 1, Y + 3, 18, 17); ctx.fillStyle = '#101a22'; ctx.fillRect(X + 5, Y + 8, 10, 12); } else if (kind.includes('gate') || kind.includes('spirit')) { ctx.fillStyle = '#4f376f'; ctx.fillRect(X + 3, Y + 2, 14, 16); ctx.fillStyle = '#d9b4ff'; ctx.fillRect(X + 6, Y + 5, 8, 11); } else if (kind.includes('shrine')) { ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 3, Y + 7, 14, 10); ctx.fillStyle = C.purple; ctx.fillRect(X + 7, Y + 1, 6, 9); } else if (kind.includes('temple') || kind.includes('altar')) { ctx.fillStyle = '#b9a882'; ctx.fillRect(X, Y + 5, 20, 15); ctx.fillStyle = kind.includes('altar') ? C.gold : '#706879'; ctx.fillRect(X + 7, Y + 8, 6, 12); } else { ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 4, Y + 4, 12, 12); } }
   function drawWorldEntity(entity) {
     const kind = String(entity.kind || entity.type || '').toLowerCase();
+    if (entity.collectorChallenge) {
+      const X = px(entity.x), Y = py(entity.y), asset = art[entity.sprite];
+      const pulse = 1 + Math.sin(state.frame * 1.6 + entity.x) * .06;
+      ctx.save();
+      const glow = ctx.createRadialGradient(X + 10, Y + 10, 2, X + 10, Y + 10, kind.includes('clue') ? 18 : 34 * pulse);
+      glow.addColorStop(0, 'rgba(255,227,127,.52)'); glow.addColorStop(.45, 'rgba(108,208,213,.18)'); glow.addColorStop(1, 'rgba(108,208,213,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(X + 10, Y + 10, kind.includes('clue') ? 18 : 34 * pulse, 0, Math.PI * 2); ctx.fill();
+      if (asset) {
+        const size = kind.includes('clue') ? 30 : kind.includes('dig') ? 44 : 64;
+        ctx.drawImage(asset, X + 10 - size / 2, Y + 10 - size * .78, size, size);
+      } else {
+        ctx.fillStyle = kind.includes('clue') ? '#f5dda3' : '#7ed7d3'; ctx.fillRect(X + 4, Y + 3, 13, 15);
+      }
+      ctx.restore();
+      if (entity.label) { ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff5c8'; ctx.fillText(entity.label, X + 10, Y - 17); }
+      return;
+    }
     if (kind.includes('ruins-entrance')) {
       // This is the actual doorway from the ruins set, not the loose rock pile
       // that previously made the entrance look pasted onto the grass.
@@ -162,7 +202,7 @@ export function createRenderer(canvas, session) {
     else { ctx.fillStyle = C.ink; ctx.fillRect(X + 4, Y + 4, 10, 11); ctx.fillStyle = player.color; ctx.fillRect(X + 5, Y + 5, 8, 8); ctx.fillStyle = '#f3c28b'; ctx.fillRect(X + 5, Y + 1, 8, 5); }
     ctx.fillStyle = player.color; ctx.fillRect(X + 3, Y + 19, 14, 2);
     if (player.id === state.mine?.id) { ctx.strokeStyle = '#fff5b4'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(X + size / 2, Y + size - 1, Math.max(8, size * .55), 4, 0, 0, Math.PI * 2); ctx.stroke(); }
-    if (['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(player.zone)) {
+    if (['dark-cave', 'hidden-ruins'].includes(player.zone)) {
       drawHealthBar(X - 7, Y - 24, 34, player.health, player.maxHealth, '#59cf78');
       if (player.hurt) {
         const pulse = 13 + Math.sin(state.frame * 7) * 2;
@@ -477,7 +517,7 @@ export function createRenderer(canvas, session) {
     const remaining = Number(state.world?.observationSecondsRemaining);
     const status = !state.network.connected ? 'CONNECTING…' : !gameReady() ? `${state.players.length}/4 LANTERNS` : mine?.zone === 'sunken-temple' ? 'SUNKEN TEMPLE' : mine?.zone === 'dark-cave' ? 'THE BLACK HOLLOW' : mine?.zone === 'hidden-ruins' ? 'THE HIDDEN RUINS' : state.world?.phase === 'observing' ? remaining > 0 ? `THE WORLD IS WATCHING · ${remaining}s` : 'THE CALLINGS AWAKEN' : mine?.archetype ? `${mine.archetype.toUpperCase()}` : 'YOUR STORY IS FORMING';
     ctx.fillText(status, 27, 54);
-    if (['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(mine?.zone)) {
+    if (['dark-cave', 'hidden-ruins'].includes(mine?.zone)) {
       ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#f7d25c'; ctx.fillText('SPACE · STRIKE', 27, 66);
     }
     const caveProgress = mine?.zone === 'dark-cave' ? state.world?.caveShardProgress : null;
@@ -501,6 +541,100 @@ export function createRenderer(canvas, session) {
       panel(165, 548, 630, 66); ctx.textAlign = 'center';
       if (!hasNotice && state.guidance) { ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText('THE GAME MASTER ADVISES YOU', 480, 564); }
       ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(message, 480, hasNotice ? 573 : 584, 570, 16);
+    }
+  }
+  function puzzleButton(game, x, y, w, h, label, hit, selected = false, accent = '#7ed7d3') {
+    ctx.fillStyle = selected ? '#e8b954' : '#27455a'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = selected ? '#fff2a1' : accent; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.textAlign = 'center'; ctx.font = 'bold 10px monospace'; ctx.fillStyle = selected ? '#213246' : '#fff7d5';
+    wrap(label, x + w / 2, y + h / 2 - 4, w - 14, 12);
+    game.hitboxes.push({ x, y, w, h, ...hit });
+  }
+  function puzzleImage(key, x, y, width, height) {
+    const asset = art[key];
+    if (asset) ctx.drawImage(asset, x, y, width, height);
+    else { ctx.fillStyle = '#426b72'; ctx.fillRect(x, y, width, height); }
+  }
+  function drawCollectorGame() {
+    const game = state.collectorGame; if (!game) return;
+    game.hitboxes = [];
+    ctx.fillStyle = 'rgba(7,20,35,.78)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    panel(54, 42, 852, 556); ctx.fillStyle = '#193348'; ctx.fillRect(58, 46, 844, 548);
+    ctx.textAlign = 'left'; ctx.font = 'bold 19px monospace'; ctx.fillStyle = '#fff0ae'; ctx.fillText(game.title.toUpperCase(), 82, 79);
+    ctx.font = '10px monospace'; ctx.fillStyle = '#cce9dd'; wrap(game.instruction, 82, 101, 720, 13);
+    puzzleButton(game, 850, 57, 34, 28, '×', { action: 'close' }, false, '#e99a86');
+    if (game.clues?.length) {
+      ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText(`PRIVATE CLUES ${game.clues.length}/${game.clueTotal}`, 82, 145);
+      game.clues.slice(0, 2).forEach((clue, index) => {
+        const x = 230 + index * 318; puzzleImage('clue-scroll', x, 121, 28, 28);
+        ctx.textAlign = 'left'; ctx.font = '9px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(clue.title, x + 34, 135);
+        ctx.fillStyle = '#d4e9df'; wrap(clue.text, x + 34, 148, 255, 11);
+      });
+    }
+    const contentY = game.clues?.length ? 190 : 145;
+    if (game.feature === 'crystal-mine') {
+      puzzleImage('crystal-mine', 96, contentY + 16, 218, 260);
+      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#bdf7f1'; ctx.fillText('REBUILD THE CRYSTAL HEART', 366, contentY + 34);
+      ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`${game.placed.length}/5 fragments seated`, 366, contentY + 54);
+      for (let index = 0; index < 5; index += 1) {
+        const column = index % 3, row = Math.floor(index / 3), placed = game.placed.includes(index);
+        puzzleButton(game, 366 + column * 150, contentY + 82 + row * 92, 128, 68, placed ? `FRAGMENT ${index + 1}\nSET` : `PLACE\nFRAGMENT ${index + 1}`, { action: 'crystal', value: index }, placed, '#7bdce2');
+      }
+    } else if (game.feature === 'ancient-vault') {
+      puzzleImage('ancient-vault', 82, contentY + 18, 262, 274);
+      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#f2d479'; ctx.fillText('ENTER THE CARVED ORDER', 390, contentY + 34);
+      const runes = [['gem', 'GEM', 'vault-gem'], ['moon', 'MOON', 'vault-moon'], ['flame', 'FLAME', 'vault-flame'], ['key', 'KEY', 'vault-key']];
+      runes.forEach(([id, label, asset], index) => {
+        const x = 390 + (index % 2) * 190, y = contentY + 70 + Math.floor(index / 2) * 112;
+        puzzleImage(asset, x + 8, y + 8, 42, 42);
+        puzzleButton(game, x, y, 168, 72, `PRESS ${label}`, { action: 'rune', value: id }, game.entered.includes(id), '#d6ad63');
+      });
+      ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`SEALS HELD ${game.entered.length}/4`, 390, contentY + 314);
+    } else if (game.feature === 'treasure-cache') {
+      puzzleImage('treasure-cache', 80, contentY + 16, 246, 250);
+      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#f2d479'; ctx.fillText('SELECT THE THREE GENUINE RELICS', 360, contentY + 33);
+      const items = [['ancient-idol', 'ANCIENT IDOL'], ['ornate-key', 'GOLDEN COMPASS'], ['sunken-crown', 'CURSED CROWN'], ['reliquary-box', 'RELIQUARY BOX']];
+      items.forEach(([asset, label], index) => {
+        const x = 360 + (index % 2) * 202, y = contentY + 61 + Math.floor(index / 2) * 128;
+        puzzleImage(asset, x + 6, y + 6, 52, 52);
+        puzzleButton(game, x, y, 184, 84, label, { action: 'relic-card', value: index }, game.selected.includes(index), '#d6ad63');
+      });
+      puzzleButton(game, 520, contentY + 330, 220, 46, `CONFIRM APPRAISAL  ${game.selected.length}/3`, { action: 'confirm-appraisal' }, false, '#a8d78b');
+    } else if (game.feature === 'relic-forge') {
+      puzzleImage(game.phase === 'quench' ? 'quench-oil' : 'relic-forge', 80, contentY + 12, 254, 270);
+      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#ffc66a'; ctx.fillText(`FORGE PHASE · ${game.phase.toUpperCase()}`, 370, contentY + 32);
+      if (game.phase === 'recipe') {
+        [['energy', 'ENERGY', 'forge-flame'], ['stability', 'STABILITY', 'forge-anvil'], ['iron', 'IRON', 'forge-ingot']].forEach(([id, label, asset], index) => {
+          const x = 370 + index * 160; puzzleImage(asset, x + 8, contentY + 65, 42, 42); puzzleButton(game, x, contentY + 56, 142, 76, label, { action: 'ingredient', value: id }, game.recipe.includes(id), '#ef9b55');
+        });
+        ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`BALANCED INGREDIENTS ${game.recipe.length}/3`, 370, contentY + 161);
+      } else if (game.phase === 'heat') {
+        ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffe2aa'; ctx.fillText('ORANGE HEAT RANGE 76–88', 370, contentY + 78);
+        ctx.fillStyle = '#172331'; ctx.fillRect(370, contentY + 95, 390, 22); ctx.fillStyle = game.heat >= 76 && game.heat <= 88 ? '#f3a447' : '#5f9abd'; ctx.fillRect(374, contentY + 99, 382 * Math.max(0, Math.min(100, game.heat)) / 100, 14);
+        ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${Math.round(game.heat)}°`, 770, contentY + 112);
+        puzzleButton(game, 370, contentY + 145, 180, 66, 'PUMP BELLOWS', { action: 'bellows' }, false, '#ef9b55');
+        puzzleButton(game, 575, contentY + 145, 180, 66, 'TEMPER CORE', { action: 'temper' }, false, '#f2d479');
+      } else if (game.phase === 'hammer') {
+        ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffe2aa'; ctx.fillText('STRIKE THE HAMMER DIAGRAM', 370, contentY + 78);
+        [['right', 'RIGHT'], ['left', 'LEFT'], ['up', 'UPPER']].forEach(([id, label], index) => puzzleButton(game, 370 + index * 130, contentY + 104, 114, 66, label, { action: 'hammer', value: id }, game.hammer.includes(id), '#ef9b55'));
+      } else {
+        ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffe2aa'; ctx.fillText('CHOOSE THE LIQUID THAT SETS THE CORE', 370, contentY + 78);
+        [['oil', 'OIL', 'quench-oil'], ['water', 'WATER', 'quench-water'], ['spirit', 'SPIRIT', 'quench-spirit']].forEach(([id, label, asset], index) => { const x = 370 + index * 130; puzzleImage(asset, x + 30, contentY + 95, 45, 45); puzzleButton(game, x, contentY + 90, 114, 86, label, { action: 'quench', value: id }, false, '#ef9b55'); });
+      }
+    } else if (game.feature === 'sunken-relic') {
+      puzzleImage('sunken-relic', 80, contentY + 16, 258, 254);
+      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#a7eff7'; ctx.fillText('RIDE THE FLOODED CURRENTS', 372, contentY + 33);
+      const gridX = 394, gridY = contentY + 63, size = 42;
+      for (let row = 0; row < 5; row += 1) for (let column = 0; column < 5; column += 1) { ctx.fillStyle = (row + column) % 2 ? '#1b6681' : '#287b99'; ctx.fillRect(gridX + column * size, gridY + row * size, size - 2, size - 2); }
+      const progress = Math.min(game.step, game.route.length), playerPath = [[0,4],[1,4],[1,3],[1,2],[2,2],[2,3],[3,3]][progress] || [0,4];
+      ctx.fillStyle = '#fff0ae'; ctx.fillRect(gridX + playerPath[0] * size + 12, gridY + playerPath[1] * size + 12, 18, 18);
+      ctx.fillStyle = '#e6c966'; ctx.fillRect(gridX + 3 * size + 11, gridY + 3 * size + 8, 20, 26);
+      ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`CURRENT CHAMBER ${game.step}/${game.route.length}`, 394, gridY + 235);
+      puzzleButton(game, 694, contentY + 94, 68, 46, '↑', { action: 'current', value: 'up' }, false, '#7bdce2');
+      puzzleButton(game, 620, contentY + 152, 68, 46, '←', { action: 'current', value: 'left' }, false, '#7bdce2');
+      puzzleButton(game, 694, contentY + 152, 68, 46, '↓', { action: 'current', value: 'down' }, false, '#7bdce2');
+      puzzleButton(game, 768, contentY + 152, 68, 46, '→', { action: 'current', value: 'right' }, false, '#7bdce2');
+      ctx.font = '9px monospace'; ctx.fillStyle = '#d4e9df'; ctx.fillText('ARROWS / WASD ALSO STEER', 620, contentY + 230);
     }
   }
   function drawDirectorHud() {
@@ -752,6 +886,112 @@ export function createRenderer(canvas, session) {
     if (temple.status === 'assembling') drawSharedTemple(temple); else drawSplitTemple(temple);
     return true;
   }
+  function realmPoint(player, width = 28, height = 14) {
+    return { x: 74 + (Number(player?.x || 0) / width) * 812, y: 110 + (Number(player?.y ?? player?.z ?? 0) / height) * 408 };
+  }
+  function drawRealmHeader(title, instruction) {
+    drawMinimalHud({ suppressNotice: true });
+    panel(300, 14, 430, 55); ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#d5b6ff'; ctx.fillText(title, 515, 35);
+    ctx.font = '9px monospace'; ctx.fillStyle = '#f7efd6'; ctx.fillText(instruction, 515, 53);
+  }
+  function drawLonerRealm() {
+    const mine = state.mine, realm = mine?.realm;
+    if (!['dungeon', 'shadow-forest', 'moon-shrine', 'ghost-village'].includes(realm)) return false;
+    if (realm === 'dungeon') {
+      ctx.fillStyle = '#151529'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (art.dungeonTiles) for (let row = 0; row < 15; row += 1) for (let column = 0; column < 20; column += 1) ctx.drawImage(art.dungeonTiles, ((column + row) % 4) * 16, 0, 16, 16, 70 + column * 41, 80 + row * 30, 42, 31);
+      else { ctx.fillStyle = '#314157'; ctx.fillRect(70, 80, 820, 465); }
+      for (const entity of activeEntities()) {
+        const p = realmPoint(entity, 20, 16);
+        ctx.fillStyle = String(entity.type).includes('enemy') ? '#c96b8d' : String(entity.type).includes('sigil') ? '#b8f3ff' : '#e7c66f';
+        ctx.beginPath(); ctx.arc(p.x, p.y, String(entity.type).includes('enemy') ? 13 : 10, 0, Math.PI * 2); ctx.fill();
+        ctx.font = '8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff7d5'; ctx.fillText(entity.label, p.x, p.y - 18);
+      }
+      const p = realmPoint(mine, 20, 16); character(mine, p.x - 12, p.y - 14, 25);
+      drawRealmHeader('THE SPIRIT REALM', 'PRESS E BESIDE WARDENS, SEALS, THE ALTAR, OR THE RETURN PORTAL');
+    } else if (realm === 'shadow-forest') {
+      ctx.fillStyle = '#173948'; ctx.fillRect(0, 0, canvas.width, canvas.height); if (art.shadowBackground) ctx.drawImage(art.shadowBackground, 0, 0, canvas.width, canvas.height);
+      const platform = (x, y, w) => { ctx.fillStyle = '#285846'; ctx.fillRect(55 + x * 34, 92 + y * 33, w * 34, 16); ctx.fillStyle = '#6da85c'; ctx.fillRect(55 + x * 34, 88 + y * 33, w * 34, 7); };
+      [[0,12,5],[6,11,4],[11,12,3],[15,10,3],[19,12,6],[3,8,4],[8,7,3],[12,5,4],[17,7,3],[21,5,3]].forEach(([x, y, w]) => platform(x, y, w));
+      ctx.fillStyle = '#f08157'; ctx.fillRect(55 + 16.1 * 34, 92 + 10 * 33, 26, 13); ctx.fillStyle = '#d74e48'; ctx.fillRect(55 + 7.35 * 34, 92 + 11 * 33, 31, 12);
+      if (art.shadowExit) ctx.drawImage(art.shadowExit, 55 + 22 * 34, 92 + 3.7 * 33, 65, 65);
+      const p = realmPoint(mine, 25, 14); character(mine, p.x - 12, p.y - 14, 25);
+      drawRealmHeader('THE SHADOW FOREST', 'MOVE RIGHT · W JUMPS · REACH THE TROPHY AND PRESS E');
+    } else if (realm === 'moon-shrine') {
+      ctx.fillStyle = '#0e1f46'; ctx.fillRect(0, 0, canvas.width, canvas.height); if (art.moonBackground || art.moonSky) ctx.drawImage(art.moonBackground || art.moonSky, 0, 0, canvas.width, canvas.height);
+      const points = [[2,10],[7,10],[7,7],[13,7],[13,10],[19,10],[19,6],[24,6],[28,5]];
+      ctx.strokeStyle = '#e8e9ff'; ctx.shadowColor = '#aabaff'; ctx.shadowBlur = 12; ctx.lineWidth = 5; ctx.beginPath(); points.forEach(([x,z], index) => { const p = realmPoint({ x, y: z }, 30, 14); index ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }); ctx.stroke(); ctx.shadowBlur = 0;
+      if (art.moonShrine) ctx.drawImage(art.moonShrine, 780, 155, 100, 150); else { ctx.fillStyle = '#ddd8ed'; ctx.fillRect(810, 185, 45, 98); }
+      const p = realmPoint(mine, 30, 14); character(mine, p.x - 12, p.y - 14, 25);
+      drawRealmHeader('THE MOON SHRINE', 'STAY ON THE SILVER LINE · PRESS E AT THE SHRINE');
+    } else {
+      ctx.fillStyle = '#27314e'; ctx.fillRect(0, 0, canvas.width, canvas.height); if (art.ghostBackground) ctx.drawImage(art.ghostBackground, 0, 0, canvas.width, canvas.height);
+      const village = mine.ghostVillage || {};
+      for (const ghost of village.ghosts || []) if (ghost.active) { const p = realmPoint({ x: ghost.x, y: ghost.z }, 28, 14); if (art.ghost) ctx.drawImage(art.ghost, p.x - 18, p.y - 35, 36, 36); else { ctx.fillStyle = '#c7e7ff'; ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fill(); } }
+      for (const shot of village.projectiles || []) { const p = realmPoint({ x: shot.x, y: shot.z }, 28, 14); ctx.fillStyle = '#fff2a5'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill(); }
+      const p = realmPoint(mine, 28, 14); character(mine, p.x - 12, p.y - 14, 25);
+      drawRealmHeader('THE GHOST VILLAGE', `CLICK TOWARD GHOSTS · ${village.caught || 0}/6 ECHOES REMEMBERED`);
+    }
+    drawDirectorHud();
+    return true;
+  }
+  function drawLanternRite() {
+    const rite = state.world?.lanternRite; if (!rite) return false;
+    const point = (x, z) => ({ x: 58 + (x - 1) / 30 * 844, y: 85 + (z - 1) / 27 * 478 });
+    const field = ctx.createRadialGradient(480, 270, 60, 480, 270, 620); field.addColorStop(0, '#3b5b64'); field.addColorStop(.5, '#1c3545'); field.addColorStop(1, '#0c1828'); ctx.fillStyle = field; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#2c5960'; ctx.fillRect(70, 205, 820, 142); ctx.fillRect(407, 100, 146, 410); ctx.fillStyle = '#486f71'; ctx.fillRect(303, 440, 354, 112);
+    const core = point(16, 10); if (art.lanternFloor) ctx.drawImage(art.lanternFloor, core.x - 95, core.y - 95, 190, 190); else { ctx.strokeStyle = '#85d6c4'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(core.x, core.y, 75, 0, Math.PI * 2); ctx.stroke(); }
+    for (const entity of activeEntities()) {
+      const p = point(entity.x, entity.y);
+      if (entity.type === 'lantern-core') { if (art.lanternCore) ctx.drawImage(art.lanternCore, p.x - 34, p.y - 52, 68, 68); else { ctx.fillStyle = '#ffe280'; ctx.fillRect(p.x - 11, p.y - 30, 22, 38); } drawHealthBar(p.x - 38, p.y + 32, 76, entity.health, entity.maxHealth, '#6fe6be'); }
+      else if (entity.type === 'lantern-entry-gate') { ctx.strokeStyle = '#ffe99c'; ctx.shadowColor = '#ffe99c'; ctx.shadowBlur = 16; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(p.x, p.y, 36, Math.PI, 0); ctx.stroke(); ctx.shadowBlur = 0; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${entity.readyCount || 0}/4 READY · E`, p.x, p.y + 29); }
+      else if (entity.type === 'lantern-enemy') { ctx.fillStyle = entity.enemyType === 'brute' ? '#b87676' : entity.enemyType === 'swift' ? '#c99cf3' : '#d49b59'; ctx.beginPath(); ctx.arc(p.x, p.y, entity.enemyType === 'brute' ? 17 : 12, 0, Math.PI * 2); ctx.fill(); drawHealthBar(p.x - 20, p.y - 29, 40, entity.hp, entity.maxHp, '#ef7b6a'); }
+      else if (entity.type === 'lantern-switch') { if (art.lanternSwitch) ctx.drawImage(art.lanternSwitch, p.x - 23, p.y - 23, 46, 46); else { ctx.fillStyle = '#f6d26b'; ctx.fillRect(p.x - 13, p.y - 13, 26, 26); } ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff2bd'; ctx.fillText(entity.role, p.x, p.y + 33); }
+    }
+    for (const player of state.players.filter((entry) => entry.realm === 'lantern-rite')) { const p = point(player.x, player.y); character(player, p.x - 12, p.y - 14, 25); ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = player.color; ctx.fillText(player.name, p.x, p.y + 26); if (player.lanternMaxHealth) drawHealthBar(p.x - 18, p.y - 34, 36, player.lanternHealth, player.lanternMaxHealth, '#7ee5b7'); }
+    drawMinimalHud({ suppressNotice: true }); panel(260, 14, 440, 58); ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff0a1'; ctx.fillText('THE LANTERN RITE', 480, 34); ctx.font = '9px monospace'; ctx.fillStyle = '#d9f4ea'; wrap(rite.task || 'The rite is gathering light.', 480, 52, 410, 11);
+    if (state.mine?.archetype === 'Guardian') { panel(690, 120, 245, 44); ctx.textAlign = 'center'; ctx.font = '9px monospace'; ctx.fillStyle = '#b9e3ff'; ctx.fillText('GUARDIAN · Q HEAL · R BARRIER', 812, 146); }
+    drawDirectorHud();
+    return true;
+  }
+  function drawEchoAccord() {
+    const finale = state.world?.finalObjective, accord = finale?.echoAccord;
+    if (!accord || state.mine?.realm !== 'echo-accord') return false;
+    const arena = accord.arena || { minX: 2, maxX: 46, minZ: 2, maxZ: 30 };
+    const point = (x, z) => ({ x: 68 + (x - arena.minX) / Math.max(1, arena.maxX - arena.minX) * 824, y: 90 + (z - arena.minZ) / Math.max(1, arena.maxZ - arena.minZ) * 438 });
+    const dusk = ctx.createLinearGradient(0, 0, 0, canvas.height); dusk.addColorStop(0, '#171a3d'); dusk.addColorStop(.52, '#31214d'); dusk.addColorStop(1, '#15182f'); ctx.fillStyle = dusk; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    for (let z = arena.minZ; z < arena.maxZ; z += 2) for (let x = arena.minX; x < arena.maxX; x += 2) {
+      const a = point(x, z), b = point(x + 2, z + 2);
+      ctx.fillStyle = (Math.floor(x / 2) + Math.floor(z / 2)) % 2 ? 'rgba(104,75,152,.24)' : 'rgba(48,75,133,.24)';
+      ctx.fillRect(Math.round(a.x), Math.round(a.y), Math.ceil(b.x - a.x), Math.ceil(b.y - a.y));
+    }
+    const frame = point(arena.minX, arena.minZ), end = point(arena.maxX, arena.maxZ);
+    ctx.strokeStyle = '#b78bf0'; ctx.lineWidth = 5; ctx.shadowColor = '#b78bf0'; ctx.shadowBlur = 16; ctx.strokeRect(frame.x, frame.y, end.x - frame.x, end.y - frame.y); ctx.shadowBlur = 0;
+    for (const orb of accord.echoes || []) {
+      if (!orb.active) continue;
+      const p = point(orb.x, orb.z), colors = ['#78e7ff', '#ffde73', '#96ed9d', '#dfa8ff'];
+      ctx.save(); ctx.fillStyle = colors[Number(orb.hue) % colors.length]; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 12;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    for (const player of state.players.filter((entry) => entry.realm === 'echo-accord')) {
+      const color = player.echoColor || player.color || '#fff';
+      const trail = player.echoTrail || [];
+      ctx.save(); ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 9; ctx.lineWidth = 5; ctx.lineJoin = 'round';
+      ctx.beginPath(); trail.forEach((tile, index) => { const p = point(tile.x, tile.z); if (!index) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }); ctx.stroke(); ctx.restore();
+      const p = point(player.x, player.y);
+      if (player.echoAlive !== false) {
+        ctx.save(); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 15; ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        character(player, p.x - 12, p.y - 13, 25);
+      } else { ctx.fillStyle = 'rgba(12,11,27,.64)'; ctx.fillRect(p.x - 13, p.y - 13, 26, 26); }
+      ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = color; ctx.fillText(`${player.name} · ${player.echoCollected || 0}`, p.x, p.y + 30);
+    }
+    drawMinimalHud({ suppressNotice: true }); panel(240, 14, 480, 60); ctx.textAlign = 'center'; ctx.font = 'bold 14px monospace'; ctx.fillStyle = '#f3dcff'; ctx.fillText('THE ECHO ACCORD', 480, 35); ctx.font = '9px monospace'; ctx.fillStyle = '#e8ebff';
+    const winner = state.players.find((player) => player.id === accord.winnerId);
+    wrap(winner ? `${winner.name}'s living echo endured. The Game Master records what this group became.` : 'MOVE CONTINUOUSLY · GATHER LIGHT · DO NOT STRIKE ANOTHER LIVING TRAIL', 480, 53, 440, 11);
+    if (winner) { ctx.fillStyle = 'rgba(232,207,255,.2)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    drawDirectorHud();
+    return true;
+  }
   function drawStart() {
     const gradient = ctx.createRadialGradient(480, 320, 40, 480, 320, 620);
     gradient.addColorStop(0, '#163f2e'); gradient.addColorStop(.5, '#0d2b20'); gradient.addColorStop(1, '#061710');
@@ -776,6 +1016,32 @@ export function createRenderer(canvas, session) {
     ctx.font = '10px monospace'; ctx.fillStyle = '#71907a'; ctx.fillText('CLICK ANYWHERE TO BEGIN', 480, 454);
   }
   function drawLobby() { ctx.fillStyle = 'rgba(20,42,57,.74)'; ctx.fillRect(0, 0, canvas.width, canvas.height); panel(212, 214, 536, 188); ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('GATHERING THE EXPEDITION', 480, 255); ctx.font = 'bold 44px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${state.players.length} / 4`, 480, 315); ctx.font = '12px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText('The game begins exactly when four lanterns are present.', 480, 347); }
-  function render() { ctx.clearRect(0, 0, canvas.width, canvas.height); if (!state.joined) { drawStart(); return; } if (drawTempleFinale() || drawGuardianTrial()) return; const zone = state.mine?.zone || 'overworld'; if (zone === 'sunken-temple') drawSunkenTemple(); else if (zone === 'dark-cave') drawDarkCave(); else if (zone === 'hidden-ruins') drawHiddenRuins(); else { const minX = Math.floor(state.camera.x - 25), maxX = Math.ceil(state.camera.x + 25), minY = Math.floor(state.camera.y - 17), maxY = Math.ceil(state.camera.y + 17); for (let y = minY; y <= maxY; y += 1) for (let x = minX; x <= maxX; x += 1) drawTile(x, y); (state.world?.terrain || []).forEach(drawTerrain); drawOverworldDecor(); const mood = state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId; if (mood === 'mist') { ctx.fillStyle = 'rgba(220,236,242,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } if (mood === 'storm') { ctx.fillStyle = 'rgba(54,67,105,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } if (mood === 'starlight') { ctx.fillStyle = 'rgba(82,57,132,.16)'; ctx.fillRect(0, 0, canvas.width, canvas.height); } (state.world?.emergentRules?.markers || []).forEach(drawEmergentMarker); } activeEntities().forEach(drawWorldEntity); if (zone === 'dark-cave') (state.world?.caveCombat?.enemies || []).forEach(drawDemon); if (zone === 'hidden-ruins') (state.world?.ruinsCombat?.enemies || []).forEach(drawMummy); const localPlayers = state.players.filter((player) => (player.zone || 'overworld') === zone); localPlayers.forEach((player) => character(player)); localPlayers.forEach((player) => label(player.name, player.x, player.y, player.color, ['dark-cave', 'hidden-ruins', 'sunken-temple'].includes(player.zone) ? 48 : 34)); drawMinimalHud(); drawDirectorHud(); if (!gameReady()) drawLobby(); }
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (!state.joined) { drawStart(); return; }
+    if (drawTempleFinale() || drawGuardianTrial() || drawLanternRite() || drawEchoAccord() || drawLonerRealm()) return;
+    const zone = state.mine?.zone || 'overworld';
+    if (zone === 'sunken-temple') drawSunkenTemple();
+    else if (zone === 'dark-cave') drawDarkCave();
+    else if (zone === 'hidden-ruins') drawHiddenRuins();
+    else {
+      const minX = Math.floor(state.camera.x - 25), maxX = Math.ceil(state.camera.x + 25), minY = Math.floor(state.camera.y - 17), maxY = Math.ceil(state.camera.y + 17);
+      for (let y = minY; y <= maxY; y += 1) for (let x = minX; x <= maxX; x += 1) drawTile(x, y);
+      (state.world?.terrain || []).forEach(drawTerrain); drawOverworldDecor();
+      const mood = state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId;
+      if (mood === 'mist') { ctx.fillStyle = 'rgba(220,236,242,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+      if (mood === 'storm') { ctx.fillStyle = 'rgba(54,67,105,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+      if (mood === 'starlight') { ctx.fillStyle = 'rgba(82,57,132,.16)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+      (state.world?.emergentRules?.markers || []).forEach(drawEmergentMarker);
+    }
+    activeEntities().forEach(drawWorldEntity);
+    if (zone === 'dark-cave') (state.world?.caveCombat?.enemies || []).forEach(drawDemon);
+    if (zone === 'hidden-ruins') (state.world?.ruinsCombat?.enemies || []).forEach(drawMummy);
+    const localPlayers = state.players.filter((player) => (player.zone || 'overworld') === zone && (player.realm || 'overworld') === 'overworld');
+    localPlayers.forEach((player) => character(player));
+    localPlayers.forEach((player) => label(player.name, player.x, player.y, player.color, ['dark-cave', 'hidden-ruins'].includes(player.zone) ? 48 : 34));
+    drawMinimalHud(); drawDirectorHud(); drawCollectorGame();
+    if (!gameReady()) drawLobby();
+  }
   return { render };
 }

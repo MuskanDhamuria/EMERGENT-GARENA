@@ -9,6 +9,11 @@ The project is split by responsibility so a change has one clear home.
 | Server rules, collision enforcement, room phases, interactions, serialization, or telemetry | `server/game-world.mjs` | The only authority for game state. It has injected transport callbacks, so it never imports HTTP or Socket.IO. |
 | AI Director cards, expiry, and validation | `server/director-rules.mjs` | Server-owned, data-driven changes selected by the AI. |
 | Behaviour signals, emergent-rule primitives, and reversible rule effects | `server/emergent-rules.mjs` | Add compatible trigger/effect primitives here; do not alter roles in this module. |
+| Collector trial selection, clue gates, and authoritative trial completion | `server/collector-system.mjs` | The world only calls this narrow service; puzzle presentation stays in `client/session.js` and `client/renderer.js`. |
+| Guardian portal trials and their movement/objective rules | `server/portal-system.mjs` | Keeps the four trial mechanics independent of the overworld transport. |
+| Loner realm entry, movement, and activity coordination | `server/realm-system.mjs` | Delegates each realm to its own small system. |
+| Behaviour-selected finale policy, Echo Accord state, and final reflection | `server/finale-system.mjs` | Muskan's finale module; `game-world` adapts its room/telemetry data and remains authoritative. |
+| Cooperative Lantern Rite waves, core, repairs, switches, and Guardian support | `server/lantern-rite-system.mjs` | Separate final-arena system driven from the shared world tick. |
 | Socket connection lifecycle and socket event wiring | `server/socket-gateway.mjs` | Keep this transport adapter thin; delegate every decision to the supplied world API. |
 | Game Master HTTP routes and request parsing | `server/mcp-router.mjs` | This translates HTTP into world calls; it should not contain role rules. |
 | Browser startup, keyboard controls, and the join form | `scene.js` | This is intentionally a thin composition root. |

@@ -4,7 +4,7 @@
 
 export const MAX_PLAYERS = 4;
 export const OBSERVATION_MS = 40_000;
-export const CONTENT_VERSION = '2026-08-08-thirteen-shard-tales-v1';
+export const CONTENT_VERSION = '2026-08-08-living-relic-trials-v2';
 // The AI opens two expedition maps each tale: four shards in each chosen
 // map, plus five that remain scattered across Everdawn, makes thirteen
 // recoverable shards in a single playthrough.
@@ -83,7 +83,7 @@ export const ROLE_ABILITIES = Object.freeze({
   Explorer: Object.freeze([
     'hidden-cave-appears', 'temple-staircase-uncovered', 'forgotten-ruins-emerge',
   ]),
-  Collector: Object.freeze(['water-travel', 'relic-lore']),
+  Collector: Object.freeze(['relic-lore', 'appraisal', 'resonance-forging', 'current-sight']),
   Guardian: Object.freeze(['bridge-ward', 'shrine-rite']),
   Loner: Object.freeze(['spirit-sight', 'spirit-walk']),
 });
@@ -94,7 +94,8 @@ export const FEATURES = new Set([
   'sunken-temple-open', 'dark-cave-open', 'hidden-ruins-open',
   'relic-vault', 'evolving-artifacts', 'treasure-cache', 'healing-shrine',
   'protective-barrier', 'revival-monument', 'spirit-realm', 'illusion-passage',
-  'hidden-portal', 'crystal-mine', 'shadow-forest', 'moon-shrine', 'ghost-village', 'ancient-temple', 'final-gate',
+  'hidden-portal', 'crystal-mine', 'ancient-vault', 'relic-forge', 'sunken-relic',
+  'shadow-forest', 'moon-shrine', 'ghost-village', 'ancient-temple', 'final-gate',
 ]);
 
 // Coordinates are server-world coordinates.  The browser converts them to map
@@ -160,7 +161,15 @@ export const EVOLUTION_LIBRARY = Object.freeze({
     Object.freeze(['temple-staircase-uncovered', 'Roots withdraw from weathered stone: the temple staircase is uncovered.']),
     Object.freeze(['forgotten-ruins-emerge', 'The sand exhales around a broken arch: forgotten ruins have emerged.']),
   ]),
-  Collector: Object.freeze([Object.freeze(['relic-vault', 'The Collector has learned the language of the Echo Water relics.'])]),
+  // The Game Master selects two of these from collection style after
+  // observation. Their authoritative setup lives in collector-system.mjs.
+  Collector: Object.freeze([
+    Object.freeze(['crystal-mine', 'The mountain answers the Collector\'s patient gathering. A Crystal Mine begins to glow.']),
+    Object.freeze(['ancient-vault', 'The Collector\'s wandering has woken an Ancient Vault beneath the old stones.']),
+    Object.freeze(['treasure-cache', 'A weathered Treasure Cache rises where the Collector noticed what others left behind.']),
+    Object.freeze(['relic-forge', 'The Relic Forge takes a first breath, answering the Collector\'s care for the group.']),
+    Object.freeze(['sunken-relic', 'The lake reveals a Sunken Relic to the Collector who kept travelling beyond the shore.']),
+  ]),
   Guardian: Object.freeze([Object.freeze(['healing-shrine', 'The Guardian has awakened the shrine beyond the Warden Bridge.'])]),
   Loner: Object.freeze([
     Object.freeze(['spirit-realm', 'The Loner can now read the paths behind the veil.']),
@@ -178,11 +187,24 @@ const worldEvolution = (id, archetype, title, feature, x, z) => Object.freeze({
   entity: Object.freeze({ id: `evolution-${id}`, type: 'world-evolution', x, z, role: archetype, feature, label: title, interaction: 'explore-evolution' }),
 });
 export const WORLD_EVOLUTIONS = Object.freeze([
-  worldEvolution('hidden-cave-appears', 'Explorer', 'Hidden Cave', 'hidden-cave', -22, -10),
-  worldEvolution('forgotten-ruins-emerge', 'Explorer', 'Forgotten Ruins', 'forgotten-ruins', -14, -7),
+  // Compatibility catalogue used by Muskan's adaptive finale. Its features
+  // intentionally match the modular world unlocks above, so the finale reads
+  // the same evolution history the live game actually produced.
+  worldEvolution('hidden-cave-appears', 'Explorer', 'Hidden Cave', 'hidden-cave-appears', -22, -10),
+  worldEvolution('temple-staircase-uncovered', 'Explorer', 'Temple Staircase', 'temple-staircase-uncovered', 20, -8),
+  worldEvolution('forgotten-ruins-emerge', 'Explorer', 'Forgotten Ruins', 'forgotten-ruins-emerge', 12, -9),
   worldEvolution('crystal-mine-awakens', 'Collector', 'Crystal Mine', 'crystal-mine', 12, 7),
+  worldEvolution('ancient-vault-unlocks', 'Collector', 'Ancient Vault', 'ancient-vault', 16, -4),
+  worldEvolution('treasure-cache-appears', 'Collector', 'Treasure Cache', 'treasure-cache', 3, 5),
+  worldEvolution('relic-forge-activates', 'Collector', 'Relic Forge', 'relic-forge', 8, -3),
+  worldEvolution('sunken-relic-emerges', 'Collector', 'Sunken Relic', 'sunken-relic', 17, 5),
   worldEvolution('healing-shrine-awakens', 'Guardian', 'Healing Shrine', 'healing-shrine', 14, -2),
+  worldEvolution('protective-barrier-appears', 'Guardian', 'Warden Barrier', 'protective-barrier', 11, -3),
+  worldEvolution('revival-monument-awakens', 'Guardian', 'Revival Monument', 'revival-monument', 15, -4),
   worldEvolution('spirit-portal-opens', 'Loner', 'Spirit Portal', 'spirit-realm', -3, 10),
+  worldEvolution('shadow-forest-awakens', 'Loner', 'Shadow Forest', 'shadow-forest', -20, 5),
+  worldEvolution('moon-shrine-visible', 'Loner', 'Moon Shrine', 'moon-shrine', -9, 12),
+  worldEvolution('ghost-village-appears', 'Loner', 'Ghost Village', 'ghost-village', -16, 11),
 ]);
 
 // Client input is translated through this single lookup.  When adding a new

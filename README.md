@@ -1,6 +1,6 @@
 # Emergent / Everdawn
 
-Everdawn is the playable pixel-art stage for **Emergent**: a shared adventure with no preset player roles or quest. A server-authoritative Game Master observes group behaviour, assigns distinct identities, evolves the world, and builds a cooperative ending around that group.
+Everdawn is the playable pixel-art stage for **Emergent**: a shared adventure with no preset player roles or quest. A server-authoritative Game Master observes group behaviour, assigns distinct identities, evolves the world, and builds an ending around that group.
 
 For a quick map of which file owns which part of the game, see [TEAM_GUIDE.md](TEAM_GUIDE.md). Role content, special terrain, entities, and action IDs live together in `shared/game-content.js`.
 
@@ -55,4 +55,4 @@ The MCP process cannot alter the game client or execute arbitrary code. The game
 3. The Game Master interprets those signals, awakens four unique identities after 40 seconds, and chooses two expeditions that fit the group.
 4. Continued play evolves identities and reveals caves, bridges, vaults, shrines, private spirit paths, and portals.
 5. When a hostile expedition begins, its enemies use the AI-selected tactic while retaining the fixed 5% per-hit fairness rule.
-6. The Game Master continues observing, creates reversible group-specific laws, and composes the Ancient Temple finale from the roles and abilities that actually emerged.
+6. The Guardian and Loner complete their two authored personal rites, which reveals the Ancient Temple entrance. Once all four players arrive, the Game Master chooses a Muskan finale from post-role behaviour: a cooperative Lantern Rite with telemetry-shaped waves, repairs and role switches, or the alternate Echo Accord living-trail arena. The choice, evolution history and role-specific guidance remain server-authoritative and visible in the final reflection.

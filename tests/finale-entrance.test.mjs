@@ -18,7 +18,7 @@ assert.equal(room.world.unlocked.has('ancient-temple'), false, 'the entrance is 
 const [explorer, collector, guardian, loner] = [...room.players.values()];
 explorer.roleObjectives = new Set();
 collector.relicIds = new Set();
-guardian.guardianPortal = { completedTrialIds: ['wardkeepers-circuit', 'lost-lanterns'] };
+guardian.guardianPortal = { selectedTrialIds: ['wardkeepers-circuit', 'lost-lanterns'], completedTrialIds: ['wardkeepers-circuit', 'lost-lanterns'], activeTrialId: null, position: null, activatedObjectiveIds: [], narration: [] };
 loner.roleObjectives = new Set(['veil', 'moon']);
 world.tickRoom(room, 0);
 
@@ -29,8 +29,10 @@ assert.ok(world.serializeRoom(room, explorer.id).entities.some((entity) => entit
 for (const player of [explorer, collector, guardian, loner]) {
   player.x = 16; player.z = 8;
   const result = world.interact(room, player, 'enter-final-temple', 'finale-entrance');
-  if (player !== loner) assert.equal(result.templeOpened, undefined, 'the party waits at the entrance for every player');
-  else assert.equal(result.templeOpened, true, 'the fourth arrival opens the shared Temple');
+  if (player !== loner) assert.equal(result.lanternRite, undefined, 'the party waits at the entrance for every player');
+  else assert.equal(result.lanternRite, true, 'the fourth arrival launches Muskan\'s cooperative Lantern Rite');
 }
-assert.ok(room.templeFinale);
-console.log('Finale entrance gate tests passed.');
+assert.equal(room.templeFinale, null, 'the legacy split-screen Temple finale is not launched');
+assert.equal([...room.players.values()].every((player) => player.realm === 'lantern-rite'), true, 'Muskan\'s finale moves all four into its shared arena');
+assert.equal(room.finalObjective.variant.id, 'lantern_rite');
+console.log('Muskan finale entrance gate tests passed.');

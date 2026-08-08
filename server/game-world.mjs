@@ -587,6 +587,9 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const privateFeatures = viewer ? room.world.privateUnlocks.get(viewer.id) || new Set() : new Set();
     if (entity.feature && !room.world.unlocked.has(entity.feature) && !privateFeatures.has(entity.feature)) return false;
     if (!viewer) return true;
+    // A route found by the Explorer becomes a shared landmark immediately.
+    // The interaction logic still keeps the first entry Explorer-only.
+    if (entity.feature && ['hidden-cave-appears', 'temple-staircase-uncovered', 'forgotten-ruins-emerge'].includes(entity.feature) && room.world.unlocked.has(entity.feature)) return true;
     if (entity.id === 'hidden-temple-entrance' && room.world.unlocked.has('sunken-temple-open')) return true;
     if (entity.id === 'hidden-cave-mouth' && room.world.unlocked.has('dark-cave-open')) return true;
     if (entity.id === 'hidden-ruins-entrance' && room.world.unlocked.has('hidden-ruins-open')) return true;
@@ -615,7 +618,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const entities = [...room.entities, ...guardianPortalEntities(room), ...(viewer ? realms.entities(viewer) : [])]
       .filter((entity) => entityVisibleTo(entity, viewer, room))
       .map(({ id, type, x, z, tileX, tileY, zone, label, role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }) => ({ id, type, x, z, tileX, tileY, zone: zone || 'overworld', label, role, requiredRole: role, terrain, collectedBy, feature, action, trialId, active, hp, defeated }));
-    const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => (!viewer || area.role === viewer.archetype || (area.id === 'temple-staircase-ground' && room.world.unlocked.has('sunken-temple-open')) || (area.id === 'hidden-cave-clearing' && room.world.unlocked.has('dark-cave-open')) || (area.id === 'forgotten-ruins-site' && room.world.unlocked.has('hidden-ruins-open'))) && (!area.feature || room.world.unlocked.has(area.feature))).map(({ id, kind, role, feature, label, x, z, w, h, points, pathWidth }) => ({ id, kind, requiredRole: role, feature, label, x, z, w, h, points, pathWidth }));
+    const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => (!viewer || area.role === viewer.archetype || (area.feature && ['hidden-cave-appears', 'temple-staircase-uncovered', 'forgotten-ruins-emerge'].includes(area.feature) && room.world.unlocked.has(area.feature)) || (area.id === 'temple-staircase-ground' && room.world.unlocked.has('sunken-temple-open')) || (area.id === 'hidden-cave-clearing' && room.world.unlocked.has('dark-cave-open')) || (area.id === 'forgotten-ruins-site' && room.world.unlocked.has('hidden-ruins-open'))) && (!area.feature || room.world.unlocked.has(area.feature))).map(({ id, kind, role, feature, label, x, z, w, h, points, pathWidth }) => ({ id, kind, requiredRole: role, feature, label, x, z, w, h, points, pathWidth }));
     const viewerShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => id.startsWith('tideglass-shard-')).length : 0;
     const shardProgress = viewerShardCount > 0 ? { collected: viewerShardCount, total: TEMPLE_SHARD_TOTAL, objectiveRevealed: viewerShardCount >= 5 } : null;
     const viewerCaveShardCount = viewer?.archetype === 'Collector' ? [...viewer.relicIds].filter((id) => id.startsWith('gloom-shard-')).length : 0;

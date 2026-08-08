@@ -61,6 +61,16 @@ assert.deepEqual(routeExplorer.evolutions, ['temple-staircase-uncovered']);
 discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: -21, z: -11 }, true);
 assert.deepEqual(routeExplorer.evolutions, ['temple-staircase-uncovered', 'hidden-cave-appears']);
 
+// Discovery is shared with the party immediately, even though only the
+// Explorer can make the first entry into an unopened expedition.
+const discoveryCollector = discoveryWorld.createPlayer('discovery-collector', 'Mira', 1);
+discoveryCollector.archetype = 'Collector'; discoveryRoom.players.set(discoveryCollector.id, discoveryCollector);
+const collectorDiscoveryState = discoveryWorld.serializeRoom(discoveryRoom, discoveryCollector.id);
+assert.ok(collectorDiscoveryState.entities.some((entity) => entity.id === 'hidden-cave-mouth'), 'the Collector should see the cave the Explorer uncovered');
+assert.ok(collectorDiscoveryState.terrain.some((area) => area.id === 'hidden-cave-clearing'), 'the cave clearing should be visible to the whole party');
+assert.ok(collectorDiscoveryState.entities.some((entity) => entity.id === 'hidden-temple-entrance'), 'the Collector should see the temple staircase the Explorer uncovered');
+assert.ok(collectorDiscoveryState.terrain.some((area) => area.id === 'temple-staircase-ground'), 'the temple approach should be visible to the whole party');
+
 const enterCave = discoveryWorld.interact(discoveryRoom, routeExplorer, 'enter-dark-cave', 'hidden-cave-mouth');
 assert.equal(enterCave.ok, true, 'the Explorer should discover and enter the Black Hollow');
 assert.equal(routeExplorer.zone, 'dark-cave');

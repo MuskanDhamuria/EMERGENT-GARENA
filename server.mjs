@@ -143,13 +143,8 @@ function createRoom(code) {
 function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index];
   return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], sprite: PLAYER_SPRITES[index], facing: 'down', x, z, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
-<<<<<<< HEAD
-    locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), completedEvolutions: new Set(), interactions: {}, movement: 0, movementSamples: 0,
-    nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
-=======
     locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
     nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, observationItems: new Set(), collectorClues: new Set(), collectorProgress: null, collectorEvolutionPlan: [], collectorEvolutionReasons: {}, collectorEvolutionIndex: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
->>>>>>> 02d811228ee3ab45242e9e3eac1dd5bd94ca8f98
 }
 function resetRoomForRoster(room, reason) {
   room.phase = 'waiting-for-four'; room.observationEndsAt = null; room.archetypesAssignedAt = null; room.nextEvolutionAt = null; room.worldEvolutions = []; room.finalObjective = null;
@@ -349,11 +344,7 @@ function evolve(room, playerId, source = 'server') {
 }
 function fallbackEvolution(room) {
   const used = new Set(room.worldEvolutions.map((item) => item.id));
-<<<<<<< HEAD
-  const candidates = WORLD_EVOLUTIONS.filter((item) => !used.has(item.id) && activePlayers(room).some((player) => player.archetype === item.archetype) && room.worldEvolutions.filter((usedItem) => usedItem.archetype === item.archetype).length < 2);
-=======
   const collector = activePlayers(room).find((player)=>player.archetype==='Collector'); const expectedCollectorFeature=collector?.collectorEvolutionPlan?.[collector.collectorEvolutionIndex||0]; const candidates = WORLD_EVOLUTIONS.filter((item) => !used.has(item.id) && activePlayers(room).some((player) => player.archetype === item.archetype) && !(item.archetype==='Collector' && (!expectedCollectorFeature || item.feature!==expectedCollectorFeature || (collector?.collectorProgress && !collector.collectorProgress.completed))));
->>>>>>> 02d811228ee3ab45242e9e3eac1dd5bd94ca8f98
   if (!candidates.length) { room.nextEvolutionAt = null; return null; }
   const score = (item) => { const player = activePlayers(room).find((p) => p.archetype === item.archetype); const base = player.evolutionBaseline || {}; const proxy = { ...player, movement: player.movement - (base.movement || 0), visited: { size: Math.max(0, player.visited.size - (base.visited || 0)) }, nearSeconds: player.nearSeconds - (base.near || 0), aloneSeconds: player.aloneSeconds - (base.alone || 0), riskEvents: player.riskEvents - (base.risk || 0), rescues: player.rescues - (base.rescues || 0), relicIds: { size: player.relicIds.size - (base.relics || 0) }, interactions: Object.fromEntries(Object.entries(player.interactions).map(([key,value]) => [key, value - (base.interactions?.[key] || 0)])) }; return (archetypeScores(proxy)[item.archetype] || 0) - room.worldEvolutions.filter((e) => e.archetype === item.archetype).length * 8 + Math.random() * 3; };
   const chosen = [...candidates].sort((a, b) => score(b) - score(a))[0];
@@ -473,11 +464,7 @@ function serializeRoom(room, viewerId = null) {
   if (viewer?.realm === 'dungeon') entities.push(...dungeonSystem.entities(viewer));
   const visibleTerrain = TERRAIN_OVERLAYS.filter((area) => !viewer || area.role === viewer.archetype).map(({ id, kind, role, label, x, z, w, h }) => ({ id, kind, requiredRole: role, label, x, z, w, h }));
   return { code: room.code, phase: room.phase, playerCount: room.players.size, requiredPlayers: MAX_PLAYERS, observationEndsAt: room.observationEndsAt, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, nextEvolutionAt: room.nextEvolutionAt, evolutionSecondsRemaining: room.nextEvolutionAt ? Math.max(0, Math.ceil((room.nextEvolutionAt - now()) / 1000)) : null, finaleSecondsRemaining: room.archetypesAssignedAt ? Math.max(0, Math.ceil((room.archetypesAssignedAt + FINALE_MIN_MATCH_MS - now()) / 1000)) : null, finaleEligible: Boolean(finaleSystem?.eligibility(room).ok), worldEvolutions: room.worldEvolutions, evolutionHistory: room.worldEvolutions,
-<<<<<<< HEAD
-    players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm !== 'overworld' ? p.x : undefined, tileY: p.realm !== 'overworld' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, shadowForest: p.id === viewerId ? p.shadowForest : undefined, moonShrine: p.id === viewerId ? p.moonShrine : undefined, ghostVillage: p.id === viewerId ? p.ghostVillage : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, evolutions: p.evolutions, completedEvolutions: [...(p.completedEvolutions || [])], dungeonCompletions: p.dungeonCompletions || 0 })),
-=======
     players: activePlayers(room).map((p) => ({ id: p.id, name: p.name, color: p.color, sprite: p.sprite, facing: p.facing, moving: Math.hypot(p.inputX,p.inputZ)>0, x: p.x, z: p.z, tileX: p.realm !== 'overworld' ? p.x : undefined, tileY: p.realm !== 'overworld' ? p.z : undefined, realm: p.realm || 'overworld', dungeon: p.id === viewerId ? p.dungeon : undefined, shadowForest: p.id === viewerId ? p.shadowForest : undefined, moonShrine: p.id === viewerId ? p.moonShrine : undefined, ghostVillage: p.id === viewerId ? p.ghostVillage : undefined, locationId: p.locationId, archetype: p.archetype, capabilities: p.id === viewerId ? ROLE_ABILITIES[p.archetype] || [] : undefined, relicCount: p.relicIds.size, observationCount: p.observationItems?.size || 0, forgeAssistHeat: p.id === viewerId ? (p.collectorProgress?.forgeAssistHeat || 0) : undefined, collectorEvolutionPlan: p.id === viewerId && p.archetype === 'Collector' ? p.collectorEvolutionPlan : undefined, collectorEvolutionReasons: p.id === viewerId && p.archetype === 'Collector' ? p.collectorEvolutionReasons : undefined, collectorObjective: p.id === viewerId ? collectorObjectiveText(p.collectorProgress,p) : (p.archetype === 'Collector' && p.collectorProgress ? { title:p.collectorProgress.title, completed:p.collectorProgress.completed, status:p.collectorProgress.completed?'complete':'in-progress' } : null), evolutions: p.evolutions, dungeonCompletions: p.dungeonCompletions || 0 })),
->>>>>>> 02d811228ee3ab45242e9e3eac1dd5bd94ca8f98
     relics: entities.filter((entity) => entity.type === 'relic'), entities, terrain: visibleTerrain,
     world: { unlocked: [...room.world.unlocked], privateUnlocks }, finalObjective: room.finalObjective, director: room.director,
     directorRules: { activeRules: visibleRules, history: (directorRules.history || []).slice(-8) }, events: room.events.slice(-8), yourPrivateRules: viewer?.privateRules || [] };

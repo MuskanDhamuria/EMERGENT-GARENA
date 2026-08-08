@@ -282,26 +282,10 @@ export function createSession() {
   function interactMoonPreview(){const player=state.mine,mission=player.moonShrine;if(mission.lineFailed&&Math.hypot(player.x-2,player.y-10)<=1.2){mission.lineFailed=false;mission.pathStep=0;note('The silver line begins again.',3);return;}if(Math.hypot(player.x-28,player.y-5)<=1.8){if(mission.lineFailed){note('Return to the beginning and press E.',3);return;}if(mission.pathStep<moonPath.length-1){note('The full silver route has not been followed.',3);return;}player.x=player.targetX=2;player.y=player.targetY=10;mission.pathStep=0;mission.lineFailed=false;note('Ritual complete. The preview has restarted.',4);return;}note(mission.lineFailed?'Return to the beginning and press E to retry.':'Follow the silver line to the shrine.',3);}
   function interact() {
     if (!gameReady() || !state.mine) return;
-<<<<<<< HEAD
-    if (state.mine.realm === 'shadow-forest') {
-      if (state.mine.x < 22.4 || state.mine.y >= 6.3) { note('Stand beside the trophy before pressing E.', 3); return; }
-      if (state.preview === 'shadow-forest') { state.mine.x=state.mine.targetX=1.5;state.mine.y=state.mine.targetY=11;state.mine.shadowForest.vx=state.mine.shadowForest.vy=0;note('Crossing complete. The preview has restarted.',4);return; }
-      socket.emit('interact', { type: 'exit-shadow-forest' }, (reply) => note(reply?.ok ? 'You claim the forgotten trophy.' : (reply?.error || 'The trophy remains silent.'), reply?.ok ? 3 : 5)); return;
-    }
-    if (state.mine.realm === 'moon-shrine') { if(state.preview==='moon-shrine'){interactMoonPreview();return;}socket.emit('interact', { type: 'moon-shrine-interact' }, (reply) => note(reply?.ok ? (reply.kind==='complete'?'The Moon Shrine recognizes you.':reply.kind==='puzzle'?'Three numbered runes awaken.':reply.kind==='rune'?'A rune ignites.':'A moon echo answers.') : (reply?.error || 'The moonlit stones remain silent.'), reply?.ok ? 3 : 5)); return; }
-    if (!['evolving', 'finale'].includes(state.world?.phase)) {
-      note('Roles are still awakening. Interactions unlock when the observation ends.', 4);
-      return;
-    }
-    const candidates=activeEntities(),finale=state.world?.finalObjective;
-    const finaleTarget=finale?.status==='active'&&finale.phase==='TRAVEL'?candidates.find((item)=>item.id===finale.destination?.targetId):null;
-    const entity=finaleTarget&&Math.hypot(state.mine.x-finaleTarget.x,state.mine.y-finaleTarget.y)<=3.25?finaleTarget:nearest(state.mine,candidates),action=finalAction(entity);
-=======
     if (state.mine.realm === 'shadow-forest') { if (state.mine.x < 22.4 || state.mine.y >= 6.3) { note('Stand beside the trophy before pressing E.', 3); return; } if (state.preview === 'shadow-forest') { state.mine.x=state.mine.targetX=1.5;state.mine.y=state.mine.targetY=11;state.mine.shadowForest.vx=state.mine.shadowForest.vy=0;note('Crossing complete. The preview has restarted.',4);return; } socket.emit('interact', { type: 'exit-shadow-forest' }, (reply) => note(reply?.ok ? 'You claim the forgotten trophy.' : (reply?.error || 'The trophy remains silent.'), reply?.ok ? 3 : 5)); return; }
     if (state.mine.realm === 'moon-shrine') { if(state.preview==='moon-shrine'){interactMoonPreview();return;} socket.emit('interact', { type: 'moon-shrine-interact' }, (reply) => note(reply?.ok ? (reply.kind==='complete'?'The Moon Shrine recognizes you.':reply.kind==='puzzle'?'Three numbered runes awaken.':reply.kind==='rune'?'A rune ignites.':'A moon echo answers.') : (reply?.error || 'The moonlit stones remain silent.'), reply?.ok ? 3 : 5)); return; }
     if (!['observing','evolving','finale'].includes(state.world?.phase)) { note('Wait for the expedition to begin.', 4); return; }
     const entity = nearest(state.mine, activeEntities()), action = finalAction(entity);
->>>>>>> 02d811228ee3ab45242e9e3eac1dd5bd94ca8f98
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
       if (reply?.ok && action === 'dungeon-attack') { state.attackTimer = 0.28; state.attackTargetId = entity.id; state.attackTargetX = entity.x; state.attackTargetY = entity.y; }

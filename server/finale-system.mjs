@@ -36,13 +36,8 @@ export function createFinaleSystem(world, options={}) {
   function eligibility(room){
     if(room.finalObjective) return {ok:false,error:'A finale is already active.'};
     if(players(room).length!==4||!ARCHETYPES.every((role)=>players(room).some((player)=>player.archetype===role))) return {ok:false,error:'All four callings must be present.'};
-<<<<<<< HEAD
-    if(!ARCHETYPES.every((role)=>evolvedByRole(room,role).length>=2)) return {ok:false,error:'Each calling must receive two individual missions before the finale.'};
-    if(!ARCHETYPES.every((role)=>completedByRole(room,role).length>=2)) return {ok:false,error:'Every player must complete both individual missions before the finale.'};
-=======
     if(!ARCHETYPES.every((role)=>evolvedByRole(room,role).length)) return {ok:false,error:'Each calling must first leave a mark on the world.'};
     const collector=players(room).find((player)=>player.archetype==='Collector'); if(collector?.collectorProgress && !collector.collectorProgress.completed) return {ok:false,error:'The Collector must complete the awakened landmark challenge before the finale.'};
->>>>>>> 02d811228ee3ab45242e9e3eac1dd5bd94ca8f98
     if(!room.archetypesAssignedAt||Date.now()-room.archetypesAssignedAt<minimumMatchMs) return {ok:false,error:'The Game Master has not watched long enough.'};
     return {ok:true};
   }

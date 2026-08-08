@@ -9,7 +9,7 @@ export const ARCHETYPES = Object.freeze(['Explorer', 'Collector', 'Guardian', 'L
 
 export const ROLE_ABILITIES = Object.freeze({
   Explorer: Object.freeze(['hidden-paths', 'temple-sight']),
-  Collector: Object.freeze(['water-travel', 'relic-lore']),
+  Collector: Object.freeze(['water-travel', 'relic-lore', 'relic-sense', 'object-appraisal']),
   Guardian: Object.freeze(['bridge-ward', 'shrine-rite']),
   Loner: Object.freeze(['spirit-sight', 'spirit-walk']),
 });
@@ -40,7 +40,7 @@ export const WORLD_EVOLUTION_LIBRARY = Object.freeze({
     evolution('temple-staircase-uncovered','Explorer','Temple Staircase','temple-staircase',18,8,'The buried stones have felt your searching steps. Vines retreat from a descending stair. The temple offers a way forward.'),
   ]),
   Collector: Object.freeze([
-    evolution('crystal-mine-awakens','Collector','Crystal Mine','crystal-mine',20,-10,'Every small treasure has held your attention. Deep crystal answers that care. The mountain mine begins to glow.'),
+    evolution('crystal-mine-awakens','Collector','Crystal Mine','crystal-mine',-10,-10,'Every small treasure has held your attention. Deep crystal answers that care. The mountain mine begins to glow.'),
     evolution('ancient-vault-unlocks','Collector','Ancient Vault','ancient-vault',14,9,'You have treated each relic as a memory, not a prize. Ancient locks turn beneath the earth. The vault opens one watchful eye.'),
     evolution('treasure-cache-appears','Collector','Treasure Cache','treasure-cache',5,10,'Nothing discarded has escaped your notice. The riverbank gives up its secret. A weathered cache appears among the reeds.'),
     evolution('relic-forge-activates','Collector','Relic Forge','relic-forge',11,-5,'The relics hum when you draw near. A cold furnace takes a breath. The old forge waits for worthy hands.'),

@@ -36,8 +36,13 @@ export function createFinaleSystem(world, options={}) {
   function eligibility(room){
     if(room.finalObjective) return {ok:false,error:'A finale is already active.'};
     if(players(room).length!==4||!ARCHETYPES.every((role)=>players(room).some((player)=>player.archetype===role))) return {ok:false,error:'All four callings must be present.'};
+<<<<<<< HEAD
     if(!ARCHETYPES.every((role)=>evolvedByRole(room,role).length>=2)) return {ok:false,error:'Each calling must receive two individual missions before the finale.'};
     if(!ARCHETYPES.every((role)=>completedByRole(room,role).length>=2)) return {ok:false,error:'Every player must complete both individual missions before the finale.'};
+=======
+    if(!ARCHETYPES.every((role)=>evolvedByRole(room,role).length)) return {ok:false,error:'Each calling must first leave a mark on the world.'};
+    const collector=players(room).find((player)=>player.archetype==='Collector'); if(collector?.collectorProgress && !collector.collectorProgress.completed) return {ok:false,error:'The Collector must complete the awakened landmark challenge before the finale.'};
+>>>>>>> 02d811228ee3ab45242e9e3eac1dd5bd94ca8f98
     if(!room.archetypesAssignedAt||Date.now()-room.archetypesAssignedAt<minimumMatchMs) return {ok:false,error:'The Game Master has not watched long enough.'};
     return {ok:true};
   }
@@ -85,7 +90,7 @@ export function createFinaleSystem(world, options={}) {
   function setPhase(room,phase){room.finalObjective.phase=phase;room.finalObjective.phaseChangedAt=Date.now();narratePhase(room,phase);}
 
   function reflection(room){
-    const lines=players(room).map((player)=>{const base=player.evolutionBaseline||{};const travelled=Math.max(0,Math.round(player.movement-(base.movement||0)));const alone=Math.max(0,Math.round(player.aloneSeconds-(base.alone||0)));const near=Math.max(0,Math.round(player.nearSeconds-(base.near||0)));const relics=Math.max(0,player.relicIds.size-(base.relics||0));const evidence=player.archetype==='Explorer'?`travelled ${travelled} steps beyond familiar roads`:player.archetype==='Collector'?`gave meaning to ${relics} relic${relics===1?'':'s'}`:player.archetype==='Guardian'?`remained near the group for ${near} seconds`:`walked alone for ${alone} seconds`;return `${player.name}, the ${player.archetype}, ${evidence}.`;});
+    const lines=players(room).map((player)=>{const base=player.evolutionBaseline||{};const travelled=Math.max(0,Math.round(player.movement-(base.movement||0)));const alone=Math.max(0,Math.round(player.aloneSeconds-(base.alone||0)));const near=Math.max(0,Math.round(player.nearSeconds-(base.near||0)));const relics=Math.max(0,player.relicIds.size-(base.relics||0));const evidence=player.archetype==='Explorer'?`travelled ${travelled} steps beyond familiar roads`:player.archetype==='Collector'?`gathered ${player.observationItems?.size||0} overlooked curios and completed ${player.collectorProgress?.title||'a relic challenge'}`:player.archetype==='Guardian'?`remained near the group for ${near} seconds`:`walked alone for ${alone} seconds`;return `${player.name}, the ${player.archetype}, ${evidence}.`;});
     return {lines:[...lines,'So I created this world.'],assignedRoles:players(room).map((p)=>({playerId:p.id,name:p.name,archetype:p.archetype})),behaviourEvidence:players(room).map((p)=>world.playerTelemetry(room,p).postAssignment),worldEvolutions:room.worldEvolutions.map((item)=>({...item})),finaleComposition:{destination:room.finalObjective.destination,roleSteps:room.finalObjective.roleSteps,complication:room.finalObjective.complication},transformedMapOverview:{transformedLandmark:room.finalObjective.destination.title,evolvedLandmarks:room.worldEvolutions.map((item)=>item.title),complicationStopped:true}};
   }
 

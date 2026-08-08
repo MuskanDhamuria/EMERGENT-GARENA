@@ -40,7 +40,8 @@ for(const role of ARCHETYPES){const step=first.room.finalObjective.roleSteps.fin
   assert.equal(system.interact(first.room,player,'finale-role-step',target).ok,false);
 }
 assert.equal(first.room.finalObjective.phase,'GROUP_RITUAL');
-for(const player of first.playerList){const circle=first.room.entities.find((e)=>e.id===`finale-circle-${player.archetype.toLowerCase()}`);player.x=circle.x;player.z=circle.z;const result=system.interact(first.room,player,'finale-ritual',circle);if(player!==first.playerList.at(-1))assert.equal(result.complete,undefined);else assert.equal(result.complete,true);}
+for(const player of first.playerList){const circle=first.room.entities.find((e)=>e.id===`finale-circle-${player.archetype.toLowerCase()}`);player.x=circle.x;player.z=circle.z;system.tick(first.room,.01);if(player!==first.playerList.at(-1))assert.equal(first.room.finalObjective.status,'active');}
+assert.equal(first.room.finalObjective.status,'complete');
 assert.equal(first.room.finalObjective.phase,'COMPLETE');assert.equal(first.room.finalObjective.complication.active,false);assert.equal(first.room.finalObjective.reflection.lines.at(-1),'So I created this world.');
 assert.equal(system.advance(first.room),true);assert.equal(first.room.phase,'waiting-for-four');assert.equal(first.room.finalObjective,null);assert.equal(first.room.resetCount,1);
 console.log('Dynamic cooperative finale tests passed.');

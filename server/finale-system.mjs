@@ -109,7 +109,19 @@ export function createFinaleSystem(world, options={}) {
     world.event(room,'echo-accord-awakens',room.director.narration,{variantId});return {ok:true};
   }
   function tick(room,delta){
-    const finale=room.finalObjective,game=finale?.echoAccord;if(finale?.status!=='active'||finale.phase!=='ECHO_ACCORD'||!game)return;
+    const finale=room.finalObjective;if(finale?.status!=='active')return;
+    if(finale.phase==='GROUP_RITUAL'){
+      const ritual=finale.groupRitual;
+      const standing=players(room).filter((player)=>{
+        const circle=room.entities.find((entity)=>entity.id===`finale-circle-${player.archetype?.toLowerCase()}`);
+        return circle&&(player.realm||'overworld')==='overworld'&&Math.hypot(player.x-circle.x,player.z-circle.z)<=1.2;
+      });
+      ritual.participants=Object.fromEntries(standing.map((player)=>[player.id,Date.now()]));
+      ritual.startedAt=standing.length?ritual.startedAt||Date.now():null;
+      if(standing.length===4)return complete(room);
+      return;
+    }
+    const game=finale.echoAccord;if(finale.phase!=='ECHO_ACCORD'||!game)return;
     const roster=players(room),arena=game.arena;
     for(const player of roster){
       if(!player.echoAlive)continue;
@@ -138,9 +150,7 @@ export function createFinaleSystem(world, options={}) {
       step.completed=true;step.completedBy=player.id;step.completedAt=Date.now();setPhase(room,NEXT_PHASE[finale.phase]);return {ok:true,phase:finale.phase};
     }
     if(finale.phase==='GROUP_RITUAL'){
-      if(action!=='finale-ritual'||entity.id!==`finale-circle-${player.archetype.toLowerCase()}`)return {ok:false,error:'Each calling must answer from its own circle.'};
-      const ritual=finale.groupRitual;const stamp=Date.now();if(ritual.startedAt&&stamp-ritual.startedAt>ritual.windowMs){ritual.startedAt=stamp;ritual.participants={};}if(ritual.participants[player.id])return {ok:false,error:'Your circle is already carrying your answer.'};
-      ritual.startedAt ||= stamp;ritual.participants[player.id]=stamp;return Object.keys(ritual.participants).length===4?complete(room):{ok:true,phase:'GROUP_RITUAL',participants:Object.keys(ritual.participants).length};
+      return {ok:false,error:'Stand on your calling\'s circle. The rite begins automatically when all four circles are occupied.'};
     }
     return {ok:false,error:'The finale is not ready for that interaction.'};
   }

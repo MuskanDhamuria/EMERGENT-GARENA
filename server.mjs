@@ -143,7 +143,7 @@ function createRoom(code) {
 function createPlayer(id, name, index) {
   const [x, z] = SPAWNS[index];
   return { id, name: cleanText(name, 'Wanderer', 16), color: COLORS[index], sprite: PLAYER_SPRITES[index], facing: 'down', x, z, realm: 'overworld', dungeon: null, shadowForest: null, moonShrine: null, ghostVillage: null, dungeonCompletions: 0, inputX: 0, inputZ: 0,
-    locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), interactions: {}, movement: 0, movementSamples: 0,
+    locationId: locationFor(x, z), visited: new Set(['starting-village']), relicIds: new Set(), completedEvolutions: new Set(), interactions: {}, movement: 0, movementSamples: 0,
     nearSeconds: 0, aloneSeconds: 0, riskEvents: 0, rescues: 0, follows: 0, observationItems: new Set(), collectorClues: new Set(), collectorProgress: null, collectorEvolutionPlan: [], collectorEvolutionReasons: {}, collectorEvolutionIndex: 0, archetype: null, evolutions: [], evolutionBaseline: null, privateRules: [], lastTelemetryAt: now() };
 }
 function resetRoomForRoster(room, reason) {
@@ -442,7 +442,10 @@ function interact(room, player, type, targetId, intent = {}) {
   if (action === 'enter-spirit-realm') return dungeonSystem.enter(room, player);
   if (entity.type === 'relic') { if (entity.collectedBy) return { ok: false, error: 'That relic was already claimed.' }; entity.collectedBy = player.id; player.relicIds.add(entity.id); }
   player.interactions[action] = (player.interactions[action] || 0) + 1;
-  if (action === 'explore-evolution') player.completedEvolutions.add(entity.id.replace(/^evolution-/, ''));
+  if (action === 'explore-evolution') {
+    if (!(player.completedEvolutions instanceof Set)) player.completedEvolutions = new Set(player.completedEvolutions || []);
+    player.completedEvolutions.add(entity.id.replace(/^evolution-/, ''));
+  }
   const messages = { relic: `${player.name} collected ${entity.label}.`, 'discover-temple': `${player.name} found the hidden temple entrance.`, 'activate-shrine': `${player.name} awakened the shrine.`, 'enter-spirit-realm': `${player.name} stepped through the veil.`, 'offer-relics': `${player.name} offered relics at the altar.`, 'open-final-gate': `${player.name} turned the final gate's spirit key.`, 'explore-evolution': `${player.name} explored the changed world at ${entity.label}.` };
   event(room, action === 'relic' ? 'relic-collected' : 'role-interaction', messages[action], { playerId: player.id, targetId: entity.id }); return { ok: true, targetId: entity.id };
 }

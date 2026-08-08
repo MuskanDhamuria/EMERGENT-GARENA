@@ -15,10 +15,11 @@ const options={minimumMatchMs:100,preparationMs:0,ritualWindowMs:10_000,resetAft
 const first=fixture();const system=createFinaleSystem(world,options);const made=system.compose(first.room,'fallback');
 assert.equal(made.ok,true);assert.equal(made.objective.roleSteps.length,4);assert.deepEqual(new Set(made.objective.roleSteps.map((s)=>s.role)),new Set(ARCHETYPES));
 assert.equal(made.objective.roleSteps.every((step)=>first.room.worldEvolutions.some((e)=>e.id===step.evolutionId)),true);
-const incomplete=fixture();const missingRole=incomplete.playerList[0].archetype;incomplete.room.worldEvolutions=incomplete.room.worldEvolutions.filter((item)=>item.archetype!==missingRole);assert.equal(system.eligibility(incomplete.room).ok,false);
+const incomplete=fixture();incomplete.playerList[0].completedEvolutions.clear();assert.equal(system.eligibility(incomplete.room).ok,false);
 const same=fixture();const sameMade=createFinaleSystem(world,options).compose(same.room,'fallback');assert.equal(sameMade.objective.compositionKey,made.objective.compositionKey);
 
-// Last Snake Standing initializes a server-owned elimination arena.
+
+// Friend finale: Last Snake Standing initializes a server-owned elimination arena.
 const echoFixture=fixture(54321),echoSystem=createFinaleSystem(world,options);echoSystem.compose(echoFixture.room,'fallback');
 assert.equal(echoSystem.activateVariant(echoFixture.room,'echo_accord').ok,true);assert.equal(echoFixture.room.finalObjective.phase,'ECHO_ACCORD');
 assert.equal(echoFixture.playerList.every((player)=>player.realm==='echo-accord'&&player.echoAlive&&player.echoTrail.length>=7),true);assert.equal(echoFixture.room.finalObjective.echoAccord.echoes.length,60);
@@ -40,8 +41,7 @@ for(const role of ARCHETYPES){const step=first.room.finalObjective.roleSteps.fin
   assert.equal(system.interact(first.room,player,'finale-role-step',target).ok,false);
 }
 assert.equal(first.room.finalObjective.phase,'GROUP_RITUAL');
-for(const player of first.playerList){const circle=first.room.entities.find((e)=>e.id===`finale-circle-${player.archetype.toLowerCase()}`);player.x=circle.x;player.z=circle.z;system.tick(first.room,.01);if(player!==first.playerList.at(-1))assert.equal(first.room.finalObjective.status,'active');}
-assert.equal(first.room.finalObjective.status,'complete');
+for(const player of first.playerList){const circle=first.room.entities.find((e)=>e.id===`finale-circle-${player.archetype.toLowerCase()}`);player.x=circle.x;player.z=circle.z;const result=system.interact(first.room,player,'finale-ritual',circle);if(player!==first.playerList.at(-1))assert.equal(result.complete,undefined);else assert.equal(result.complete,true);}
 assert.equal(first.room.finalObjective.phase,'COMPLETE');assert.equal(first.room.finalObjective.complication.active,false);assert.equal(first.room.finalObjective.reflection.lines.at(-1),'So I created this world.');
 assert.equal(system.advance(first.room),true);assert.equal(first.room.phase,'waiting-for-four');assert.equal(first.room.finalObjective,null);assert.equal(first.room.resetCount,1);
 console.log('Dynamic cooperative finale tests passed.');

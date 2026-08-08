@@ -36,6 +36,7 @@ export function createRenderer(canvas, session) {
   const dungeonChest = new Image(); dungeonChest.src = '/game-art/dungeon/chest_1.png'; dungeonChest.addEventListener('load', () => { art.dungeonChest = dungeonChest; render(); });
   const dungeonSeal = new Image(); dungeonSeal.src = '/game-art/dungeon/coin_1.png'; dungeonSeal.addEventListener('load', () => { art.dungeonSeal = dungeonSeal; render(); });
   const dungeonCharacters = new Image(); dungeonCharacters.src = '/game-art/dungeon/Dungeon_Character.png'; dungeonCharacters.addEventListener('load', () => { art.dungeonCharacters = dungeonCharacters; render(); });
+  for (const [key,file] of Object.entries({ lanternCore:'lantern-core.png', lanternSwitch:'lantern-switch.png', lanternEmblem:'lantern-floor-emblem.png' })) { const sprite=new Image(); sprite.src=`/game-art/finale/${file}`; sprite.addEventListener('load',()=>{art[key]=sprite;render();}); }
   const lonerPortal = new Image(); lonerPortal.src = '/game-art/loner-portal/portal-chroma.png'; lonerPortal.addEventListener('load', () => { art.lonerPortal=lonerPortal; render(); });
   for (const [key, file] of Object.entries({ shadowBackground:'forest-background.avif', shadowTerrain:'terrain.png', shadowExit:'exit.png' })) { const sprite = new Image(); sprite.src = `/game-art/shadow-forest/${file}`; sprite.addEventListener('load', () => { art[key] = sprite; render(); }); }
   for (const [key, file] of Object.entries({ trapSpikes:'spikes.png', trapTrampoline:'trampoline-idle.png', trapFan:'fan.png', trapFire:'fire.png', trapSaw:'saw.png' })) { const sprite = new Image(); sprite.src = `/game-art/shadow-forest/traps/${file}`; sprite.addEventListener('load', () => { art[key] = sprite; render(); }); }
@@ -132,6 +133,28 @@ export function createRenderer(canvas, session) {
     const X = px(entity.x), Y = py(entity.y), kind = String(entity.kind || entity.type || '').toLowerCase();
     if (kind === 'world-evolution' && entity.role === 'Loner' && entity.dormant) return;
     if ((kind === 'world-evolution' && entity.role === 'Loner' && !entity.dormant) || kind.includes('spirit-portal')) { drawLonerPortal(X,Y); }
+    else if (kind==='lantern-entry-gate') {
+      const ready=Number(entity.readyCount||0); glow(X+10,Y+8,36,'rgba(102,226,255,.5)');
+      ctx.save();ctx.strokeStyle='#7ee7ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(X+10,Y+12,22,Math.PI,0);ctx.lineTo(X+32,Y+22);ctx.moveTo(X-12,Y+22);ctx.lineTo(X-12,Y+12);ctx.stroke();ctx.restore();
+      ctx.fillStyle='rgba(8,18,38,.9)';ctx.fillRect(X-46,Y-28,112,16);ctx.fillStyle='#e7faff';ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText(`ENTER RITE · ${ready}/4`,X+10,Y-17);ctx.textAlign='left';
+    }
+    else if (kind==='lantern-core') {
+      const health=Math.max(0,Number(entity.health||0)),max=Math.max(1,Number(entity.maxHealth||1)),ratio=health/max;
+      glow(X+10,Y+8,34,`rgba(72,213,255,${.35+.25*ratio})`); if(art.lanternCore)ctx.drawImage(art.lanternCore,X-25,Y-30,70,70);
+      ctx.fillStyle='rgba(20,28,45,.9)';ctx.fillRect(X-28,Y-16,76,7);ctx.fillStyle=ratio>.5?'#70e6f6':ratio>.25?'#f4c96b':'#ef6c73';ctx.fillRect(X-28,Y-16,76*ratio,7);ctx.strokeStyle='rgba(235,251,255,.75)';ctx.strokeRect(X-28,Y-16,76,7);
+    }
+    else if (kind==='lantern-switch') {
+      const mine=entity.role===state.mine?.archetype; if(entity.activeBy)glow(X+10,Y+10,26,'rgba(255,226,120,.65)'); else if(mine)glow(X+10,Y+10,28,'rgba(118,235,255,.62)');
+      if(art.lanternSwitch)ctx.drawImage(art.lanternSwitch,X-10,Y-16,40,40); else{ctx.fillStyle='#58cfe8';ctx.fillRect(X+3,Y+3,14,14);}
+      const roleColor={Explorer:'#9de3ff',Collector:'#ffe49b',Guardian:'#9ff0b8',Loner:'#d9b4ff'}[entity.role]||'#fff';
+      ctx.font='bold 9px monospace';ctx.textAlign='center';const title=mine?`YOUR ${String(entity.role).toUpperCase()} SWITCH`:`${String(entity.role).toUpperCase()} SWITCH`;const tw=ctx.measureText(title).width+10;ctx.fillStyle=mine?'rgba(10,37,52,.96)':'rgba(10,20,35,.88)';ctx.fillRect(X+10-tw/2,Y-32,tw,14);ctx.fillStyle=roleColor;ctx.fillText(title,X+10,Y-22);ctx.textAlign='left';
+    }
+    else if (kind==='lantern-enemy') {
+      const sprite=Number(entity.sprite)||0,sx=(sprite%7)*16,sy=Math.floor(sprite/7)*16,scale=entity.enemyType==='brute'?28:entity.enemyType==='swift'?20:24;
+      if(art.dungeonCharacters)ctx.drawImage(art.dungeonCharacters,sx,sy,16,16,X+(20-scale)/2,Y+(20-scale)/2,scale,scale);else{ctx.fillStyle='#ba4b62';ctx.fillRect(X+2,Y+2,16,16);}
+      const ratio=Math.max(0,Number(entity.hp||0))/Math.max(1,Number(entity.maxHp||1));ctx.fillStyle='#35151f';ctx.fillRect(X,Y-5,20,4);ctx.fillStyle=entity.enemyType==='swift'?'#f2c65d':entity.enemyType==='brute'?'#df7463':'#e45b69';ctx.fillRect(X,Y-5,20*ratio,4);
+      if(state.attackTimer>0&&state.attackTargetId===entity.id){ctx.fillStyle=`rgba(255,245,210,${Math.min(1,state.attackTimer*3)})`;ctx.fillRect(X,Y,20,20);}
+    }
     else if (kind.includes('dungeon-enemy')) {
       const sprite=Number(entity.sprite)||0, sx=(sprite%7)*16, sy=Math.floor(sprite/7)*16;
       if(art.dungeonCharacters) ctx.drawImage(art.dungeonCharacters,sx,sy,16,16,X,Y,20,20);
@@ -143,6 +166,7 @@ export function createRenderer(canvas, session) {
     else if (kind.includes('dungeon-exit')) { ctx.fillStyle=entity.active?'#76d9ee':'#433650';ctx.fillRect(X+3,Y+2,14,17);ctx.fillStyle='#171322';ctx.fillRect(X+7,Y+6,6,13); }
     else if (kind.includes('finale-circle')) { ctx.strokeStyle = entity.role === state.mine?.archetype ? '#fff2a8' : '#9ed7c0'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(X + 10, Y + 10, 9, 0, Math.PI * 2); ctx.stroke(); }
     else if (kind.includes('finale-destination')) { glow(X+10,Y+10,28,'rgba(117,230,189,.48)'); ctx.fillStyle = entity.transformed ? '#ecfcb7' : '#bd9f65'; ctx.fillRect(X, Y + 5, 20, 15); ctx.fillStyle = entity.transformed ? '#75e6bd' : '#625877'; ctx.fillRect(X + 6, Y, 8, 15); }
+    else if (kind === 'direct-finale-ready') { glow(X+10,Y+10,34,'rgba(114,226,255,.6)'); ctx.save(); ctx.strokeStyle='#9eefff'; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(X+10,Y+10,10,0,Math.PI*2); ctx.stroke(); ctx.strokeStyle='rgba(238,207,116,.9)'; ctx.beginPath(); ctx.arc(X+10,Y+10,6,0,Math.PI*2); ctx.stroke(); ctx.restore(); }
     else if (kind === 'collector-dig') {
       glow(X+10,Y+10,18,'rgba(96,215,255,.42)');
       ctx.save(); ctx.strokeStyle='rgba(69,92,87,.95)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(X+3,Y+7); ctx.lineTo(X+9,Y+10); ctx.lineTo(X+6,Y+15); ctx.moveTo(X+9,Y+10); ctx.lineTo(X+15,Y+5); ctx.moveTo(X+9,Y+10); ctx.lineTo(X+16,Y+16); ctx.stroke(); ctx.restore();
@@ -162,7 +186,13 @@ export function createRenderer(canvas, session) {
   }
   function drawGhostVillage(){ctx.fillStyle='#100c1d';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.ghostBackground)ctx.drawImage(art.ghostBackground,0,50,canvas.width,540);const player=state.mine,mission=player?.ghostVillage;if(!mission)return;mission.ghosts.filter((ghost)=>ghost.active).forEach((ghost)=>{const X=px(ghost.x),Y=py(ghost.z),bob=Math.sin(state.frame+ghost.x)*4;ctx.fillStyle='rgba(175,225,255,.18)';ctx.beginPath();ctx.arc(X+10,Y+10+bob,18,0,Math.PI*2);ctx.fill();if(art.ghostSprite)ctx.drawImage(art.ghostSprite,X-2,Y-2+bob,24,24);});for(const shot of mission.projectiles||[]){const X=px(shot.x),Y=py(shot.z);ctx.fillStyle='rgba(190,240,255,.35)';ctx.beginPath();ctx.arc(X+8,Y+8,12,0,Math.PI*2);ctx.fill();if(art.ghostShard)ctx.drawImage(art.ghostShard,X,Y,16,16);}const aim=state.aimScreen,aimX=(aim.x+(state.camera.x*T-canvas.width/2))/T,aimZ=(aim.y+(state.camera.y*T-canvas.height/2))/T,dx=aimX-player.x,dz=aimZ-(player.y-.4),length=Math.max(.2,Math.hypot(dx,dz)),vx=dx/length*10,vz=dz/length*10;ctx.fillStyle='rgba(225,250,255,.75)';for(let t=.12;t<2.1;t+=.16){const x=player.x+vx*t,z=player.y-.4+vz*t+3.5*t*t;if(z>12.5||x<0||x>28)break;ctx.beginPath();ctx.arc(px(x)+8,py(z)+8,3,0,Math.PI*2);ctx.fill();}panel(315,14,330,58);ctx.textAlign='center';ctx.font='bold 11px monospace';ctx.fillStyle='#dff8ff';ctx.fillText(`GHOSTS CAUGHT · ${mission.caught}/6`,480,36);ctx.font='10px monospace';ctx.fillText('RUN A/D · AIM ARC WITH MOUSE · CLICK TO THROW',480,56);}
   function character(player) { const X = px(player.x), Y = py(player.y), sprite=art[`player${player.sprite}`], rows={down:0,left:1,right:2,up:3}, row=rows[player.facing]??0, frame=player.moving?Math.floor(state.frame*1.4)%3:1; if(sprite)ctx.drawImage(sprite,frame*32,row*32,32,32,X-6,Y-10,32,32);else{ctx.fillStyle=C.ink;ctx.fillRect(X+4,Y+4,10,11);ctx.fillStyle=player.color;ctx.fillRect(X+5,Y+5,8,8);}ctx.fillStyle=player.color;ctx.fillRect(X+3,Y+18,14,2);if(player===state.mine&&state.hurtTimer>0&&Math.floor(state.frame*12)%2===0){ctx.fillStyle='rgba(255,240,230,.75)';ctx.fillRect(X-4,Y-8,28,28);} }
-  function drawAttack() { const player=state.mine;if(!player||state.attackTimer<=0||player.realm!=='dungeon')return;const X=px(player.x)+10,Y=py(player.y)+10,dx=state.attackTargetX-player.x,dy=state.attackTargetY-player.y,angle=Math.atan2(dy,dx),progress=1-state.attackTimer/.28,swing=angle-.9+progress*1.8;ctx.save();ctx.translate(X,Y);ctx.rotate(swing);ctx.fillStyle='#d9e7ee';ctx.fillRect(8,-2,15,4);ctx.fillStyle='#fff8c9';ctx.fillRect(20,-1,7,2);ctx.fillStyle='#8b6b46';ctx.fillRect(4,-3,6,6);ctx.restore(); }
+  function drawLanternPlayerWorldStatus(player){
+    if(player.realm!=='lantern-rite')return;const X=px(player.x),Y=py(player.y),max=Math.max(1,Number(player.lanternMaxHealth||1)),health=Math.max(0,Number(player.lanternHealth||0)),ratio=health/max,shield=Math.max(0,Number(player.lanternShield||0));
+    if(shield>0){ctx.save();ctx.strokeStyle='rgba(125,225,255,.9)';ctx.lineWidth=2;ctx.shadowBlur=10;ctx.shadowColor='#7de1ff';ctx.beginPath();ctx.arc(X+10,Y+8,16,0,Math.PI*2);ctx.stroke();ctx.restore();}
+    ctx.fillStyle='rgba(18,20,35,.88)';ctx.fillRect(X-1,Y+22,22,4);ctx.fillStyle=ratio>.5?'#8fe89e':ratio>.25?'#f1cb68':'#ef6c73';ctx.fillRect(X-1,Y+22,22*ratio,4);
+    if(player.lanternDownedUntil>Date.now()){ctx.fillStyle='rgba(10,10,20,.72)';ctx.fillRect(X-4,Y-8,28,32);ctx.fillStyle='#ffd0d5';ctx.font='bold 8px monospace';ctx.textAlign='center';ctx.fillText('DOWN',X+10,Y+10);ctx.textAlign='left';}
+  }
+  function drawAttack() { const player=state.mine;if(!player||state.attackTimer<=0||!['dungeon','lantern-rite'].includes(player.realm))return;const X=px(player.x)+10,Y=py(player.y)+10,dx=state.attackTargetX-player.x,dy=state.attackTargetY-player.y,angle=Math.atan2(dy,dx),progress=1-state.attackTimer/.28,swing=angle-.9+progress*1.8;ctx.save();ctx.translate(X,Y);ctx.rotate(swing);ctx.fillStyle='#d9e7ee';ctx.fillRect(8,-2,15,4);ctx.fillStyle='#fff8c9';ctx.fillRect(20,-1,7,2);ctx.fillStyle='#8b6b46';ctx.fillRect(4,-3,6,6);ctx.restore(); }
   function label(text, x, y, color = '#fff7d5') { ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; const tx = px(x), ty = py(y) - 14; const width = Math.max(32, ctx.measureText(text).width + 14); ctx.fillStyle = 'rgba(12,22,33,.90)'; ctx.fillRect(Math.round(tx - width / 2), ty - 10, width, 14); ctx.fillStyle = color; ctx.fillRect(Math.round(tx - width / 2 + 3), ty - 7, 4, 4); ctx.strokeStyle = '#0b1118'; ctx.lineWidth = 3; ctx.strokeText(text, tx + 3, ty); ctx.fillStyle = '#ffffff'; ctx.fillText(text, tx + 3, ty); }
   function wrap(text, x, y, max, line, maxLines=6) { const words = String(text || '').split(/\s+/); let current='', yy=y, lines=0; for (const word of words) { const next=current ? `${current} ${word}` : word; if (ctx.measureText(next).width > max && current) { ctx.fillText(current,x,yy); lines++; if(lines>=maxLines) return yy; current=word; yy+=line; } else current=next; } if(current && lines<maxLines) ctx.fillText(current,x,yy); return yy; }
   function drawDirectorHud() {
@@ -391,9 +421,42 @@ function drawCollectorGame(){
   }
   if(game.message){ uiInset(leftX, box.y+box.h-48, box.showJournal ? 620 : 858, 34, 'rgba(41,28,58,.96)', 'rgba(221,158,223,.24)', 1, 10); ctx.fillStyle='#ffd1ff'; ctx.font='bold 11px monospace'; wrap(game.message, leftX+12, box.y+box.h-27, (box.showJournal ? 596 : 834), 12, 2); }
 }
-  function drawReflection() { const finale = state.world?.finalObjective, reflection = finale?.reflection; if (!reflection || finale.phase !== 'COMPLETE') return; const winner=state.players.find((player)=>player.id===finale.echoAccord?.winnerId);ctx.fillStyle = 'rgba(14,28,39,.88)'; ctx.fillRect(0, 0, canvas.width, canvas.height); panel(105, 65, 750, 510); ctx.textAlign = 'left'; ctx.fillStyle = '#f7d25c'; ctx.font = 'bold 18px monospace'; ctx.fillText(winner?`${winner.name.toUpperCase()} WON!`:'THE WORLD REMEMBERS', 135, 102); ctx.font = '11px monospace'; ctx.fillStyle = '#fff7d5'; reflection.lines.forEach((line, index) => wrap(line, 135, 138 + index * 28, 690, 14)); ctx.fillStyle = '#9de3ff'; ctx.fillText(`DESTINATION · ${finale.destination.title}`, 135, 310); ctx.fillText(`COMPLICATION · ${finale.complication.title}`, 135, 334); ctx.fillStyle = '#d2f0cf'; ctx.fillText(`ROLES · ${reflection.assignedRoles.map((item) => `${item.name}: ${item.archetype}`).join(' · ')}`, 135, 372); wrap(`EVOLVED WORLD · ${reflection.worldEvolutions.map((item) => item.title).join(' · ')}`, 135, 410, 690, 16); ctx.fillStyle = '#f4c7ff'; ctx.font = 'bold 14px monospace'; ctx.fillText('SO I CREATED THIS WORLD.', 135, 520); }
+  function drawLanternArena(){
+    ctx.fillStyle='#090e1a';ctx.fillRect(0,0,canvas.width,canvas.height);
+    const minX=Math.floor(state.camera.x-25),maxX=Math.ceil(state.camera.x+25),minY=Math.floor(state.camera.y-17),maxY=Math.ceil(state.camera.y+17);
+    for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
+      const X=px(x),Y=py(y),center=Math.hypot(x-16,(y-10)*1.35)<=10.5,horizontal=y>=8&&y<=12,vertical=x>=13&&x<=19&&y<=19.4,forecourt=x>=10&&x<=22&&y>=19.4&&y<=27.5,approach=x>=13&&x<=19&&y>=18.4&&y<=27.5,walk=center||horizontal||vertical||forecourt||approach;
+      ctx.fillStyle=walk?(((x+y)%2)?'#253342':'#2b3948'):'#111923';ctx.fillRect(X,Y,T,T);
+      if(walk){ctx.strokeStyle='rgba(93,117,135,.16)';ctx.strokeRect(X,Y,T,T);}
+    }
+    if(art.lanternEmblem)ctx.drawImage(art.lanternEmblem,px(11.2),py(5.2),192,192);
+    ctx.strokeStyle='rgba(92,201,226,.15)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(px(2),py(10)+10);ctx.lineTo(px(30),py(10)+10);ctx.moveTo(px(16)+10,py(2));ctx.lineTo(px(16)+10,py(18));ctx.stroke();
+    // Staging threshold before the arena. Players begin here and deliberately enter.
+    ctx.fillStyle='rgba(15,30,50,.64)';ctx.fillRect(px(10),py(20),13*T,8*T);ctx.strokeStyle='rgba(110,226,255,.38)';ctx.lineWidth=2;ctx.strokeRect(px(10),py(20),13*T,8*T);
+    ctx.fillStyle='#d8f7ff';ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText('LANTERN RITE FORECOURT',px(16)+10,py(21)-8);ctx.fillStyle='#9edcea';ctx.font='8px monospace';ctx.fillText('Explore the approach, then gather at the glowing threshold.',px(16)+10,py(27)-6);ctx.textAlign='left';
+  }
+  function drawLanternHud(){
+    const rite=state.mine?.lanternRite;if(!rite?.active&&state.world?.finalObjective?.phase!=='COMPLETE')return;
+    const phase=rite?.phase||'COMPLETE',enemyCount=(rite?.enemies||[]).filter((e)=>!e.defeated).length,core=rite?.core||{health:0,maxHealth:1},coreRatio=Math.max(0,core.health)/Math.max(1,core.maxHealth);
+    panel(14,14,390,96);ctx.textAlign='left';ctx.fillStyle='#ffe49b';ctx.font='bold 12px monospace';ctx.fillText('FINALE · LANTERN RITE',28,35);ctx.fillStyle='#fff';ctx.font='10px monospace';wrap(rite?.task||'The Lantern Rite is complete.',28,54,360,13,4);
+    panel(414,14,256,106);ctx.fillStyle='#9de3ff';ctx.font='bold 10px monospace';ctx.fillText(phase==='ENTRY'?'ARENA PREPARATION':`WAVE · ${Math.min(rite?.wave||0,rite?.waveCount||0)}/${rite?.waveCount||0}`,428,34);ctx.fillStyle='#fff';ctx.fillText(phase==='ENTRY'?`READY · ${Object.keys(rite?.entry?.ready||{}).length}/4`:`ENEMIES · ${enemyCount}`,428,51);ctx.fillStyle='#fff1b8';ctx.font='bold 9px monospace';ctx.fillText('ENERGY CORE',428,69);ctx.fillStyle='#1b2638';ctx.fillRect(428,78,222,12);ctx.fillStyle=coreRatio>.5?'#70e6f6':coreRatio>.25?'#f4c96b':'#ef6c73';ctx.fillRect(428,78,222*coreRatio,12);ctx.strokeStyle='#dffaff';ctx.strokeRect(428,78,222,12);ctx.fillStyle='#fff';ctx.font='9px monospace';ctx.fillText(`${Math.ceil(core.health)} / ${core.maxHealth}`,428,104);
+    panel(680,14,266,112);ctx.fillStyle='#fff1b8';ctx.font='bold 10px monospace';ctx.fillText('TASK LIST',694,34);ctx.font='9px monospace';
+    const tasks=phase==='ENTRY'?['1. Enter the glowing threshold','2. Prepare to defend the core','3. Stay together before wave 1']:['1. Attack enemies with E','2. Repair core between waves','3. Finish on your role switch'];
+    tasks.forEach((task,i)=>{ctx.fillStyle=(phase==='ENTRY'&&i===0)||(phase==='DEFEND'&&i===0)||(phase==='REPAIR'&&i===1)||(phase==='SWITCHES'&&i===2)?'#9ff0b8':'#a5b0c1';ctx.fillText(task,694,53+i*18);});
+    if(phase!=='ENTRY'){
+      panel(14,122,292,94);ctx.fillStyle='#fff1b8';ctx.font='bold 9px monospace';ctx.fillText('PARTY STATUS',28,140);
+      state.players.filter((p)=>p.realm==='lantern-rite').forEach((p,index)=>{const y=154+index*15,max=Math.max(1,p.lanternMaxHealth||1),ratio=Math.max(0,p.lanternHealth||0)/max;ctx.fillStyle=p.color;ctx.fillRect(28,y-7,7,7);ctx.fillStyle='#fff';ctx.font='8px monospace';ctx.fillText(`${String(p.name).slice(0,8)} · ${p.archetype}`,40,y);ctx.fillStyle='#2b3242';ctx.fillRect(155,y-7,88,7);ctx.fillStyle=ratio>.5?'#8fe89e':ratio>.25?'#f1cb68':'#ef6c73';ctx.fillRect(155,y-7,88*ratio,7);if((p.lanternShield||0)>0){ctx.fillStyle='#8ae8ff';ctx.fillText(`SH ${p.lanternShield}`,248,y);}});
+    }
+    if(state.mine?.archetype==='Guardian'&&phase!=='ENTRY'){
+      panel(680,132,266,64);ctx.fillStyle='#9ff0b8';ctx.font='bold 10px monospace';ctx.fillText('GUARDIAN SUPPORT',694,151);ctx.fillStyle='#fff';ctx.font='9px monospace';ctx.fillText('Q · Heal nearest injured ally',694,169);ctx.fillText('R · Barrier nearest ally',694,185);
+    }
+    if(phase==='REPAIR'){panel(350,552,260,48);ctx.textAlign='center';ctx.fillStyle='#ffe49b';ctx.font='bold 11px monospace';ctx.fillText(`REPAIR · ${rite.repair.progress}/${rite.repair.goal}`,480,578);}
+    if(phase==='SWITCHES'){const ready=Object.keys(rite.switches.participants||{}).length;panel(318,538,324,64);ctx.textAlign='center';ctx.fillStyle='#ffe49b';ctx.font='bold 11px monospace';ctx.fillText(`YOUR SWITCH · ${String(state.mine?.archetype||'').toUpperCase()}`,480,558);ctx.fillText(`SWITCHES ACTIVE · ${ready}/4`,480,576);ctx.font='9px monospace';ctx.fillStyle='#fff';ctx.fillText('Your switch glows cyan. Stand on it and press E.',480,592);}
+    ctx.textAlign='left';
+  }
+  function drawReflection() { const finale = state.world?.finalObjective, reflection = finale?.reflection; if (!reflection || finale.phase !== 'COMPLETE') return; const winner=state.players.find((player)=>player.id===finale.echoAccord?.winnerId); ctx.fillStyle = 'rgba(14,28,39,.88)'; ctx.fillRect(0, 0, canvas.width, canvas.height); panel(105, 65, 750, 510); ctx.textAlign = 'left'; ctx.fillStyle = '#f7d25c'; ctx.font = 'bold 18px monospace'; ctx.fillText(winner?`${winner.name.toUpperCase()} WON!`:'THE WORLD REMEMBERS', 135, 102); ctx.font = '11px monospace'; ctx.fillStyle = '#fff7d5'; reflection.lines.forEach((line, index) => wrap(line, 135, 138 + index * 28, 690, 14)); ctx.fillStyle = '#9de3ff'; ctx.fillText(`DESTINATION · ${finale.destination.title}`, 135, 310); ctx.fillText(`COMPLICATION · ${finale.complication.title}`, 135, 334); ctx.fillStyle = '#d2f0cf'; ctx.fillText(`ROLES · ${reflection.assignedRoles.map((item) => `${item.name}: ${item.archetype}`).join(' · ')}`, 135, 372); wrap(`EVOLVED WORLD · ${reflection.worldEvolutions.map((item) => item.title).join(' · ')}`, 135, 410, 690, 16); ctx.fillStyle = '#f4c7ff'; ctx.font = 'bold 14px monospace'; ctx.fillText('SO I CREATED THIS WORLD.', 135, 520); }
   function drawDungeonHud() { const mission=state.mine?.dungeon;if(!mission?.active)return;panel(315,14,330,72);ctx.textAlign='center';ctx.font='bold 11px monospace';ctx.fillStyle='#9de3ff';ctx.fillText('BEYOND THE VEIL',480,33);ctx.fillStyle='#fff7d5';const text=mission.phase==='DEFEAT_WARDENS'?`DEFEAT THE THREE WARDENS · ${mission.defeatedCount}/3`:mission.phase==='FIND_SIGILS'?`RECOVER THE THREE SEALS · ${mission.collected.length}/3`:mission.phase==='AWAKEN_ALTAR'?'AWAKEN THE VEIL ALTAR':'RETURN TO THE BLUE PORTAL';ctx.fillText(text,480,52);ctx.fillStyle='#371b29';ctx.fillRect(385,65,190,8);ctx.fillStyle='#e96370';ctx.fillRect(385,65,190*(mission.health/mission.maxHealth),8);ctx.strokeStyle='#fff0d0';ctx.strokeRect(384,64,192,10); }
-  function drawHurtEffect() { if(state.hurtTimer<=0||state.mine?.realm!=='dungeon')return;const alpha=Math.min(.34,state.hurtTimer*.7);ctx.fillStyle=`rgba(190,25,48,${alpha})`;ctx.fillRect(0,0,canvas.width,12*state.hurtStrength);ctx.fillRect(0,canvas.height-12*state.hurtStrength,canvas.width,12*state.hurtStrength);ctx.fillRect(0,0,12*state.hurtStrength,canvas.height);ctx.fillRect(canvas.width-12*state.hurtStrength,0,12*state.hurtStrength,canvas.height); }
+  function drawHurtEffect() { if(state.hurtTimer<=0||!['dungeon','lantern-rite'].includes(state.mine?.realm))return;const alpha=Math.min(.34,state.hurtTimer*.7);ctx.fillStyle=`rgba(190,25,48,${alpha})`;ctx.fillRect(0,0,canvas.width,12*state.hurtStrength);ctx.fillRect(0,canvas.height-12*state.hurtStrength,canvas.width,12*state.hurtStrength);ctx.fillRect(0,0,12*state.hurtStrength,canvas.height);ctx.fillRect(canvas.width-12*state.hurtStrength,0,12*state.hurtStrength,canvas.height); }
   function echoPixelPanel(x,y,w,h,accent='#61d7ff'){
     ctx.fillStyle='rgba(3,7,21,.78)';ctx.fillRect(x+6,y+7,w,h);ctx.fillStyle='#070c20';ctx.fillRect(x+4,y,w-8,h);ctx.fillRect(x,y+4,w,h-8);ctx.strokeStyle='#1d315c';ctx.lineWidth=4;ctx.strokeRect(x+4,y+4,w-8,h-8);ctx.strokeStyle=accent;ctx.lineWidth=2;ctx.strokeRect(x+8,y+8,w-16,h-16);ctx.fillStyle=accent;ctx.fillRect(x+4,y+4,8,8);ctx.fillRect(x+w-12,y+4,8,8);ctx.fillRect(x+4,y+h-12,8,8);ctx.fillRect(x+w-12,y+h-12,8,8);
   }
@@ -410,12 +473,13 @@ function drawCollectorGame(){
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state.joined) { drawStart(); return; }
-    const realm=state.mine?.realm||'overworld', dungeon=realm==='dungeon', shadow=realm==='shadow-forest', moon=realm==='moon-shrine', ghost=realm==='ghost-village', echo=realm==='echo-accord';
+    const realm=state.mine?.realm||'overworld', dungeon=realm==='dungeon', shadow=realm==='shadow-forest', moon=realm==='moon-shrine', ghost=realm==='ghost-village', lantern=realm==='lantern-rite', echo=realm==='echo-accord';
     const minX=Math.floor(state.camera.x-25),maxX=Math.ceil(state.camera.x+25),minY=Math.floor(state.camera.y-17),maxY=Math.ceil(state.camera.y+17);
     if(echo) drawEchoAccord();
     else if(shadow) drawShadowForest();
     else if(moon) drawMoonShrine();
     else if(ghost) drawGhostVillage();
+    else if(lantern) drawLanternArena();
     else if(dungeon){ ctx.fillStyle='#120f19';ctx.fillRect(0,0,canvas.width,canvas.height); for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawDungeonTile(x,y); }
     else { for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++)drawTile(x,y); (state.world?.terrain||[]).forEach(drawTerrain); }
     const special=shadow||moon||ghost||echo;
@@ -423,10 +487,10 @@ function drawCollectorGame(){
     if(!dungeon&&!special&&mood==='mist'){ctx.fillStyle='rgba(220,236,242,.18)';ctx.fillRect(0,0,canvas.width,canvas.height);}
     if(!dungeon&&!special&&mood==='storm'){ctx.fillStyle='rgba(54,67,105,.18)';ctx.fillRect(0,0,canvas.width,canvas.height);}
     if(!dungeon&&!special&&mood==='starlight'){ctx.fillStyle='rgba(82,57,132,.16)';ctx.fillRect(0,0,canvas.width,canvas.height);}
-    if(!special) activeEntities().filter((entity)=>dungeon?String(entity.kind).startsWith('dungeon-'):!String(entity.kind).startsWith('dungeon-')).forEach(drawEntity);
+    if(lantern) activeEntities().filter((entity)=>String(entity.kind).startsWith('lantern-')).forEach(drawEntity); else if(!special) activeEntities().filter((entity)=>dungeon?String(entity.kind).startsWith('dungeon-'):!String(entity.kind).startsWith('dungeon-')).forEach(drawEntity);
     const visiblePlayers=state.players.filter((player)=>(player.realm||'overworld')===realm);
-    if(!echo)visiblePlayers.forEach(character); drawAttack(); if(!shadow&&!ghost&&!echo) visiblePlayers.forEach((player)=>label(player.name,player.x,player.y,player.color));
-    drawHurtEffect(); if(!echo)drawHud(); if(!special) drawDirectorHud(); if(dungeon) drawDungeonHud(); if(shadow) drawShadowHud(); if(!gameReady()) drawLobby(); drawCollectorGame(); drawReflection();
+    if(!echo) visiblePlayers.forEach(character); if(lantern)visiblePlayers.forEach(drawLanternPlayerWorldStatus); drawAttack(); if(!shadow&&!ghost&&!echo) visiblePlayers.forEach((player)=>label(player.name,player.x,player.y,player.color));
+    drawHurtEffect(); if(lantern) drawLanternHud(); else if(!echo) drawHud(); if(!special&&!lantern) drawDirectorHud(); if(dungeon) drawDungeonHud(); if(shadow) drawShadowHud(); if(!gameReady()) drawLobby(); drawCollectorGame(); drawReflection();
   }
   return { render };
 }

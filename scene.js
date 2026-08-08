@@ -11,10 +11,10 @@ canvas.style.userSelect = 'none';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, aimAt, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, enableEchoAccordPreview, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
+const { state, gameReady, interact, lanternSupport, aimAt, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
-const preview=new URLSearchParams(location.search).get('preview'); if(preview==='shadow-forest') enableShadowForestPreview(); else if(preview==='moon-shrine') enableMoonShrinePreview(); else if(preview==='ghost-village') enableGhostVillagePreview(); else if(preview==='echo-accord') enableEchoAccordPreview();
+const preview=new URLSearchParams(location.search).get('preview'); if(preview==='shadow-forest') enableShadowForestPreview(); else if(preview==='moon-shrine') enableMoonShrinePreview(); else if(preview==='ghost-village') enableGhostVillagePreview();
 
 function movementInput() {
   let x = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);
@@ -43,6 +43,8 @@ addEventListener('keydown', (event) => {
   if(state.collectorGame){ event.preventDefault(); handleGameKey(key); return; }
   keys[key] = true;
   if (key === 'e') { event.preventDefault(); interact(); }
+  if (key === 'q' && state.mine?.realm === 'lantern-rite' && state.mine?.archetype === 'Guardian') { event.preventDefault(); lanternSupport('heal'); }
+  if (key === 'r' && state.mine?.realm === 'lantern-rite' && state.mine?.archetype === 'Guardian') { event.preventDefault(); lanternSupport('barrier'); }
   if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
 addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });

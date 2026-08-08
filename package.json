@@ -16,7 +16,10 @@
     "test:dungeon": "node tests/spirit-dungeon.test.mjs",
     "test:shadow": "node tests/shadow-forest.test.mjs",
     "test:moon": "node tests/moon-shrine.test.mjs",
-    "test:ghost": "node tests/ghost-village.test.mjs"
+    "test:ghost": "node tests/ghost-village.test.mjs",
+    "serve:finale": "node server.mjs --direct-finale=lantern_rite",
+    "serve:echo": "node server.mjs --direct-finale=echo_accord",
+    "test:lantern": "node tests/lantern-rite.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.22.0",

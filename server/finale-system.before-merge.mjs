@@ -1,6 +1,6 @@
 import { ARCHETYPES, ROLE_ABILITIES, WORLD_EVOLUTIONS } from '../shared/game-content.js';
 
-export const FINALE_PHASES = Object.freeze(['PREPARING','TRAVEL','EXPLORER_STEP','COLLECTOR_STEP','GUARDIAN_STEP','LONER_STEP','ECHO_ACCORD','GROUP_RITUAL','LANTERN_ENTRY','LANTERN_DEFEND','LANTERN_REPAIR','LANTERN_SWITCHES','COMPLETE']);
+export const FINALE_PHASES = Object.freeze(['PREPARING','TRAVEL','EXPLORER_STEP','COLLECTOR_STEP','GUARDIAN_STEP','LONER_STEP','GROUP_RITUAL','LANTERN_ENTRY','LANTERN_DEFEND','LANTERN_REPAIR','LANTERN_SWITCHES','COMPLETE']);
 export const FINALE_COMPLICATIONS = Object.freeze([
   { id:'spreading-fog', title:'Spreading Fog', narration:'Mist erases the road behind you; remain close enough to carry one another’s bearings.' },
   { id:'collapsing-bridges', title:'Collapsing Bridges', narration:'The old crossings fail in sequence; each calling must hold the way for the next.' },
@@ -52,8 +52,8 @@ export function createFinaleSystem(world, options={}) {
     const cooperation=evidence.reduce((sum,item)=>sum+item.near+item.rescues*12+item.follows*5,0);
     const rivalry=evidence.reduce((sum,item)=>sum+item.alone+item.risk*9,0);
     const id=cooperation>=rivalry?'lantern_rite':'echo_accord';
-    const title=id==='lantern_rite'?'Lantern Rite':'Last Snake Standing';
-    const description=id==='lantern_rite'?'Defend the central energy core together against an adaptive final assault.':'Four living echoes enter the arena. Only one will remain.';
+    const title=id==='lantern_rite'?'Lantern Rite':'Echo Accord';
+    const description=id==='lantern_rite'?'Defend the central energy core together against an adaptive final assault.':'Let relic, shrine, path, and veil answer one another.';
     return {id,title,description,chosenAt:Date.now(),source:'AI behaviour selection',evidence:{cooperation:Math.round(cooperation),rivalry:Math.round(rivalry),seed}};
   }
 
@@ -88,7 +88,7 @@ export function createFinaleSystem(world, options={}) {
   function setVariant(room,variantId,source='Game Master'){
     const finale=room.finalObjective;if(!finale||finale.status!=='active')return {ok:false,error:'No active finale to shape.'};
     if(finale.phase!=='PREPARING')return {ok:false,error:'The finale variant can only change during preparation.'};
-    const known={lantern_rite:{title:'Lantern Rite',description:'Defend the central energy core together against an adaptive final assault.'},echo_accord:{title:'Last Snake Standing',description:'Four living echoes enter the arena. Only one will remain.'},wardens_promise:{title:'Warden’s Promise',description:'Protect the shared tale before the final gate opens.'}}[variantId];
+    const known={lantern_rite:{title:'Lantern Rite',description:'Defend the central energy core together against an adaptive final assault.'},echo_accord:{title:'Echo Accord',description:'Let relic, shrine, path, and veil answer one another.'},wardens_promise:{title:'Warden’s Promise',description:'Protect the shared tale before the final gate opens.'}}[variantId];
     if(!known)return {ok:false,error:'Unknown finale variant.'};
     finale.variant={id:variantId,...known,chosenAt:Date.now(),source};
     return {ok:true,variant:finale.variant};
@@ -105,7 +105,6 @@ export function createFinaleSystem(world, options={}) {
 
   function reflection(room){
     const lines=players(room).map((player)=>{const base=player.evolutionBaseline||{};const travelled=Math.max(0,Math.round(player.movement-(base.movement||0)));const alone=Math.max(0,Math.round(player.aloneSeconds-(base.alone||0)));const near=Math.max(0,Math.round(player.nearSeconds-(base.near||0)));const relics=Math.max(0,player.relicIds.size-(base.relics||0));const evidence=player.archetype==='Explorer'?`travelled ${travelled} steps beyond familiar roads`:player.archetype==='Collector'?`gathered ${player.observationItems?.size||0} overlooked curios and completed ${player.collectorProgress?.title||'a relic challenge'}`:player.archetype==='Guardian'?`remained near the group for ${near} seconds`:`walked alone for ${alone} seconds`;return `${player.name}, the ${player.archetype}, ${evidence}.`;});
-    const winner=players(room).find((player)=>player.id===room.finalObjective.echoAccord?.winnerId); if(winner) lines.push(`${winner.name} remained when every other living echo had shattered.`);
     return {lines:[...lines,'So I created this world.'],assignedRoles:players(room).map((p)=>({playerId:p.id,name:p.name,archetype:p.archetype})),behaviourEvidence:players(room).map((p)=>world.playerTelemetry(room,p).postAssignment),worldEvolutions:room.worldEvolutions.map((item)=>({...item})),finaleComposition:{destination:room.finalObjective.destination,roleSteps:room.finalObjective.roleSteps,complication:room.finalObjective.complication},transformedMapOverview:{transformedLandmark:room.finalObjective.destination.title,evolvedLandmarks:room.worldEvolutions.map((item)=>item.title),complicationStopped:true}};
   }
 
@@ -114,35 +113,6 @@ export function createFinaleSystem(world, options={}) {
     const landmark=room.entities.find((entity)=>entity.id===finale.destination.targetId);if(landmark)landmark.transformed=true;
     room.director={narration:finale.reflection.lines.join(' '),source:'Game Master',at:Date.now(),finalePhase:'COMPLETE'};world.event(room,'finale-complete',room.director.narration,{reflection:finale.reflection});
     return {ok:true,complete:true,reflection:finale.reflection};
-  }
-
-  function echoSpawn(index){return [{x:8,z:8},{x:40,z:8},{x:8,z:24},{x:40,z:24}][index]||{x:24,z:16};}
-  function activateVariant(room,variantId){
-    const finale=room.finalObjective;if(!finale||finale.status!=='active')return {ok:false,error:'No active finale to awaken.'};
-    if(variantId!=='echo_accord')return {ok:false,error:'That finale variant is handled by another finale system.'};
-    room.entities=room.entities.filter((entity)=>!entity.finaleOnly);
-    const colors=['#62d8ff','#ffd35f','#79e38e','#c992ff'];
-    const echoes=Array.from({length:60},(_,index)=>({id:`echo-${index+1}`,x:4+((index*11)%41),z:4+((index*7)%23),active:true,hue:index%4}));
-    players(room).forEach((player,index)=>{const spawn=echoSpawn(index),direction=index%2?-1:1;player.realm='echo-accord';player.x=spawn.x;player.z=spawn.z;player.inputX=direction;player.inputZ=0;player.echoDirection={x:direction,z:0};player.echoTrail=Array.from({length:7},(_,part)=>({x:spawn.x-direction*part*.45,z:spawn.z}));player.echoCollected=0;player.echoAlive=true;player.echoColor=colors[index];player.echoStepAt=0;});
-    finale.phase='ECHO_ACCORD';finale.phaseChangedAt=Date.now();finale.echoAccord={mode:'LAST_SNAKE_STANDING',echoes,eliminated:[],winnerId:null,arena:{minX:2,maxX:46,minZ:2,maxZ:30}};
-    room.director={narration:'Four living echoes uncoil within the dark. Feed upon the scattered light. Break against another trail, and your song belongs to the survivor.',source:'Game Master',at:Date.now(),finalePhase:'ECHO_ACCORD'};
-    world.event(room,'echo-accord-awakens',room.director.narration,{variantId});return {ok:true};
-  }
-  function tick(room,delta){
-    const finale=room.finalObjective;if(finale?.status!=='active')return;
-    const game=finale.echoAccord;if(finale.phase!=='ECHO_ACCORD'||!game)return;
-    const roster=players(room),arena=game.arena;
-    for(const player of roster){
-      if(!player.echoAlive)continue;
-      const magnitude=Math.hypot(player.inputX,player.inputZ);if(magnitude>.15){const next={x:player.inputX/magnitude,z:player.inputZ/magnitude},current=player.echoDirection||next;if(next.x*current.x+next.z*current.z>-.7)player.echoDirection=next;}
-      const direction=player.echoDirection||{x:1,z:0};player.x+=direction.x*5.2*delta;player.z+=direction.z*5.2*delta;player.echoStepAt=(player.echoStepAt||0)+delta;
-      if(player.echoStepAt>=.085){player.echoStepAt=0;player.echoTrail.unshift({x:player.x,z:player.z});player.echoTrail.length=Math.min(player.echoTrail.length,7+player.echoCollected);}
-      const hitWall=player.x<arena.minX||player.x>arena.maxX||player.z<arena.minZ||player.z>arena.maxZ;
-      const hitTrail=roster.some((other)=>other.id!==player.id&&other.echoAlive&&other.echoTrail?.some((point,index)=>index>1&&Math.hypot(player.x-point.x,player.z-point.z)<.52));
-      if(hitWall||hitTrail){player.echoAlive=false;player.inputX=0;player.inputZ=0;game.eliminated.push(player.id);player.echoTrail.filter((_,index)=>index%2===0).forEach((point,index)=>game.echoes.push({id:`fallen-${player.id}-${game.eliminated.length}-${index}`,x:point.x,z:point.z,active:true,hue:roster.indexOf(player)}));world.event(room,'echo-snake-eliminated',`${player.name}'s living echo shatters into scattered light.`,{playerId:player.id});continue;}
-      for(const orb of game.echoes)if(orb.active&&Math.hypot(player.x-orb.x,player.z-orb.z)<.85){orb.active=false;player.echoCollected+=1;world.event(room,'echo-gathered',`${player.name} grows longer.`,{playerId:player.id,echoId:orb.id});break;}
-    }
-    const survivors=roster.filter((player)=>player.echoAlive);if(survivors.length===1){game.winnerId=survivors[0].id;world.event(room,'echo-accord-winner',`${survivors[0].name} is the last living echo.`,{playerId:survivors[0].id});complete(room);}
   }
 
   function interact(room,player,action,entity){
@@ -167,13 +137,9 @@ export function createFinaleSystem(world, options={}) {
   }
 
   function advance(room){
-    if(room.finalObjective?.status==='active'&&room.finalObjective.phase==='PREPARING'&&Date.now()>=room.finalObjective.preparationEndsAt){
-      if(room.finalObjective.variant?.id==='lantern_rite'&&typeof world.startLanternRite==='function')world.startLanternRite(room);
-      else if(room.finalObjective.variant?.id==='echo_accord')activateVariant(room,'echo_accord');
-      else setPhase(room,'TRAVEL');
-    }
+    if(room.finalObjective?.status==='active'&&room.finalObjective.phase==='PREPARING'&&Date.now()>=room.finalObjective.preparationEndsAt){if(room.finalObjective.variant?.id==='lantern_rite'&&typeof world.startLanternRite==='function')world.startLanternRite(room);else setPhase(room,'TRAVEL');}
     if(room.finalObjective?.status==='complete'&&Date.now()>=room.finalObjective.resetAt){world.resetRoomForRoster?.(room,'The finished world grows quiet. Four new lanterns may begin another tale.');return true;}
     return false;
   }
-  return Object.freeze({eligibility,compose,interact,activateVariant,tick,advance,complete,setVariant});
+  return Object.freeze({eligibility,compose,interact,advance,complete,setVariant});
 }

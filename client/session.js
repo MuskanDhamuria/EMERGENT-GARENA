@@ -70,7 +70,7 @@ export function createSession() {
   }
   function applyWorldState(world) {
     if (!world || !Array.isArray(world.players)) return;
-    const previousHealth = state.mine?.dungeon?.health, previousRespawns = state.mine?.dungeon?.respawns || 0;
+    const previousHealth = state.mine?.dungeon?.health, previousRespawns = state.mine?.dungeon?.respawns || 0, previousLanternHealth = state.mine?.lanternHealth;
     state.world = world; state.network.roomCode = world.code || state.network.roomCode;
     const previous = new Map(state.players.map((player) => [player.id, player]));
     state.players = world.players.map((player, index) => {
@@ -91,6 +91,7 @@ export function createSession() {
     if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y });
     const currentHealth = state.mine?.dungeon?.health, currentRespawns = state.mine?.dungeon?.respawns || 0;
     if (Number.isFinite(previousHealth) && Number.isFinite(currentHealth) && (currentHealth < previousHealth || currentRespawns > previousRespawns)) { state.hurtTimer = currentRespawns > previousRespawns ? 0.65 : 0.38; state.hurtStrength = currentRespawns > previousRespawns ? 2 : 1; }
+    if (Number.isFinite(previousLanternHealth) && Number.isFinite(state.mine?.lanternHealth) && state.mine.lanternHealth < previousLanternHealth) { state.hurtTimer = 0.4; state.hurtStrength = 1; }
     state.privateRule = (world.yourPrivateRules || []).at(-1) || null;
     if (world.director?.narration) state.publicEvent = world.director.narration;
     if (!gameReady() && state.joined) state.notice = `Waiting for all ${MAX_PLAYERS} lanterns — ${roomPlayerCount()}/${MAX_PLAYERS} joined.`;
@@ -273,12 +274,6 @@ export function createSession() {
     state.preview='moon-shrine';state.joined=true;state.network.connected=true;state.network.playerId=player.id;state.network.roomCode='PREVIEW';state.players=[player];state.mine=player;state.world={code:'PREVIEW',phase:'evolving',players:[player],world:{unlocked:['moon-shrine']},entities:[],relics:[]};state.camera.x=12;state.camera.y=0;note('Recover three moon echoes, then awaken the shrine.',5);
   }
   function enableGhostVillagePreview(){const ghosts=[{x:5,z:5,vx:1.1,vz:.7},{x:8,z:8,vx:-.8,vz:1},{x:12,z:4,vx:1,vz:-.6},{x:16,z:7,vx:-1.2,vz:.5},{x:20,z:5,vx:.7,vz:1.1},{x:24,z:9,vx:-.9,vz:-.8}].map((ghost,index)=>({id:`ghost-${index+1}`,...ghost,active:true})),player={id:'preview-loner',name:'Loner',color:'#b9d9ff',sprite:1,facing:'right',moving:false,x:1.5,y:11,targetX:1.5,targetY:11,realm:'ghost-village',archetype:'Loner',capabilities:[],ghostVillage:{active:true,caught:0,ghosts,projectiles:[],shotSequence:0,cooldown:0}};state.preview='ghost-village';state.joined=true;state.network.connected=true;state.network.playerId=player.id;state.network.roomCode='PREVIEW';state.players=[player];state.mine=player;state.world={code:'PREVIEW',phase:'evolving',players:[player],world:{unlocked:['ghost-village']},entities:[],relics:[]};state.camera.x=13.5;state.camera.y=0;note('Run with A/D. Aim the arc and click to throw.',5);}
-  function enableEchoAccordPreview(){
-    const roles=['Explorer','Collector','Guardian','Loner'],spawns=[{x:8,y:8},{x:40,y:8},{x:8,y:24},{x:40,y:24}],colors=['#62d8ff','#ffd35f','#79e38e','#c992ff'];
-    const players=roles.map((archetype,index)=>{const direction=index%2?-1:1,spawn=spawns[index];return {id:`echo-preview-${index}`,name:index?'Echo Rival '+index:'You',archetype,realm:'echo-accord',color:colors[index],echoColor:colors[index],x:spawn.x,y:spawn.y,targetX:spawn.x,targetY:spawn.y,echoDirection:{x:direction,z:0},echoCollected:0,echoAlive:true,echoStepAt:0,echoTrail:Array.from({length:7},(_,part)=>({x:spawn.x-direction*part*.45,z:spawn.y}))};});
-    const echoes=Array.from({length:60},(_,index)=>({id:`echo-${index+1}`,x:4+((index*11)%41),z:4+((index*7)%23),active:true,hue:index%4}));
-    state.preview='echo-accord';state.joined=true;state.network.connected=true;state.network.playerId=players[0].id;state.network.roomCode='PREVIEW';state.players=players;state.mine=players[0];state.world={code:'PREVIEW',phase:'finale',players,entities:[],relics:[],finalObjective:{id:'preview-echo-accord',status:'active',phase:'ECHO_ACCORD',variant:{id:'echo_accord',title:'Last Snake Standing'},echoAccord:{mode:'LAST_SNAKE_STANDING',echoes,eliminated:[],winnerId:null,arena:{minX:2,maxX:46,minZ:2,maxZ:30}}}};state.camera.x=state.mine.x;state.camera.y=state.mine.y;note('WASD turns. Eat light, avoid rival trails, and be the last alive.',6);
-  }
   const previewPlatforms=[{x:0,y:12,w:5},{x:6,y:11,w:4},{x:11,y:12,w:3},{x:15,y:10,w:3},{x:19,y:12,w:6},{x:3,y:8,w:4},{x:8,y:7,w:3},{x:12,y:5,w:4},{x:17,y:7,w:3},{x:21,y:5,w:3}];
   const previewTraps=[{x:7.35,y:11,w:1.1},{x:19.65,y:12,w:1.1}],previewFire=[{x:16.1,y:10,w:1},{x:21.1,y:12,w:.9}],previewTrampoline={x:3.15,y:12,w:1},previewFan={x:12.6,y:12,w:1.1,top:5.2};
   function updateShadowPreview(dt,input) {
@@ -286,15 +281,34 @@ export function createSession() {
   const moonPath=[{x:2,y:10},{x:7,y:10},{x:7,y:7},{x:13,y:7},{x:13,y:10},{x:19,y:10},{x:19,y:6},{x:24,y:6},{x:28,y:5}];
   function moonSegmentDistance(point,a,b){const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy,t=length?Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.y-a.y)*dy)/length)):0;return {distance:Math.hypot(point.x-(a.x+t*dx),point.y-(a.y+t*dy)),t};}
   function interactMoonPreview(){const player=state.mine,mission=player.moonShrine;if(mission.lineFailed&&Math.hypot(player.x-2,player.y-10)<=1.2){mission.lineFailed=false;mission.pathStep=0;note('The silver line begins again.',3);return;}if(Math.hypot(player.x-28,player.y-5)<=1.8){if(mission.lineFailed){note('Return to the beginning and press E.',3);return;}if(mission.pathStep<moonPath.length-1){note('The full silver route has not been followed.',3);return;}player.x=player.targetX=2;player.y=player.targetY=10;mission.pathStep=0;mission.lineFailed=false;note('Ritual complete. The preview has restarted.',4);return;}note(mission.lineFailed?'Return to the beginning and press E to retry.':'Follow the silver line to the shrine.',3);}
+  function lanternSupport(kind) {
+    const mine=state.mine;
+    if(!mine || mine.realm!=='lantern-rite' || mine.archetype!=='Guardian') { note('Guardian support is only available to the Guardian during the Lantern Rite.',3); return false; }
+    const candidates=state.players.filter((player)=>player.id!==mine.id && player.realm==='lantern-rite' && !(player.lanternDownedUntil>Date.now()));
+    if(!candidates.length){ note('No ally is available for support.',3); return false; }
+    const target=candidates.map((player)=>({player,distance:Math.hypot(player.x-mine.x,player.y-mine.y)})).filter((entry)=>entry.distance<=5).sort((a,b)=>{
+      if(kind==='heal'){
+        const aNeed=(a.player.lanternMaxHealth||0)-(a.player.lanternHealth||0), bNeed=(b.player.lanternMaxHealth||0)-(b.player.lanternHealth||0);
+        if(bNeed!==aNeed)return bNeed-aNeed;
+      } else {
+        const aShield=a.player.lanternShield||0,bShield=b.player.lanternShield||0;if(aShield!==bShield)return aShield-bShield;
+      }
+      return a.distance-b.distance;
+    })[0];
+    if(!target){ note('Move within 5 tiles of an ally first.',3); return false; }
+    const type=kind==='heal'?'lantern-guardian-heal':'lantern-guardian-barrier';
+    socket.emit('interact',{type,targetId:target.player.id},(reply)=>{note(reply?.ok?(kind==='heal'?`Healing light restores ${target.player.name}.`:`A protective barrier surrounds ${target.player.name}.`):(reply?.error||'Guardian support failed.'),reply?.ok?3:4);});
+    return true;
+  }
   function interact() {
     if (!gameReady() || !state.mine) return;
     if (state.mine.realm === 'shadow-forest') { if (state.mine.x < 22.4 || state.mine.y >= 6.3) { note('Stand beside the trophy before pressing E.', 3); return; } if (state.preview === 'shadow-forest') { state.mine.x=state.mine.targetX=1.5;state.mine.y=state.mine.targetY=11;state.mine.shadowForest.vx=state.mine.shadowForest.vy=0;note('Crossing complete. The preview has restarted.',4);return; } socket.emit('interact', { type: 'exit-shadow-forest' }, (reply) => note(reply?.ok ? 'You claim the forgotten trophy.' : (reply?.error || 'The trophy remains silent.'), reply?.ok ? 3 : 5)); return; }
     if (state.mine.realm === 'moon-shrine') { if(state.preview==='moon-shrine'){interactMoonPreview();return;} socket.emit('interact', { type: 'moon-shrine-interact' }, (reply) => note(reply?.ok ? (reply.kind==='complete'?'The Moon Shrine recognizes you.':reply.kind==='puzzle'?'Three numbered runes awaken.':reply.kind==='rune'?'A rune ignites.':'A moon echo answers.') : (reply?.error || 'The moonlit stones remain silent.'), reply?.ok ? 3 : 5)); return; }
     if (!['observing','evolving','finale'].includes(state.world?.phase)) { note('Wait for the expedition to begin.', 4); return; }
-    const entity = nearest(state.mine, activeEntities()), action = finalAction(entity);
+    const entity = nearest(state.mine, activeEntities().filter((item)=>Boolean(finalAction(item)))), action = finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
-      if (reply?.ok && action === 'dungeon-attack') { state.attackTimer = 0.28; state.attackTargetId = entity.id; state.attackTargetX = entity.x; state.attackTargetY = entity.y; }
+      if (reply?.ok && (action === 'dungeon-attack' || action === 'lantern-attack')) { state.attackTimer = 0.28; state.attackTargetId = entity.id; state.attackTargetX = entity.x; state.attackTargetY = entity.y; }
       if(reply?.ok && action==='collector-minigame-start'){ beginCollectorGame(reply,entity); return; }
       if(reply?.ok){
         const label=entity.label || action.replaceAll('-', ' ');
@@ -304,23 +318,8 @@ export function createSession() {
     });
   }
   function aimAt(screenX,screenY,width,height){state.aimScreen={x:screenX,y:screenY};const player=state.mine;if(player?.realm!=='ghost-village'||!player.ghostVillage?.active)return false;const aimX=(screenX+(state.camera.x*20-width/2))/20,aimZ=(screenY+(state.camera.y*20-height/2))/20;if(state.preview==='ghost-village'){const mission=player.ghostVillage;if(mission.cooldown>0)return true;const dx=aimX-player.x,dz=aimZ-(player.y-.4),length=Math.hypot(dx,dz);if(length<.2)return true;mission.projectiles.push({id:`shot-${++mission.shotSequence}`,x:player.x,z:player.y-.4,vx:dx/length*10,vz:dz/length*10,life:2.8});mission.cooldown=.35;return true;}socket.emit('interact',{type:'ghost-village-aim',aimX,aimZ},(reply)=>{if(!reply?.ok)note(reply?.error||'The spirit shard did not launch.',2);});return true;}
-  function updateEchoEliminationPreview(dt,input){
-    const game=state.world.finalObjective.echoAccord,arena=game.arena;
-    for(const [index,player] of state.players.entries()){
-      if(!player.echoAlive)continue;let desired=index===0?input:null;
-      if(index&&game.echoes.some((echo)=>echo.active)){const target=game.echoes.filter((echo)=>echo.active).sort((a,b)=>Math.hypot(player.x-a.x,player.y-a.z)-Math.hypot(player.x-b.x,player.y-b.z))[0],dx=target.x-player.x,dz=target.z-player.y,length=Math.max(.01,Math.hypot(dx,dz));desired={x:dx/length,z:dz/length};}
-      if(desired&&Math.hypot(desired.x,desired.z)>.15){const length=Math.hypot(desired.x,desired.z),next={x:desired.x/length,z:desired.z/length},current=player.echoDirection;if(next.x*current.x+next.z*current.z>-.7)player.echoDirection=next;}
-      player.x+=player.echoDirection.x*5.2*dt;player.y+=player.echoDirection.z*5.2*dt;player.echoStepAt+=dt;if(player.echoStepAt>.085){player.echoStepAt=0;player.echoTrail.unshift({x:player.x,z:player.y});player.echoTrail.length=Math.min(player.echoTrail.length,7+player.echoCollected);}
-      const crash=player.x<arena.minX||player.x>arena.maxX||player.y<arena.minZ||player.y>arena.maxZ||state.players.some((other)=>other!==player&&other.echoAlive&&other.echoTrail.some((point,part)=>part>1&&Math.hypot(player.x-point.x,player.y-point.z)<.52));
-      if(crash){player.echoAlive=false;game.eliminated.push(player.id);player.echoTrail.filter((_,part)=>part%2===0).forEach((point,part)=>game.echoes.push({id:`fallen-${player.id}-${part}`,x:point.x,z:point.z,active:true,hue:index}));note(player===state.mine?'You were eliminated. Watch for the winner.':`${player.name} was eliminated.`,4);continue;}
-      const echo=game.echoes.find((item)=>item.active&&Math.hypot(player.x-item.x,player.y-item.z)<.85);if(echo){echo.active=false;player.echoCollected+=1;}
-    }
-    const survivors=state.players.filter((player)=>player.echoAlive);if(survivors.length===1&&!game.winnerId){game.winnerId=survivors[0].id;state.world.finalObjective.phase='COMPLETE';state.world.finalObjective.status='complete';note(`${survivors[0].name} is the last snake standing!`,10);}
-    const cameraTarget=state.mine.echoAlive?state.mine:(survivors[0]||state.mine);state.camera.x+=(cameraTarget.x-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(cameraTarget.y-state.camera.y)*Math.min(1,dt*5);
-  }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt; if (state.hurtTimer > 0) state.hurtTimer = Math.max(0, state.hurtTimer - dt); if (state.attackTimer > 0) { state.attackTimer = Math.max(0, state.attackTimer - dt); if (!state.attackTimer) state.attackTargetId = null; }
-    if(state.preview==='echo-accord'){updateEchoEliminationPreview(dt,input);return;}
     if (state.preview === 'shadow-forest') { updateShadowPreview(dt,input);const mine=state.mine;state.camera.x+=(mine.x-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(mine.y-state.camera.y)*Math.min(1,dt*5);return; }
     if (state.preview === 'moon-shrine') { const mine=state.mine,mission=mine.moonShrine;mine.x=mine.targetX=Math.max(.6,Math.min(29.5,mine.x+input.x*5.2*dt));mine.y=mine.targetY=Math.max(3.5,Math.min(11.5,mine.y+input.z*5.2*dt));mine.moving=Math.hypot(input.x,input.z)>0;if(mission.pathStep<moonPath.length-1){const result=moonSegmentDistance(mine,moonPath[mission.pathStep],moonPath[mission.pathStep+1]);if(result.distance>.85){mine.x=mine.targetX=2;mine.y=mine.targetY=10;mission.pathStep=0;mission.lineFailed=false;note('Misstep! The moonlight returns you to the start.',3);}else if(result.t>.94)mission.pathStep+=1;}state.camera.x+=(12-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(0-state.camera.y)*Math.min(1,dt*5);return; }
     if(state.preview==='ghost-village'){const mine=state.mine,mission=mine.ghostVillage;mine.x=mine.targetX=Math.max(1,Math.min(25,mine.x+input.x*4.5*dt));mine.y=mine.targetY=11;mine.moving=Math.abs(input.x)>0;mission.cooldown=Math.max(0,mission.cooldown-dt);for(const ghost of mission.ghosts)if(ghost.active){ghost.x+=ghost.vx*dt;ghost.z+=ghost.vz*dt;if(ghost.x<3||ghost.x>25){ghost.vx*=-1;ghost.x=Math.max(3,Math.min(25,ghost.x));}if(ghost.z<3||ghost.z>9.5){ghost.vz*=-1;ghost.z=Math.max(3,Math.min(9.5,ghost.z));}}for(const shot of mission.projectiles){shot.x+=shot.vx*dt;shot.z+=shot.vz*dt;shot.vz+=7*dt;shot.life-=dt;const ghost=mission.ghosts.find((item)=>item.active&&Math.hypot(item.x-shot.x,item.z-shot.z)<.8);if(ghost){ghost.active=false;shot.life=0;mission.caught+=1;note(`Ghost caught · ${mission.caught}/6`,2);}}mission.projectiles=mission.projectiles.filter((shot)=>shot.life>0&&shot.x>0&&shot.x<28&&shot.z<13);if(mission.caught===6){mission.ghosts.forEach((ghost)=>ghost.active=true);mission.projectiles=[];mission.caught=0;note('All six caught! The preview has restarted.',4);}state.camera.x+=(13.5-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(0-state.camera.y)*Math.min(1,dt*5);return;}
@@ -341,5 +340,5 @@ export function createSession() {
   socket.on('gm-private', (event) => { if (event?.message) { state.privateRule = event; note(event.message, 7); } });
   socket.on('disconnect', () => { state.network.connected = false; if (state.joined) note('Connection lost. Reconnect to rejoin the four-player expedition.', 10); });
 
-  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, enableEchoAccordPreview, interact, aimAt, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update };
+  return { state, note, mapPoint, roomPlayerCount, gameReady, abilities, relics, activeEntities, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, interact, aimAt, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update };
 }

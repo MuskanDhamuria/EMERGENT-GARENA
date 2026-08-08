@@ -71,7 +71,7 @@ export const STORY_TURNS = Object.freeze({
 });
 
 export const FINALE_VARIANTS = Object.freeze({
-  lantern_rite: Object.freeze({ title: 'Lantern Rite', description: 'Gather the four callings around the awakened temple.' }),
+  lantern_rite: Object.freeze({ title: 'Lantern Rite', description: 'Defend a central energy core through adaptive enemy waves, repair it between assaults, then synchronize four switches.' }),
   echo_accord: Object.freeze({ title: 'Last Snake Standing', description: 'Four living echoes enter the arena. Only one will remain.' }),
   wardens_promise: Object.freeze({ title: 'Warden’s Promise', description: 'Protect the shared tale before the final gate opens.' }),
 });
@@ -276,8 +276,9 @@ export function applyDirectorDirective(world, room, directive, options = {}) {
 
   if (card === 'finale_variant') {
     const variant = FINALE_VARIANTS[payload.variantId];
+    const applied = typeof world.setFinaleVariant === 'function' ? world.setFinaleVariant(room, payload.variantId, source) : { ok:true };
+    if (!applied?.ok) return applied;
     room.finalObjective.variant = { id: payload.variantId, title: variant.title, description: variant.description, chosenAt: now, source };
-    if (typeof world.activateFinaleVariant === 'function') world.activateFinaleVariant(room, payload.variantId);
     room.director = { ...room.director, narration: variant.description, source, at: now, finaleVariant: payload.variantId };
     rule = recordRule(room, card, { variantId: payload.variantId, title: variant.title, message: variant.description, source }, 0, now);
     event = publicNarration(world, room, 'director-finale-variant', `${variant.title}: ${variant.description}`, { variantId: payload.variantId });

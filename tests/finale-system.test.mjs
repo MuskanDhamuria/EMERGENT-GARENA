@@ -15,8 +15,15 @@ const options={minimumMatchMs:100,preparationMs:0,ritualWindowMs:10_000,resetAft
 const first=fixture();const system=createFinaleSystem(world,options);const made=system.compose(first.room,'fallback');
 assert.equal(made.ok,true);assert.equal(made.objective.roleSteps.length,4);assert.deepEqual(new Set(made.objective.roleSteps.map((s)=>s.role)),new Set(ARCHETYPES));
 assert.equal(made.objective.roleSteps.every((step)=>first.room.worldEvolutions.some((e)=>e.id===step.evolutionId)),true);
-const incomplete=fixture();incomplete.playerList[0].completedEvolutions.clear();assert.equal(system.eligibility(incomplete.room).ok,false);
+const incomplete=fixture();const missingRole=incomplete.playerList[0].archetype;incomplete.room.worldEvolutions=incomplete.room.worldEvolutions.filter((item)=>item.archetype!==missingRole);assert.equal(system.eligibility(incomplete.room).ok,false);
 const same=fixture();const sameMade=createFinaleSystem(world,options).compose(same.room,'fallback');assert.equal(sameMade.objective.compositionKey,made.objective.compositionKey);
+
+// Last Snake Standing initializes a server-owned elimination arena.
+const echoFixture=fixture(54321),echoSystem=createFinaleSystem(world,options);echoSystem.compose(echoFixture.room,'fallback');
+assert.equal(echoSystem.activateVariant(echoFixture.room,'echo_accord').ok,true);assert.equal(echoFixture.room.finalObjective.phase,'ECHO_ACCORD');
+assert.equal(echoFixture.playerList.every((player)=>player.realm==='echo-accord'&&player.echoAlive&&player.echoTrail.length>=7),true);assert.equal(echoFixture.room.finalObjective.echoAccord.echoes.length,60);
+for(const player of echoFixture.playerList.slice(1)){player.x=1.99;player.echoDirection={x:-1,z:0};echoSystem.tick(echoFixture.room,.01);assert.equal(player.echoAlive,false);}
+assert.equal(echoFixture.room.finalObjective.echoAccord.winnerId,echoFixture.playerList[0].id);assert.equal(echoFixture.room.finalObjective.status,'complete');
 
 // Inactive landmarks and duplicate finale creation are rejected.
 const invalid=fixture();const invalidResult=system.compose(invalid.room,'AI',{destinationEvolutionId:'hidden-forest-path-opens'});assert.equal(invalidResult.ok,false);

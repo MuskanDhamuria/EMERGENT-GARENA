@@ -11,10 +11,10 @@ canvas.style.userSelect = 'none';
 document.body.appendChild(canvas);
 
 const session = createSession();
-const { state, gameReady, interact, aimAt, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
+const { state, gameReady, interact, aimAt, joinRoom, enableShadowForestPreview, enableMoonShrinePreview, enableGhostVillagePreview, enableEchoAccordPreview, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, update } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
-const preview=new URLSearchParams(location.search).get('preview'); if(preview==='shadow-forest') enableShadowForestPreview(); else if(preview==='moon-shrine') enableMoonShrinePreview(); else if(preview==='ghost-village') enableGhostVillagePreview();
+const preview=new URLSearchParams(location.search).get('preview'); if(preview==='shadow-forest') enableShadowForestPreview(); else if(preview==='moon-shrine') enableMoonShrinePreview(); else if(preview==='ghost-village') enableGhostVillagePreview(); else if(preview==='echo-accord') enableEchoAccordPreview();
 
 function movementInput() {
   let x = (keys.d || keys.arrowright ? 1 : 0) - (keys.a || keys.arrowleft ? 1 : 0);

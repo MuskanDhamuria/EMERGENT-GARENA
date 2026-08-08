@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { ARCHETYPES, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
+import { ARCHETYPES, ENCOUNTER_TACTIC_IDS, EVOLUTION_LIBRARY, EXPEDITION_IDS, FEATURES, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
@@ -63,7 +63,8 @@ async function call(client, name, args = {}) {
 const actions = {
   wait: { description: 'No action is warranted; return a short atmospheric reason.', args: {} },
   narrate_event: { description: 'Narrate one concise public or private clue that reflects a visible change or observed behaviour.', args: { text: 'string', privateTo: 'optional player id' } },
-  assign_archetypes: { description: 'Only if phase is observing and the observation timer is zero. Assign every player exactly once, using all four distinct archetypes when four players exist.', args: { assignments: '[{playerId, archetype, evidence}]' } },
+  assign_archetypes: { description: `Only if phase is observing and the observation timer is zero. Assign every player exactly once, using all four distinct archetypes, and choose exactly two distinct expeditions that fit the observed group from: ${EXPEDITION_IDS.join(', ')}.`, args: { assignments: '[{playerId, archetype, evidence}]', expeditions: '[exactly 2 distinct expedition ids]' } },
+  adapt_encounter: { description: `Choose how one selected hostile expedition responds to this group. Use dark-cave or hidden-ruins and one tactic: ${ENCOUNTER_TACTIC_IDS.join('|')}. hunt-straggler punishes isolation; pressure-cluster challenges a group that always bunches together; guard-collector makes protecting the relic-bearer matter. Explain the observed evidence. Damage stays fixed at 5%.`, args: { expeditionId: 'dark-cave|hidden-ruins', tacticId: ENCOUNTER_TACTIC_IDS.join('|'), reason: '8-220 character evidence-based reason' } },
   issue_asymmetric_rule: { description: 'Evolve one player only after archetypes exist. It reveals that player’s next validated evolution; use a player id from state.', args: { playerId: 'string' } },
   unlock_world_feature: { description: `Reveal one feature from the allowed list only when it follows the observed group identity. Features: ${AI_FEATURE_IDS.join(', ')}.`, args: { feature: 'string', message: 'string', privateTo: 'optional player id' } },
   create_emergent_rule: { description: `Create one novel, reversible law from observed behaviour. The server selects players from evidence and rejects incompatible combinations. Triggers: ${EMERGENT_TRIGGER_IDS.join('|')}. Effects: ${EMERGENT_EFFECT_IDS.join('|')}. Visibility: shared|participants|private. Markers when required: ${Object.keys(EMERGENT_MARKERS).join('|')}. Provide title, message, optional markerId, optional durationSeconds 10-120. Use only after its trigger is visibly evidenced in telemetry/world state.`, args: { triggerId: 'string', effectId: 'string', visibility: 'shared|participants|private', markerId: 'optional string', durationSeconds: 'optional number', title: 'string', message: 'string' } },
@@ -96,16 +97,26 @@ function validateDecision(decision, state) {
     const entries = args.assignments;
     const ids = entries?.map((entry) => entry.playerId) || [];
     const roles = entries?.map((entry) => entry.archetype) || [];
+    const expeditions = args.expeditions || [];
     const ready = state.phase === 'observing' && Number(state.observationSecondsRemaining) <= 0;
     const allFourRoles = ARCHETYPES.every((role) => roles.includes(role));
     return ready && !players.some((player) => player.archetype) && entries?.length === REQUIRED_PLAYERS
       && new Set(ids).size === REQUIRED_PLAYERS && new Set(roles).size === REQUIRED_PLAYERS
       && ids.every((id) => players.some((player) => player.id === id)) && allFourRoles
-      && entries.every((entry) => validText(entry.evidence, 8, 180)) ? null : 'Archetype assignment is not currently valid for this room.';
+      && entries.every((entry) => validText(entry.evidence, 8, 180))
+      && expeditions.length === 2 && new Set(expeditions).size === 2 && expeditions.every((id) => EXPEDITION_IDS.includes(id)) ? null : 'Archetype assignment or expedition draft is not currently valid for this room.';
   }
   if (decision.action === 'issue_asymmetric_rule') {
     const player = players.find((item) => item.id === args.playerId);
-    return ['evolving', 'finale'].includes(state.phase) && canEvolvePlayer(player) ? null : 'That evolution is not currently valid.';
+    const availableSteps = player?.archetype === 'Explorer' ? Math.min(2, state.world?.selectedExpeditions?.length || 2) : (EVOLUTION_LIBRARY[player?.archetype]?.length || 0);
+    return ['evolving', 'finale'].includes(state.phase) && canEvolvePlayer(player) && (player.evolutions || []).length < availableSteps ? null : 'That evolution is not currently valid.';
+  }
+  if (decision.action === 'adapt_encounter') {
+    const selected = state.world?.selectedExpeditions || [];
+    const currentPlan = state.aiDirector?.encounterPlans?.[args.expeditionId];
+    return ['evolving', 'finale'].includes(state.phase) && ['dark-cave', 'hidden-ruins'].includes(args.expeditionId)
+      && selected.includes(args.expeditionId) && ENCOUNTER_TACTIC_IDS.includes(args.tacticId)
+      && validText(args.reason, 8, 220) && !currentPlan ? null : 'That encounter adaptation is not currently valid.';
   }
   if (decision.action === 'unlock_world_feature') {
     const publicDuplicate = !args.privateTo && (state.world?.unlocked || []).includes(args.feature);
@@ -114,15 +125,15 @@ function validateDecision(decision, state) {
   }
   if (decision.action === 'create_emergent_rule') {
     const compatible = {
-      tether_energy: ['exclusive_pair'], private_marker: ['explorer_travel', 'loner_isolation'],
+      tether_energy: ['exclusive_pair'],
       shared_marker: EMERGENT_TRIGGER_IDS, group_altar: ['collector_relics'], recovery_aura: ['guardian_cohesion'],
       movement_boon: ['explorer_travel', 'loner_isolation'],
     };
     const allowedVisibility = {
-      tether_energy: ['shared', 'participants'], private_marker: ['private'], shared_marker: ['shared', 'participants'],
+      tether_energy: ['shared', 'participants'], shared_marker: ['shared', 'participants'],
       group_altar: ['shared', 'participants'], recovery_aura: ['shared', 'participants'], movement_boon: ['private', 'participants'],
     };
-    const markerNeeded = ['private_marker', 'shared_marker'].includes(args.effectId);
+    const markerNeeded = args.effectId === 'shared_marker';
     return ['evolving', 'finale'].includes(state.phase) && compatible[args.effectId]?.includes(args.triggerId)
       && allowedVisibility[args.effectId]?.includes(args.visibility || 'shared')
       && validText(args.title, 3, 64) && validText(args.message, 3, 280)
@@ -147,16 +158,20 @@ function validateDecision(decision, state) {
 }
 
 function prompt(roomCode, telemetry, world) {
+  const state = world.state || world;
+  const pending = state.aiDirector?.pending || telemetry.aiDecisionWindows || [];
   return [
     'You are the living Game Master of Emergent, a four-player-only cooperative adventure that discovers rules from behaviour.',
     'Never invent code, roles, coordinates, raw stat values, or effects outside the safe primitive catalog. You can choose one action from the provided action list, including a compatible behaviour-to-effect combination. The MCP server validates every action again.',
     'The central ethic: observe first; make a small, legible change; narrate why; let players react; observe again. Preserve asymmetric information when it is meaningful.',
     'Act only while exactly four connected players are shown. Do not assign roles before observation ends. Do not evolve a player beyond its available evolution steps. Prefer wait if no change is warranted.',
+    'Prioritize explicit pending decision windows in order: assign roles, shape each selected hostile encounter, evolve behaviour-relevant abilities, create a behaviour-derived temporary law, then compose the finale. Do not keep narrating when a mechanical decision is pending.',
     `Room: ${roomCode}`,
+    `Pending AI decision windows: ${JSON.stringify(pending)}`,
     `Authoritative telemetry: ${JSON.stringify(telemetry)}`,
     `Authoritative world state: ${JSON.stringify(world)}`,
     `Allowed actions: ${JSON.stringify(actions)}`,
-    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|issue_asymmetric_rule|unlock_world_feature|create_emergent_rule|apply_director_card|choose_guardian_trials|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
+    'Return strict JSON only: {"action":"wait|narrate_event|assign_archetypes|adapt_encounter|issue_asymmetric_rule|unlock_world_feature|create_emergent_rule|apply_director_card|choose_guardian_trials|create_finale","args":{...},"reason":"short evidence-based explanation"}.',
   ].join('\n');
 }
 

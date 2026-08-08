@@ -7,14 +7,15 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { networkInterfaces } from 'node:os';
 import { Server } from 'socket.io';
+import { OBSERVATION_MS } from './shared/game-content.js';
 import { createGameWorld } from './server/game-world.mjs';
 import { createMcpRouter } from './server/mcp-router.mjs';
 import { attachSocketGateway } from './server/socket-gateway.mjs';
 
 const PORT = Number(process.env.PORT || 8787);
 const configuredDuration = (name, fallback, minimum) => Number.isFinite(Number(process.env[name])) ? Math.max(minimum, Number(process.env[name])) : fallback;
-const observationMs = configuredDuration('GAME_TEST_OBSERVATION_MS', 30_000, 100);
-const gmAssignmentGraceMs = configuredDuration('GAME_TEST_GM_ASSIGNMENT_GRACE_MS', 12_000, 0);
+const observationMs = configuredDuration('GAME_TEST_OBSERVATION_MS', OBSERVATION_MS, 100);
+const gmAssignmentGraceMs = configuredDuration('GAME_TEST_GM_ASSIGNMENT_GRACE_MS', 0, 0);
 const emergentOptions = Object.fromEntries([
   ['GAME_TEST_EMERGENT_ANALYSIS_MS', 'analysisIntervalMs'],
   ['GAME_TEST_EMERGENT_BOND_SECONDS', 'bondSeconds'],
@@ -37,7 +38,15 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && pathname === '/api/game-master') { sendJson(response, 200, { ok: true, message: 'Use the narrow /api/mcp endpoints to observe or alter a room.' }); return; }
   const urlPath = pathname === '/' ? '/index.html' : pathname, filePath = normalize(join('dist', urlPath));
   if (!filePath.startsWith(normalize('dist')) || !existsSync(filePath)) { response.writeHead(404); response.end('Build the app first with npm run build.'); return; }
-  try { response.writeHead(200, { 'Content-Type': contentTypes[extname(filePath)] || 'application/octet-stream' }); response.end(await readFile(filePath)); }
+  try {
+    response.writeHead(200, {
+      'Content-Type': contentTypes[extname(filePath)] || 'application/octet-stream',
+      'Cache-Control': 'no-store, max-age=0',
+      Pragma: 'no-cache',
+      Expires: '0',
+    });
+    response.end(await readFile(filePath));
+  }
   catch { response.writeHead(500); response.end('Unable to read application file.'); }
 });
 const io = new Server(server, { cors: { origin: true } });

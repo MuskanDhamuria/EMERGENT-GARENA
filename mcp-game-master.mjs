@@ -15,7 +15,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { ARCHETYPES, MAX_PLAYERS } from './shared/game-content.js';
+import { ARCHETYPES, ENCOUNTER_TACTIC_IDS, EXPEDITION_IDS, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
@@ -28,6 +28,7 @@ const playerIdSchema = z.string().trim().min(1).max(128);
 const archetypeSchema = z.enum(ARCHETYPES);
 const archetypes = ARCHETYPES;
 const featureSchema = z.enum(AI_FEATURE_IDS);
+const expeditionSchema = z.enum(EXPEDITION_IDS);
 
 function toolResult(payload) {
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }], structuredContent: payload };
@@ -115,7 +116,7 @@ server.registerTool('get_player_telemetry', {
 
 server.registerTool('assign_archetypes', {
   title: 'Assign permanent archetypes',
-  description: 'Make the first identity decision only after the four-player observation period. Every connected player must receive exactly one of the four permanent archetypes. Include telemetry-grounded evidence and never reassign roles.',
+  description: 'Make the first identity decision only after the four-player observation period. Assign all four permanent archetypes and select exactly two distinct expeditions that best fit the group from Dark Cave, Sunken Temple, and Hidden Ruins.',
   inputSchema: {
     roomCode: roomCodeSchema,
     assignments: z.array(z.object({
@@ -123,8 +124,9 @@ server.registerTool('assign_archetypes', {
       archetype: archetypeSchema,
       evidence: z.string().trim().min(8).max(180),
     })).length(REQUIRED_PLAYERS),
+    expeditions: z.array(expeditionSchema).length(2).refine(unique, 'Choose two different expeditions.'),
   },
-}, async ({ roomCode, assignments }) => {
+}, async ({ roomCode, assignments, expeditions }) => {
   try {
     const state = await requireReadyRoom(roomCode);
     if (state.phase !== 'observing' || Number(state.observationSecondsRemaining) > 0) {
@@ -140,7 +142,7 @@ server.registerTool('assign_archetypes', {
     // Evidence stays in the model's audit trail; only the authoritative identity
     // pair reaches the game server.
     const requestAssignments = assignments.map(({ playerId, archetype }) => ({ playerId, archetype }));
-    return toolResult(await gameRequest('/api/mcp/assign-archetypes', { method: 'POST', body: { roomCode, assignments: requestAssignments } }));
+    return toolResult(await gameRequest('/api/mcp/assign-archetypes', { method: 'POST', body: { roomCode, assignments: requestAssignments, expeditions } }));
   }
   catch (error) { return toolError(error.message); }
 });
@@ -164,6 +166,25 @@ server.registerTool('unlock_world_feature', {
     // left to the authoritative server for the intended recipient.
     if (!privateTo && (state.world?.unlocked || []).includes(feature)) return toolError('That public feature is already unlocked.');
     return toolResult(await gameRequest('/api/mcp/unlock', { method: 'POST', body: { roomCode, feature, message, privateTo } }));
+  }
+  catch (error) { return toolError(error.message); }
+});
+
+server.registerTool('adapt_encounter', {
+  title: 'Adapt an expedition encounter',
+  description: 'Choose how enemies respond to the behaviour already observed in this four-player group. This changes targeting and pressure—not the fixed 5% damage rule, enemy health, map geometry, or rewards. Use one plan per selected hostile expedition.',
+  inputSchema: {
+    roomCode: roomCodeSchema,
+    expeditionId: z.enum(['dark-cave', 'hidden-ruins']),
+    tacticId: z.enum(ENCOUNTER_TACTIC_IDS),
+    reason: z.string().trim().min(8).max(220),
+  },
+}, async ({ roomCode, expeditionId, tacticId, reason }) => {
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (!['evolving', 'finale'].includes(state.phase)) return toolError('Encounter adaptation begins only after the roles awaken.');
+    if (!(state.world?.selectedExpeditions || []).includes(expeditionId)) return toolError('Adapt only a hostile expedition selected for this tale.');
+    return toolResult(await gameRequest('/api/mcp/adapt-encounter', { method: 'POST', body: { roomCode, expeditionId, tacticId, reason } }));
   }
   catch (error) { return toolError(error.message); }
 });

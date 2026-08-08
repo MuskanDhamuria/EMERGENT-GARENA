@@ -47,13 +47,13 @@ function engine(options = {}) {
   assert.equal(rules.apply(game, { triggerId: 'loner_isolation', effectId: 'tether_energy', visibility: 'shared', title: 'Invalid Law', message: 'This must be rejected.' }, 300).ok, false);
 }
 
-// Explorer travel creates a private marker which is never serialized to the
-// other three players.
+// Explorer travel no longer invents a cosmetic path marker. Exploration only
+// produces a rule when the AI selects a concrete compatible gameplay effect.
 {
   const explorer = player('explorer', 'Explorer', 0, 0, { movement: 40 });
   const game = room([explorer, player('collector', 'Collector', 20, 0), player('guardian', 'Guardian', -20, 0), player('loner', 'Loner', 0, 20)]);
   const { rules } = engine(); rules.tick(game, 0.1, 100);
-  assert.equal(rules.serialize(game, explorer.id).markers.length, 1);
+  assert.equal(rules.serialize(game, explorer.id).markers.length, 0);
   assert.equal(rules.serialize(game, 'collector').activeRules.some((rule) => rule.type === 'explorer_vision'), false);
 }
 
@@ -69,8 +69,7 @@ function engine(options = {}) {
   assert.equal(game.emergentState.activeRules.find((rule) => rule.type === 'hoard_value').objective.status, 'fulfilled');
 }
 
-// Guardian proximity restores nearby allies, while a sustained isolated Loner
-// gets a private vision. These rules never replace the fixed four roles.
+// Guardian proximity restores nearby allies without replacing fixed roles.
 {
   const guardian = player('guardian', 'Guardian', 0, 0);
   const allies = [player('explorer', 'Explorer', 1, 0, { emergent: { energy: 50, activeRuleIds: [], effects: [] } }), player('collector', 'Collector', -1, 0), guardian, player('loner', 'Loner', 30, 0)];
@@ -84,7 +83,7 @@ function engine(options = {}) {
   const loner = player('loner', 'Loner', 30, 30);
   const game = room([player('explorer', 'Explorer', 0, 0), player('collector', 'Collector', 20, 0), player('guardian', 'Guardian', -20, 0), loner]);
   const { rules } = engine({ lonerSeconds: 0.01 }); rules.tick(game, 0.1, 100);
-  assert.equal(rules.serialize(game, loner.id).activeRules.some((rule) => rule.type === 'solitary_vision'), true);
+  assert.equal(rules.serialize(game, loner.id).activeRules.some((rule) => rule.type === 'solitary_vision'), false);
   assert.equal(rules.serialize(game, 'explorer').activeRules.some((rule) => rule.type === 'solitary_vision'), false);
 }
 

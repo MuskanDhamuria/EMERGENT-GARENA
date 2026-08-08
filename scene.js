@@ -6,10 +6,39 @@ const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 640;
 canvas.id = 'game';
+canvas.tabIndex = 0;
 document.body.appendChild(canvas);
 
+const howButton = document.createElement('button');
+howButton.id = 'how-it-works-button';
+howButton.type = 'button';
+howButton.textContent = '▣  HOW IT WORKS';
+document.body.appendChild(howButton);
+
+const howModal = document.createElement('div');
+howModal.id = 'how-it-works-modal';
+howModal.hidden = true;
+howModal.innerHTML = `<section class="how-card" role="dialog" aria-modal="true" aria-labelledby="how-title">
+  <button class="how-close" type="button" aria-label="Close">×</button>
+  <h2 id="how-title">HOW IT WORKS</h2>
+  <p class="how-intro">The game learns how to challenge your group.</p>
+  <div class="how-step"><span class="how-icon">01</span><div><h3>ENTER TOGETHER</h3><p>Four players share one world. Nobody begins with an assigned role—move, wander and behave naturally.</p></div></div>
+  <div class="how-step"><span class="how-icon">02</span><div><h3>THE GAME MASTER LEARNS</h3><p>The AI observes patterns such as exploration, collecting, cooperation, separation and risk.</p></div></div>
+  <div class="how-step"><span class="how-icon">03</span><div><h3>RULES EMERGE</h3><p>Your behaviour changes the world. Players may receive different abilities, connections or information.</p></div></div>
+  <div class="how-step"><span class="how-icon">04</span><div><h3>DISCOVER THEM TOGETHER</h3><p>Experiment and communicate. The world only offers a hint after your group encounters something meaningful.</p></div></div>
+  <p class="how-note">You do not simply learn how to play the game. The game learns how to play with you.</p>
+  <button class="how-got-it" type="button">GOT IT</button>
+</section>`;
+document.body.appendChild(howModal);
+
+const closeHowItWorks = () => { howModal.hidden = true; howButton.focus(); };
+howButton.addEventListener('click', () => { howModal.hidden = false; howModal.querySelector('.how-close').focus(); });
+howModal.querySelector('.how-close').addEventListener('click', closeHowItWorks);
+howModal.querySelector('.how-got-it').addEventListener('click', closeHowItWorks);
+howModal.addEventListener('click', (event) => { if (event.target === howModal) closeHowItWorks(); });
+
 const session = createSession();
-const { state, gameReady, interact, aimAt, joinRoom, update, activeEntities } = session;
+const { state, attack, gameReady, interact, aimAt, joinRoom, update, activeEntities } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -19,6 +48,10 @@ function movementInput() {
   if (!x && !z) return { x: 0, z: 0 };
   const magnitude = Math.hypot(x, z);
   return { x: x / magnitude, z: z / magnitude };
+}
+
+function inputKey(event) {
+  return ({ KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', ArrowUp: 'arrowup', ArrowDown: 'arrowdown', ArrowLeft: 'arrowleft', ArrowRight: 'arrowright' })[event.code] || event.key.toLowerCase();
 }
 
 function showLanternGate(error = '') {
@@ -36,11 +69,16 @@ function showLanternGate(error = '') {
 }
 
 addEventListener('keydown', (event) => {
-  keys[event.key.toLowerCase()] = true;
-  if (event.key.toLowerCase() === 'e') { event.preventDefault(); interact(); }
-  if (event.key.toLowerCase() === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
+  if (event.key === 'Escape' && !howModal.hidden) { event.preventDefault(); closeHowItWorks(); return; }
+  const key = inputKey(event); keys[key] = true;
+  if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'e', ' '].includes(key)) event.preventDefault();
+  if (key === 'e') interact();
+  if (key === ' ') attack();
+  if (key === 'f') document.fullscreenElement ? document.exitFullscreen() : canvas.requestFullscreen();
 });
-addEventListener('keyup', (event) => { keys[event.key.toLowerCase()] = false; });
+addEventListener('keyup', (event) => { keys[inputKey(event)] = false; });
+addEventListener('blur', () => { for (const key of Object.keys(keys)) keys[key] = false; });
+canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
 canvas.addEventListener('click', (event) => {
   if (!state.joined && !document.getElementById('lantern-gate')) { showLanternGate(); return; }
   if (state.mine?.realm === 'ghost-village') {
@@ -50,8 +88,11 @@ canvas.addEventListener('click', (event) => {
 });
 
 let last = performance.now();
+let gameFocusClaimed = false;
 function loop(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
+  howButton.hidden = state.joined || Boolean(document.getElementById('lantern-gate')) || !howModal.hidden;
+  if (state.joined && !gameFocusClaimed) { canvas.focus({ preventScroll: true }); gameFocusClaimed = true; }
   update(dt, movementInput()); render(); requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -66,10 +107,16 @@ window.render_game_to_text = () => JSON.stringify({
   mode: state.joined ? (gameReady() ? 'adventure' : 'lobby') : 'title',
   room: state.network.roomCode, playerCount: state.players.length,
   phase: state.world?.phase || 'unjoined',
-  player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), archetype: state.mine.archetype },
+  notice: state.noticeTimer > 0 ? state.notice : null,
+  player: state.mine && { x: +state.mine.x.toFixed(1), y: +state.mine.y.toFixed(1), zone: state.mine.zone || 'overworld', archetype: state.mine.archetype, health: state.mine.health, maxHealth: state.mine.maxHealth, hurt: state.mine.hurt, lastDamage: state.mine.lastDamage, caveLocked: state.mine.caveLocked, ruinsLocked: state.mine.ruinsLocked, evolutions: state.mine.evolutions || [] },
   targets: activeEntities().map((entity) => ({ id: entity.targetId || entity.id, action: entity.action, x: +Number(entity.x).toFixed(1), y: +Number(entity.y).toFixed(1) })),
   guardianTrial: state.world?.guardianTrial && { status: state.world.guardianTrial.status, active: state.world.guardianTrial.activeTrial?.id || null, position: state.world.guardianTrial.position || null, wards: state.world.guardianTrial.activatedObjectiveIds?.length || 0, completed: state.world.guardianTrial.completedTrialIds?.length || 0, mechanic: state.world.guardianTrial.mechanic || null },
   temple: state.world?.templeFinale && { status: state.world.templeFinale.status, layout: state.world.templeFinale.status === 'assembling' ? 'shared-map' : 'four-way-split', panes: state.world.templeFinale.panes?.map((pane) => ({ role: pane.archetype, atPillar: pane.atPedestal, awake: pane.pillarActivated })) },
+  caveCombat: state.world?.caveCombat ? { cleared: state.world.caveCombat.cleared, tacticId: state.world.caveCombat.tacticId, tacticLabel: state.world.caveCombat.tacticLabel, enemies: state.world.caveCombat.enemies.map((enemy) => ({ id: enemy.id, health: enemy.health, maxHealth: enemy.maxHealth, attacking: enemy.attacking, targetId: enemy.targetId })) } : null,
+  ruinsCombat: state.world?.ruinsCombat ? { cleared: state.world.ruinsCombat.cleared, tacticId: state.world.ruinsCombat.tacticId, tacticLabel: state.world.ruinsCombat.tacticLabel, enemies: state.world.ruinsCombat.enemies.map((enemy) => ({ id: enemy.id, health: enemy.health, maxHealth: enemy.maxHealth, attacking: enemy.attacking, targetId: enemy.targetId })) } : null,
+  selectedExpeditions: state.world?.world?.selectedExpeditions || [],
+  visibleFeatures: (state.world?.entities || []).filter((entity) => entity.feature).map((entity) => entity.feature),
+  visibleTerrain: (state.world?.terrain || []).filter((area) => area.feature).map((area) => area.feature),
   relics: state.world?.relics?.filter((relic) => !relic.collectedBy).map((relic) => relic.id) || [],
   director: {
     mood: state.world?.director?.mood || state.world?.directorRules?.activeRules?.find((rule) => rule.card === 'world_mood')?.moodId || null,

@@ -1,0 +1,245 @@
+import assert from 'node:assert/strict';
+import { createGameWorld } from '../server/game-world.mjs';
+import { CAVE_DEMON_MAX_HEALTH, CAVE_PLAYER_MAX_HEALTH, EVOLUTION_LIBRARY, EXPEDITION_IDS, RUINS_MUMMY_MAX_HEALTH, TEMPLE_WARDEN_MAX_HEALTH } from '../shared/game-content.js';
+
+let clock = 0;
+const timedWorld = createGameWorld({ collisionTiles: [], observationMs: 40_000, gmAssignmentGraceMs: 0, clock: () => clock });
+const timedRoom = timedWorld.createRoom('CLOCK'); timedWorld.rooms.set(timedRoom.code, timedRoom);
+for (let index = 0; index < 4; index += 1) { const player = timedWorld.createPlayer(`clock-${index}`, `Clock ${index}`, index); timedRoom.players.set(player.id, player); }
+timedWorld.beginObservation(timedRoom); clock = 39_999;
+assert.equal(timedWorld.serializeRoom(timedRoom).phase, 'observing');
+assert.equal(timedWorld.serializeRoom(timedRoom).observationSecondsRemaining, 1);
+clock = 40_000;
+assert.equal(timedWorld.serializeRoom(timedRoom).phase, 'evolving', 'roles should awaken exactly when the 40-second observation ends');
+
+const world = createGameWorld({ collisionTiles: [] });
+const room = world.createRoom('SCOUT');
+world.rooms.set(room.code, room);
+const explorer = world.createPlayer('explorer', 'Ari', 0);
+explorer.archetype = 'Explorer';
+room.players.set(explorer.id, explorer);
+room.phase = 'evolving';
+assert.equal(world.selectExpeditions(room, ['dark-cave', 'sunken-temple'], 'test').ok, true);
+
+const expected = [
+  'hidden-cave-appears',
+  'temple-staircase-uncovered',
+];
+
+assert.deepEqual(EVOLUTION_LIBRARY.Explorer.map(([feature]) => feature), ['hidden-cave-appears', 'temple-staircase-uncovered', 'forgotten-ruins-emerge']);
+assert.deepEqual(EXPEDITION_IDS, ['dark-cave', 'sunken-temple', 'hidden-ruins']);
+
+for (const [index, feature] of expected.entries()) {
+  const result = world.evolve(room, explorer.id, 'test');
+  assert.equal(result.ok, true);
+  assert.equal(result.feature, feature);
+  assert.deepEqual(explorer.evolutions, expected.slice(0, index + 1));
+
+  const state = world.serializeRoom(room, explorer.id);
+  assert.ok(state.world.unlocked.includes(feature), `${feature} should be unlocked`);
+  assert.ok(state.entities.some((entity) => entity.feature === feature), `${feature} should reveal an entity`);
+  assert.ok(state.terrain.some((area) => area.feature === feature), `${feature} should reveal terrain`);
+  for (const locked of expected.slice(index + 1)) {
+    assert.equal(state.entities.some((entity) => entity.feature === locked), false, `${locked} should remain hidden`);
+    assert.equal(state.terrain.some((area) => area.feature === locked), false, `${locked} terrain should remain hidden`);
+  }
+}
+
+assert.equal(world.evolve(room, explorer.id, 'test').ok, false, 'a third Explorer evolution must be rejected');
+
+const discoveryWorld = createGameWorld({ collisionTiles: [] });
+const discoveryRoom = discoveryWorld.createRoom('ROUTE');
+discoveryWorld.rooms.set(discoveryRoom.code, discoveryRoom);
+const routeExplorer = discoveryWorld.createPlayer('route-explorer', 'Nova', 0);
+routeExplorer.archetype = 'Explorer'; discoveryRoom.players.set(routeExplorer.id, routeExplorer); discoveryRoom.phase = 'evolving';
+assert.equal(discoveryWorld.selectExpeditions(discoveryRoom, ['dark-cave', 'sunken-temple'], 'test').ok, true);
+
+// Walking to the temple staircase first must awaken it first: Explorer discoveries
+// are spatial and independent, not a forced two-step quest chain.
+discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: 20, z: -4 }, true);
+assert.deepEqual(routeExplorer.evolutions, ['temple-staircase-uncovered']);
+discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: -21, z: -11 }, true);
+assert.deepEqual(routeExplorer.evolutions, ['temple-staircase-uncovered', 'hidden-cave-appears']);
+
+const enterCave = discoveryWorld.interact(discoveryRoom, routeExplorer, 'enter-dark-cave', 'hidden-cave-mouth');
+assert.equal(enterCave.ok, true, 'the Explorer should discover and enter the Black Hollow');
+assert.equal(routeExplorer.zone, 'dark-cave');
+assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: 0, z: 11 }, 'the cave should place arrivals beside its southern passage');
+assert.equal(discoveryRoom.world.unlocked.has('dark-cave-open'), true);
+discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: 0, z: 15 }, true);
+assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: 0, z: 11 }, 'the cavern wall must stop players from entering the black void');
+discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: -14, z: -2 }, true);
+assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: -14, z: -2 }, 'the western shard grotto should be walkable');
+routeExplorer.x = 0; routeExplorer.z = 12;
+assert.equal(discoveryWorld.interact(discoveryRoom, routeExplorer, 'exit-dark-cave', 'dark-cave-exit').ok, true, 'the southern passage should return the Explorer to Everdawn');
+assert.equal(routeExplorer.zone, 'overworld');
+
+routeExplorer.x = 20; routeExplorer.z = -3;
+const enterTemple = discoveryWorld.interact(discoveryRoom, routeExplorer, 'enter-sunken-temple', 'hidden-temple-entrance');
+assert.equal(enterTemple.ok, true, 'the Explorer should awaken and enter the Sunken Temple');
+assert.equal(routeExplorer.zone, 'sunken-temple');
+assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: 0, z: 12 }, 'the temple should place arrivals beside the return staircase');
+assert.equal(discoveryRoom.world.unlocked.has('sunken-temple-open'), true);
+assert.equal(discoveryWorld.serializeRoom(discoveryRoom, routeExplorer.id).templeCombat.enemies.length, 2, 'two Tide Wardens should guard the Temple shards');
+assert.ok(discoveryRoom.templeCombat.enemies.every((enemy) => enemy.maxHealth === TEMPLE_WARDEN_MAX_HEALTH), 'each Tide Warden should have 80 health');
+const tideWarden = discoveryRoom.templeCombat.enemies[0];
+routeExplorer.x = tideWarden.x - 1; routeExplorer.z = tideWarden.z;
+assert.equal(discoveryWorld.attackEncounter(discoveryRoom, routeExplorer).ok, true, 'the party should be able to fight the Tide Wardens');
+assert.equal(tideWarden.health, TEMPLE_WARDEN_MAX_HEALTH - 22, 'a temple strike should use the shared 22-damage co-op combat rule');
+discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: -12, z: 0 }, true);
+assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: -12, z: 0 }, 'the original west chamber should be walkable');
+discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: -22, z: 14 }, true);
+assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: -16, z: 0 }, 'players should slide along the wall without crossing into a corner void');
+routeExplorer.x = 0; routeExplorer.z = 12;
+assert.equal(discoveryWorld.interact(discoveryRoom, routeExplorer, 'exit-sunken-temple', 'sunken-temple-exit').ok, true, 'the return staircase should lead back to Everdawn');
+assert.equal(routeExplorer.zone, 'overworld');
+
+const collector = discoveryWorld.createPlayer('temple-collector', 'Mira', 1);
+collector.archetype = 'Collector'; collector.x = -21; collector.z = -11; discoveryRoom.players.set(collector.id, collector);
+assert.equal(discoveryWorld.interact(discoveryRoom, collector, 'enter-dark-cave', 'hidden-cave-mouth').ok, true, 'once discovered, the cave should admit the Collector');
+assert.deepEqual(discoveryWorld.serializeRoom(discoveryRoom, collector.id).caveShardProgress, { collected: 0, total: 2 }, 'the Collector should sense two Gloom shards inside');
+collector.x = -14; collector.z = -2;
+assert.match(discoveryWorld.interact(discoveryRoom, collector, 'relic', 'gloom-shard-west').error, /demons guard/i, 'the cave shards should remain guarded until the co-op fight is won');
+discoveryRoom.caveCombat.cleared = true;
+assert.equal(discoveryWorld.interact(discoveryRoom, collector, 'relic', 'gloom-shard-west').ok, true, 'the Collector should claim the Umbral Shard');
+collector.x = 13; collector.z = -3;
+assert.equal(discoveryWorld.interact(discoveryRoom, collector, 'relic', 'gloom-shard-east').ok, true, 'the Collector should claim the Fossil Shard');
+assert.deepEqual(discoveryWorld.serializeRoom(discoveryRoom, collector.id).caveShardProgress, { collected: 2, total: 2 }, 'both cave shards should be tracked privately');
+assert.equal(discoveryWorld.serializeRoom(discoveryRoom, routeExplorer.id).caveShardProgress, undefined, 'the Explorer must not receive the Collector shard counter');
+collector.x = 0; collector.z = 12;
+assert.equal(discoveryWorld.interact(discoveryRoom, collector, 'exit-dark-cave', 'dark-cave-exit').ok, true);
+
+collector.x = 20; collector.z = -3;
+assert.equal(discoveryWorld.interact(discoveryRoom, collector, 'enter-sunken-temple', 'hidden-temple-entrance').ok, true, 'the opened entrance should admit the Collector');
+assert.equal(discoveryWorld.serializeRoom(discoveryRoom, collector.id).shardProgress, undefined, 'the shard counter must stay hidden until the Collector finds one');
+collector.x = -14; collector.z = 0;
+assert.match(discoveryWorld.interact(discoveryRoom, collector, 'relic', 'tideglass-shard-west').error, /Tide Wardens guard/i, 'temple shards should be guarded until the party clears the hall');
+discoveryRoom.templeCombat.cleared = true;
+assert.equal(discoveryWorld.interact(discoveryRoom, collector, 'relic', 'tideglass-shard-west').ok, true, 'the Collector should claim a temple shard');
+assert.equal(collector.relicIds.has('tideglass-shard-west'), true);
+const shardState = discoveryWorld.serializeRoom(discoveryRoom, collector.id);
+assert.deepEqual(shardState.shardProgress, { collected: 1, total: 9, objectiveRevealed: false }, 'the Collector should privately discover shard progress after the first pickup');
+assert.equal(discoveryWorld.serializeRoom(discoveryRoom, routeExplorer.id).shardProgress, undefined, 'other roles must not receive the private shard counter');
+
+let ruinsClock = 0;
+const ruinsWorld = createGameWorld({ collisionTiles: [], clock: () => ruinsClock });
+const ruinsRoom = ruinsWorld.createRoom('RUINS'); ruinsWorld.rooms.set(ruinsRoom.code, ruinsRoom); ruinsRoom.phase = 'evolving';
+const ruinsExplorer = ruinsWorld.createPlayer('ruins-explorer', 'Sage', 0); ruinsExplorer.archetype = 'Explorer'; ruinsRoom.players.set(ruinsExplorer.id, ruinsExplorer);
+const ruinsCollector = ruinsWorld.createPlayer('ruins-collector', 'Mina', 1); ruinsCollector.archetype = 'Collector'; ruinsRoom.players.set(ruinsCollector.id, ruinsCollector);
+assert.equal(ruinsWorld.selectExpeditions(ruinsRoom, ['hidden-ruins', 'dark-cave'], 'test').ok, true, 'the AI draft should accept exactly two distinct destinations');
+assert.equal(ruinsWorld.selectExpeditions(ruinsRoom, ['hidden-ruins'], 'test').ok, false, 'a one-map draft must be rejected');
+const adaptivePlan = ruinsWorld.adaptEncounter(ruinsRoom, 'hidden-ruins', 'guard-collector', 'The Collector gathered most often, so the wardens should force the party to protect them.', 'AI Game Master test');
+assert.equal(adaptivePlan.ok, true, 'the AI should be able to shape a selected hostile expedition');
+assert.equal(ruinsWorld.adaptEncounter(ruinsRoom, 'hidden-ruins', 'hunt-straggler', 'Try a second plan.', 'AI Game Master test').ok, false, 'one AI plan should remain authoritative for the encounter');
+ruinsWorld.recordTelemetry(ruinsRoom, ruinsExplorer, { x: 6, z: -9 }, true);
+assert.deepEqual(ruinsExplorer.evolutions, ['forgotten-ruins-emerge'], 'walking near the buried arch should awaken the selected Hidden Ruins');
+assert.equal(ruinsWorld.unlock(ruinsRoom, 'temple-staircase-uncovered').ok, false, 'the unused third expedition must remain unavailable');
+assert.equal(ruinsWorld.interact(ruinsRoom, ruinsExplorer, 'enter-hidden-ruins', 'hidden-ruins-entrance').ok, true);
+assert.equal(ruinsExplorer.zone, 'hidden-ruins');
+ruinsWorld.recordTelemetry(ruinsRoom, ruinsExplorer, { x: 0, z: 16 }, true);
+assert.deepEqual({ x: ruinsExplorer.x, z: ruinsExplorer.z }, { x: 0, z: 11 }, 'the sandstone perimeter must keep players inside the ruins');
+ruinsCollector.x = 6; ruinsCollector.z = -9;
+assert.equal(ruinsWorld.interact(ruinsRoom, ruinsCollector, 'enter-hidden-ruins', 'hidden-ruins-entrance').ok, true, 'the opened arch should admit the rest of the party');
+const ruinsState = ruinsWorld.serializeRoom(ruinsRoom, ruinsExplorer.id);
+assert.equal(ruinsState.ruinsCombat.enemies.length, 2, 'two mummy wardens should inhabit the Hidden Ruins');
+assert.equal(ruinsState.ruinsCombat.tacticId, 'guard-collector', 'the AI-selected encounter tactic should reach every client');
+assert.equal(ruinsState.aiDirector.decisions.some((decision) => decision.type === 'encounter-tactic' && decision.choice === 'hidden-ruins:guard-collector'), true, 'the AI decision trail should record why the encounter changed');
+assert.ok(ruinsState.ruinsCombat.enemies.every((enemy) => enemy.maxHealth === RUINS_MUMMY_MAX_HEALTH && enemy.maxHealth === 80), 'each mummy should have 80% of a player health bar');
+const mummy = ruinsRoom.ruinsCombat.enemies[0];
+ruinsExplorer.x = mummy.x - 1; ruinsExplorer.z = mummy.z;
+ruinsCollector.x = mummy.x + 1; ruinsCollector.z = mummy.z;
+ruinsClock += 400; assert.equal(ruinsWorld.attackEncounter(ruinsRoom, ruinsExplorer).ok, true);
+const mummyAfterExplorer = mummy.health;
+ruinsClock += 400; assert.equal(ruinsWorld.attackEncounter(ruinsRoom, ruinsCollector).ok, true);
+assert.ok(mummy.health < mummyAfterExplorer, 'both players should damage the same authoritative mummy');
+ruinsRoom.ruinsCombat.enemies[1].health = 0;
+mummy.x = ruinsCollector.x; mummy.z = ruinsCollector.z; mummy.lastAttackAt = -Infinity;
+ruinsCollector.health = CAVE_PLAYER_MAX_HEALTH;
+ruinsClock += 1_200; ruinsWorld.tickRoom(ruinsRoom, 0);
+assert.equal(ruinsCollector.health, 95, 'a mummy strike should deal exactly 5% of a full player health bar');
+const mummyStrikeState = ruinsWorld.serializeRoom(ruinsRoom, ruinsCollector.id);
+assert.equal(mummyStrikeState.players.find((player) => player.id === ruinsCollector.id).hurt, true, 'the mummy victim should receive a visible hurt state');
+assert.equal(mummyStrikeState.ruinsCombat.enemies.find((enemy) => enemy.id === mummy.id).attacking, true, 'the striking mummy should expose its attack animation state');
+assert.equal(mummyStrikeState.ruinsCombat.enemies.find((enemy) => enemy.id === mummy.id).targetId, ruinsCollector.id, 'the AI relic-ward tactic should make the mummy deliberately target the Collector');
+ruinsCollector.x = -12; ruinsCollector.z = 5;
+assert.match(ruinsWorld.interact(ruinsRoom, ruinsCollector, 'relic', 'sunstone-shard-west').error, /mummy wardens guard/i, 'Sunstones must stay guarded during battle');
+for (const enemy of ruinsRoom.ruinsCombat.enemies) enemy.health = 0;
+ruinsRoom.ruinsCombat.cleared = true;
+for (const [id, x, z] of [['sunstone-shard-west', -12, 5], ['sunstone-shard-east', 12, 5], ['sunstone-shard-crown', 0, -11]]) {
+  ruinsCollector.x = x; ruinsCollector.z = z;
+  assert.equal(ruinsWorld.interact(ruinsRoom, ruinsCollector, 'relic', id).ok, true, `${id} should become collectible after both mummies fall`);
+}
+assert.deepEqual(ruinsWorld.serializeRoom(ruinsRoom, ruinsCollector.id).ruinsShardProgress, { collected: 3, total: 3 }, 'all three Sunstones should be tracked privately for the Collector');
+assert.equal(ruinsWorld.serializeRoom(ruinsRoom, ruinsExplorer.id).ruinsShardProgress, undefined, 'other roles must not receive the Sunstone counter');
+
+const lakeWorld = createGameWorld({ collisionTiles: [] });
+const lakeRoom = lakeWorld.createRoom('LAKE'); lakeWorld.rooms.set(lakeRoom.code, lakeRoom); lakeRoom.phase = 'evolving';
+const dryExplorer = lakeWorld.createPlayer('dry-explorer', 'Dry Explorer', 0); dryExplorer.archetype = 'Explorer'; dryExplorer.x = 7; dryExplorer.z = 7; lakeRoom.players.set(dryExplorer.id, dryExplorer);
+lakeWorld.recordTelemetry(lakeRoom, dryExplorer, { x: 9, z: 7 }, true);
+assert.deepEqual({ x: dryExplorer.x, z: dryExplorer.z }, { x: 7, z: 7 }, 'the Explorer must not walk into the visible lake');
+const waterCollector = lakeWorld.createPlayer('water-collector', 'Water Collector', 1); waterCollector.archetype = 'Collector'; waterCollector.x = 7; waterCollector.z = 7; lakeRoom.players.set(waterCollector.id, waterCollector);
+lakeWorld.recordTelemetry(lakeRoom, waterCollector, { x: 9, z: 7 }, true);
+assert.deepEqual({ x: waterCollector.x, z: waterCollector.z }, { x: 7, z: 7 }, 'water must be blocked for every role for now');
+
+const shorelineWalker = lakeWorld.createPlayer('shoreline-walker', 'Shoreline Walker', 2); shorelineWalker.x = 3; shorelineWalker.z = 7; lakeRoom.players.set(shorelineWalker.id, shorelineWalker);
+lakeWorld.recordTelemetry(lakeRoom, shorelineWalker, { x: 6, z: 7 }, true);
+assert.deepEqual({ x: shorelineWalker.x, z: shorelineWalker.z }, { x: 6, z: 7 }, 'the visible grass west of the lake must not be treated as water');
+lakeWorld.recordTelemetry(lakeRoom, shorelineWalker, { x: 5, z: 16 }, true);
+assert.deepEqual({ x: shorelineWalker.x, z: shorelineWalker.z }, { x: 5, z: 16 }, 'the final southern grass row must remain reachable');
+
+const grassWorld = createGameWorld({ collisionTiles: new Array(60 * 34).fill(1) });
+const grassRoom = grassWorld.createRoom('GRASS'); grassWorld.rooms.set(grassRoom.code, grassRoom); grassRoom.phase = 'evolving';
+const grassWalker = grassWorld.createPlayer('grass-walker', 'Grass Walker', 0); grassRoom.players.set(grassWalker.id, grassWalker);
+grassWorld.recordTelemetry(grassRoom, grassWalker, { x: 0, z: 0 }, true);
+assert.deepEqual({ x: grassWalker.x, z: grassWalker.z }, { x: 0, z: 0 }, 'authored props must no longer create invisible walls across grass');
+
+let combatClock = 0;
+const combatWorld = createGameWorld({ collisionTiles: [], clock: () => combatClock });
+const combatRoom = combatWorld.createRoom('FIGHT'); combatWorld.rooms.set(combatRoom.code, combatRoom); combatRoom.phase = 'evolving';
+combatRoom.world.unlocked.add('hidden-cave-appears');
+const fighterOne = combatWorld.createPlayer('fighter-one', 'Fighter One', 0); fighterOne.archetype = 'Explorer'; fighterOne.x = -21; fighterOne.z = -11; combatRoom.players.set(fighterOne.id, fighterOne);
+const fighterTwo = combatWorld.createPlayer('fighter-two', 'Fighter Two', 1); fighterTwo.archetype = 'Collector'; fighterTwo.x = -21; fighterTwo.z = -11; combatRoom.players.set(fighterTwo.id, fighterTwo);
+assert.equal(combatWorld.interact(combatRoom, fighterOne, 'enter-dark-cave', 'hidden-cave-mouth').ok, true);
+assert.equal(combatWorld.interact(combatRoom, fighterTwo, 'enter-dark-cave', 'hidden-cave-mouth').ok, true, 'the opened cave must admit the full co-op party');
+const combatState = combatWorld.serializeRoom(combatRoom, fighterOne.id);
+assert.equal(combatState.caveCombat.enemies.length, 3, 'three demons should guard the Black Hollow');
+assert.ok(combatState.caveCombat.enemies.every((enemy) => enemy.maxHealth === CAVE_DEMON_MAX_HEALTH && enemy.maxHealth === CAVE_PLAYER_MAX_HEALTH * .75), 'each demon should have 75% of a player health bar');
+assert.equal(fighterOne.health, CAVE_PLAYER_MAX_HEALTH);
+
+const sharedTarget = combatRoom.caveCombat.enemies[0];
+fighterOne.x = sharedTarget.x - 1; fighterOne.z = sharedTarget.z;
+fighterTwo.x = sharedTarget.x + 1; fighterTwo.z = sharedTarget.z;
+combatClock += 400;
+assert.equal(combatWorld.attackDarkCave(combatRoom, fighterOne).ok, true);
+const afterFirstStrike = sharedTarget.health;
+combatClock += 400;
+assert.equal(combatWorld.attackDarkCave(combatRoom, fighterTwo).ok, true);
+assert.ok(sharedTarget.health < afterFirstStrike, 'both players must damage the same shared enemy state');
+
+const setbackHealth = fighterOne.health;
+combatClock += 2_000;
+combatWorld.recordTelemetry(combatRoom, fighterOne, { x: 3, z: -7 }, true);
+assert.deepEqual({ x: fighterOne.x, z: fighterOne.z }, { x: 0, z: 4 }, 'the false-floor portal should throw the player backward');
+assert.equal(fighterOne.health, setbackHealth - 5, 'the false floor should cost exactly 5% health');
+combatWorld.recordTelemetry(combatRoom, fighterOne, { x: -10, z: -1 }, true);
+assert.notDeepEqual({ x: fighterOne.x, z: fighterOne.z }, { x: -10, z: -1 }, 'the other black pools should be solid hazards, not walkable floor');
+
+for (const enemy of combatRoom.caveCombat.enemies) enemy.health = 0;
+const executioner = combatRoom.caveCombat.enemies[0]; executioner.health = CAVE_DEMON_MAX_HEALTH; executioner.x = fighterTwo.x; executioner.z = fighterTwo.z; executioner.lastAttackAt = -Infinity;
+combatRoom.caveCombat.cleared = false; fighterTwo.health = CAVE_PLAYER_MAX_HEALTH;
+combatClock += 1_100; combatWorld.tickRoom(combatRoom, 0);
+assert.equal(fighterTwo.health, 95, 'a demon strike should deal exactly 5% of a full player health bar');
+const demonStrikeState = combatWorld.serializeRoom(combatRoom, fighterTwo.id);
+assert.equal(demonStrikeState.players.find((player) => player.id === fighterTwo.id).hurt, true, 'the demon victim should receive a visible hurt state');
+assert.equal(demonStrikeState.caveCombat.enemies.find((enemy) => enemy.id === executioner.id).attacking, true, 'the striking demon should expose its attack animation state');
+for (let strike = 1; strike < 20; strike += 1) { combatClock += 1_100; combatWorld.tickRoom(combatRoom, 0); }
+assert.equal(fighterTwo.health, 0, 'a player can be reduced to zero health in the cave');
+assert.equal(fighterTwo.zone, 'overworld', 'zero health should eject only that player from the cave');
+assert.equal(fighterTwo.caveLocked, true, 'a defeated player should be locked out for the remainder of the match');
+assert.equal(fighterOne.zone, 'dark-cave', 'the other co-op player should remain in the cave');
+fighterTwo.x = -21; fighterTwo.z = -11;
+const lockedReturn = combatWorld.interact(combatRoom, fighterTwo, 'enter-dark-cave', 'hidden-cave-mouth');
+assert.equal(lockedReturn.ok, false);
+assert.match(lockedReturn.error, /will not admit/i, 'the defeated player must receive a clear re-entry denial');
+
+console.log('Two-of-three expedition drafting, Explorer discoveries, Hidden Ruins mummy combat, Black Hollow, Sunken Temple, and role-gated shards passed.');

@@ -8,13 +8,12 @@
 // server-owned positions, interactions, relic inventories, and role data.
 
 const ACTIVE_PHASES = new Set(['evolving', 'finale']);
-const RULE_TYPES = Object.freeze(['bond', 'explorer_vision', 'hoard_value', 'guardian_protection', 'solitary_vision']);
+const RULE_TYPES = Object.freeze(['bond', 'hoard_value', 'guardian_protection']);
 
 export const EMERGENT_RULE_TYPES = RULE_TYPES;
 export const EMERGENT_TRIGGER_IDS = Object.freeze(['exclusive_pair', 'explorer_travel', 'collector_relics', 'guardian_cohesion', 'loner_isolation']);
-export const EMERGENT_EFFECT_IDS = Object.freeze(['tether_energy', 'private_marker', 'shared_marker', 'group_altar', 'recovery_aura', 'movement_boon']);
+export const EMERGENT_EFFECT_IDS = Object.freeze(['tether_energy', 'shared_marker', 'group_altar', 'recovery_aura', 'movement_boon']);
 export const EMERGENT_MARKERS = Object.freeze({
-  silver_trail: Object.freeze({ x: -19, z: -9, label: 'Silver Trail' }),
   pale_gate: Object.freeze({ x: 19, z: 6, label: 'Pale Gate' }),
   echo_altar: Object.freeze({ x: 19, z: 9, label: 'Echo Altar' }),
   warden_ring: Object.freeze({ x: 15, z: 7, label: 'Warden Ring' }),
@@ -23,7 +22,6 @@ export const EMERGENT_MARKERS = Object.freeze({
 
 const EFFECT_POLICIES = Object.freeze({
   tether_energy: Object.freeze({ triggers: ['exclusive_pair'], visibility: ['shared', 'participants'], target: 'pair' }),
-  private_marker: Object.freeze({ triggers: ['explorer_travel', 'loner_isolation'], visibility: ['private'], target: 'subject', marker: true }),
   shared_marker: Object.freeze({ triggers: EMERGENT_TRIGGER_IDS, visibility: ['shared', 'participants'], target: 'subject', marker: true }),
   group_altar: Object.freeze({ triggers: ['collector_relics'], visibility: ['shared', 'participants'], target: 'subject' }),
   recovery_aura: Object.freeze({ triggers: ['guardian_cohesion'], visibility: ['shared', 'participants'], target: 'subject' }),
@@ -167,6 +165,13 @@ function observePairs(room, state, deltaSeconds, settings) {
   for (const key of Object.keys(state.observations.pairs)) if (!current.has(key)) delete state.observations.pairs[key];
 }
 
+function observeLonerIsolation(room, state, deltaSeconds, settings) {
+  const loner = rolePlayer(room, 'Loner');
+  if (!loner) { state.observations.lonerSeconds = 0; return; }
+  const alone = players(room).filter((player) => player.id !== loner.id).every((player) => distance(player, loner) > settings.lonerRange);
+  state.observations.lonerSeconds = alone ? safeNumber(state.observations.lonerSeconds) + deltaSeconds : 0;
+}
+
 function createBond(world, room, state, now, settings) {
   if (!canCreate(state, 'bond', now, settings)) return null;
   const entry = Object.entries(state.observations.pairs)
@@ -186,30 +191,13 @@ function createBond(world, room, state, now, settings) {
   return rule;
 }
 
-function createExplorerVision(world, room, state, now, settings) {
-  if (!canCreate(state, 'explorer_vision', now, settings)) return null;
-  const explorer = rolePlayer(room, 'Explorer');
-  if (!explorer || activeRuleForPlayer(state, 'explorer_vision', explorer.id)) return null;
-  const locations = explorer.visited instanceof Set ? explorer.visited.size : 0;
-  if (safeNumber(explorer.movement) < settings.explorerDistance && locations < settings.explorerLocations) return null;
-  const rule = makeRule(room, state, {
-    type: 'explorer_vision', title: 'Path-Sight', playerIds: [explorer.id], privateTo: explorer.id,
-    description: 'The Explorer reads the shape of paths hidden from the party.',
-    privateMessage: 'Only you can see a silver trail through the next hidden route. Follow it and tell the others what you find.',
-    durationMs: settings.explorerDurationMs, cooldownMs: settings.cooldownMs,
-    grants: ['hidden-path-insight'], marker: { x: -19, z: -9, label: 'Silver Trail' },
-  }, now);
-  announceRule(world, room, rule);
-  return rule;
-}
-
 function createHoardValue(world, room, state, now, settings) {
   if (!canCreate(state, 'hoard_value', now, settings)) return null;
   const collector = rolePlayer(room, 'Collector');
   if (!collector || hasRelics(collector) < settings.hoardRelics) return null;
   const rule = makeRule(room, state, {
     type: 'hoard_value', title: 'Echo Debt', playerIds: [collector.id],
-    description: `${collector.name}'s recovered relics now carry a shared echo. The party must bring them to the final altar together.`,
+    description: `${collector.name}'s recovered relics now carry a shared echo. The offering will answer only while at least two other lanterns stand beside the Collector at the final altar.`,
     durationMs: settings.hoardDurationMs, cooldownMs: settings.cooldownMs,
     objective: { kind: 'share-relics', collectorId: collector.id, requiredRelics: hasRelics(collector), status: 'active' },
   }, now);
@@ -226,28 +214,12 @@ function createGuardianProtection(world, room, state, now, deltaSeconds, setting
   if (!canCreate(state, 'guardian_protection', now, settings) || state.observations.guardianSeconds < settings.guardianSeconds) return null;
   const rule = makeRule(room, state, {
     type: 'guardian_protection', title: "Warden's Shelter", playerIds: [guardian.id],
-    description: `${guardian.name}'s steady presence shelters nearby allies; their lantern energy recovers while they stay close.`,
+    description: 'Nearby allies recover lantern energy while they stay close to the Guardian.',
     durationMs: settings.guardianDurationMs, cooldownMs: settings.cooldownMs,
     radius: settings.guardianRange, recoveryPerSecond: settings.guardianRecoveryPerSecond,
   }, now);
-  announceRule(world, room, rule);
-  return rule;
-}
-
-function createSolitaryVision(world, room, state, now, deltaSeconds, settings) {
-  const loner = rolePlayer(room, 'Loner');
-  if (!loner) return null;
-  const alone = players(room).filter((player) => player.id !== loner.id).every((player) => distance(player, loner) > settings.lonerRange);
-  state.observations.lonerSeconds = alone ? safeNumber(state.observations.lonerSeconds) + deltaSeconds : 0;
-  if (!canCreate(state, 'solitary_vision', now, settings) || state.observations.lonerSeconds < settings.lonerSeconds) return null;
-  const rule = makeRule(room, state, {
-    type: 'solitary_vision', title: 'Veil Omen', playerIds: [loner.id], privateTo: loner.id,
-    description: 'The Loner hears a secret beyond the Veil.',
-    privateMessage: 'The Veil shows you a private omen: a pale gate answers only after the party has awakened the shrine and gathered relics.',
-    durationMs: settings.lonerDurationMs, cooldownMs: settings.cooldownMs,
-    grants: ['private-omen'], marker: { x: 19, z: 6, label: 'Pale Gate Omen' },
-  }, now);
-  announceRule(world, room, rule);
+  // This remains a quiet background role effect. Announcing it as a large
+  // global instruction interrupted exploration and made it look mandatory.
   return rule;
 }
 
@@ -333,7 +305,6 @@ export function expireEmergentRules(world, room, now = stamp()) {
   state.activeRules = state.activeRules.filter((rule) => rule.expiresAt > now);
   for (const rule of expired) {
     removePrivateRule(room, rule.id);
-    emit(world, room, 'emergent-rule-expired', `${rule.title} fades as the group changes.`, { ruleId: rule.id, ruleType: rule.type });
   }
   return expired;
 }
@@ -352,12 +323,11 @@ export function analyzeEmergentRules(world, room, now = stamp(), options = {}) {
   state.lastAnalyzedAt = now;
   for (const player of players(room)) ensurePlayerState(player, settings);
   observePairs(room, state, deltaSeconds, settings);
+  observeLonerIsolation(room, state, deltaSeconds, settings);
 
   const created = createBond(world, room, state, now, settings)
-    || createExplorerVision(world, room, state, now, settings)
     || createHoardValue(world, room, state, now, settings)
-    || createGuardianProtection(world, room, state, now, deltaSeconds, settings)
-    || createSolitaryVision(world, room, state, now, deltaSeconds, settings);
+    || createGuardianProtection(world, room, state, now, deltaSeconds, settings);
   return { created, reason: created ? null : 'No new behaviour pattern crossed a rule threshold.' };
 }
 
@@ -442,7 +412,7 @@ export function validateEmergentInteraction(room, player, action, entity) {
   const rule = ensureState(room).activeRules.find((item) => (item.type === 'hoard_value' ? item.objective : item.effect?.kind === 'group_altar' ? item.effect.objective : null)?.collectorId === player?.id);
   if (!rule || action !== 'offer-relics' || entity?.id !== 'final-altar') return { ok: true };
   const nearbyAllies = players(room).filter((other) => distance(other, entity) <= 6).length;
-  return nearbyAllies >= 3 ? { ok: true, rule } : { ok: false, error: 'The relic echo needs at least three lanterns gathered at the altar.' };
+  return nearbyAllies >= 3 ? { ok: true, rule } : { ok: false, error: 'The relic echo needs the Collector and at least two other lanterns gathered at the altar.' };
 }
 
 export function completeEmergentInteraction(room, player, action, entity) {

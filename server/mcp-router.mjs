@@ -21,7 +21,9 @@ export function createMcpRouter(world) {
     if (room.players.size !== 4) { sendJson(response, 400, { ok: false, error: 'Game Master actions require exactly four connected players.' }); return; }
     let result;
     if (pathname === '/api/mcp/narrate') { const message = world.cleanText(payload.message, '', 280); result = !message ? { ok: false, error: 'A narration message is required.' } : payload.privateTo && !world.getPlayer(room, payload.privateTo) ? { ok: false, error: 'Unknown private audience.' } : (world.markGmActive(room), { ok: true, event: world.event(room, 'gm-narration', message, payload.privateTo ? { privateTo: payload.privateTo } : {}) }); }
-    else if (pathname === '/api/mcp/assign-archetypes') { world.markGmActive(room); result = world.assignArchetypes(room, payload.assignments, 'MCP Game Master'); }
+    else if (pathname === '/api/mcp/assign-archetypes') { world.markGmActive(room); result = world.assignArchetypes(room, payload.assignments, 'MCP Game Master', payload.expeditions); }
+    else if (pathname === '/api/mcp/select-expeditions') { world.markGmActive(room); result = world.selectExpeditions(room, payload.expeditions, 'MCP Game Master'); }
+    else if (pathname === '/api/mcp/adapt-encounter') { world.markGmActive(room); result = world.adaptEncounter(room, payload.expeditionId, payload.tacticId, payload.reason, 'MCP Game Master'); }
     else if (pathname === '/api/mcp/unlock') result = !['evolving', 'finale'].includes(room.phase) ? { ok: false, error: 'World features unlock only after roles are assigned.' } : !payload.privateTo && room.world.unlocked.has(payload.feature) ? { ok: false, error: 'That public feature is already unlocked.' } : (world.markGmActive(room), world.unlock(room, payload.feature, world.cleanText(payload.message), payload.privateTo ? { privateTo: payload.privateTo } : {}));
     else if (pathname === '/api/mcp/evolve') { world.markGmActive(room); result = world.evolve(room, payload.playerId, 'MCP Game Master'); }
     else if (pathname === '/api/mcp/guardian-trials') { world.markGmActive(room); result = world.chooseGuardianTrials(room, payload.playerId, payload.trialIds, 'MCP Game Master'); }

@@ -3,21 +3,54 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Everdawn — A Living Pixel Adventure</title>
+  <title>Emergent — A Game That Invents Itself Around You</title>
   <link rel="icon" href="data:,">
   <style>
     * { margin: 0; padding: 0; outline: none !important; box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; overflow: hidden; background: #24425b; }
+    :root { color-scheme: dark; --forest:#071b14; --forest-2:#0d2a20; --moss:#193f2f; --mint:#8ee7b4; --cream:#fff1bd; --gold:#f4c95d; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: var(--forest); }
     canvas { display: block; width: 100vw; height: 100vh; object-fit: contain; image-rendering: pixelated; outline: none !important; }
     #lantern-gate { position:fixed; inset:0; display:grid; place-items:center; background:rgba(20,38,52,.36); font-family:monospace; z-index:2; }
-    .gate-card { width:min(390px,calc(100vw - 32px)); padding:24px; color:#fff7d5; background:#22374b; border:3px solid #f5dd8a; box-shadow:7px 7px 0 #142536; text-align:center; }
-    .gate-title { color:#f7d25c; font-size:20px; font-weight:bold; margin-bottom:11px; }
-    .gate-card p { color:#d2f0cf; line-height:1.45; margin:0 0 16px; }
-    .gate-card label { display:block; text-align:left; color:#f8de90; font-size:11px; margin:9px 0; }
-    .gate-card input { display:block; width:100%; margin-top:4px; padding:9px; background:#edf3dd; color:#253047; border:2px solid #83aa73; font:14px monospace; text-transform:uppercase; }
-    .gate-card button { cursor:pointer; margin:12px 3px 4px; padding:10px; border:2px solid #f5dd8a; background:#567c4a; color:#fff7d5; font:bold 11px monospace; }
+    .gate-card { width:min(640px,calc(100vw - 48px)); padding:42px 48px; color:#fff7d5; background:#22374b; border:4px solid #f5dd8a; box-shadow:10px 10px 0 #142536; text-align:center; }
+    .gate-title { color:#f7d25c; font-size:30px; font-weight:bold; margin-bottom:16px; }
+    .gate-card p { color:#d2f0cf; font-size:17px; line-height:1.5; margin:0 0 24px; }
+    .gate-card label { display:block; text-align:left; color:#f8de90; font-size:14px; margin:15px 0; }
+    .gate-card input { display:block; width:100%; margin-top:7px; padding:14px 15px; background:#edf3dd; color:#253047; border:3px solid #83aa73; font:18px monospace; text-transform:uppercase; }
+    .gate-card button { cursor:pointer; margin:20px 3px 6px; padding:15px 24px; border:3px solid #f5dd8a; background:#567c4a; color:#fff7d5; font:bold 15px monospace; }
     .gate-card button.alone { background:#53627d; border-color:#b5b5d3; }
-    .gate-card small { display:block; color:#b9d8c1; margin-top:13px; font-size:10px; line-height:1.35; }
+    .gate-card small { display:block; color:#b9d8c1; margin-top:18px; font-size:13px; line-height:1.45; }
+    #how-it-works-button { position:fixed; left:50%; bottom:clamp(22px,5vh,52px); transform:translateX(-50%); z-index:1; width:min(300px,calc(100vw - 48px)); padding:13px 22px; cursor:pointer; border:1px solid rgba(142,231,180,.38); border-radius:8px; background:rgba(8,31,23,.86); color:#a8d9ba; font:bold 12px monospace; letter-spacing:.12em; box-shadow:0 5px 0 rgba(2,12,8,.55), inset 0 1px 0 rgba(255,255,255,.05); backdrop-filter:blur(8px); transition:background .15s, border-color .15s, color .15s, transform .15s; }
+    #how-it-works-button:hover, #how-it-works-button:focus-visible { background:#163f2f; border-color:#8ee7b4; color:#efffec; transform:translate(-50%,-2px); }
+    #how-it-works-button[hidden], #how-it-works-modal[hidden] { display:none; }
+    #how-it-works-modal { position:fixed; inset:0; z-index:5; display:grid; place-items:center; padding:24px; background:rgba(2,12,8,.9); font-family:monospace; backdrop-filter:blur(6px); }
+    .how-card { position:relative; width:min(780px,calc(100vw - 32px)); max-height:calc(100vh - 32px); overflow:auto; padding:34px 42px 36px; color:#eef7f1; background:#0b2119; border:2px solid #326b54; border-radius:15px; box-shadow:10px 10px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04); }
+    .how-card h2 { margin:0 44px 8px 0; color:#fff; font-size:25px; }
+    .how-intro { margin:0 0 24px; color:#79e2ad; font-size:14px; line-height:1.5; }
+    .how-step { display:grid; grid-template-columns:52px 1fr; gap:16px; align-items:start; margin:18px 0; }
+    .how-icon { display:grid; place-items:center; width:52px; height:52px; border:2px solid #356d5e; border-radius:12px; background:#1d3740; color:#7ee8b3; font:bold 20px monospace; }
+    .how-step h3 { margin:2px 0 7px; color:#fff; font-size:16px; }
+    .how-step p { margin:0; color:#bcc5cc; font-size:13px; line-height:1.55; }
+    .how-close { position:absolute; top:20px; right:22px; width:38px; height:38px; cursor:pointer; border:0; background:transparent; color:#b7becb; font:30px/1 monospace; }
+    .how-close:hover, .how-close:focus-visible { color:#fff; }
+    .how-note { margin:24px 0 20px; padding:15px 17px; border:1px solid #766129; border-radius:10px; background:#26230f; color:#ffe9a0; font:bold 12px/1.5 monospace; }
+    .how-got-it { width:100%; padding:14px 20px; cursor:pointer; border:0; border-radius:10px; background:#4ca173; color:#fff; font:bold 15px monospace; }
+    .how-got-it:hover, .how-got-it:focus-visible { background:#60bb89; }
+    @media (max-width:680px), (max-height:680px) {
+      .gate-card { width:min(520px,calc(100vw - 28px)); padding:26px 28px; }
+      .gate-title { font-size:24px; }
+      .gate-card p { font-size:14px; margin-bottom:14px; }
+      .gate-card label { margin:10px 0; }
+      .gate-card input { padding:10px 12px; font-size:16px; }
+      .gate-card button { margin-top:13px; padding:12px 18px; font-size:13px; }
+      .gate-card small { margin-top:12px; font-size:11px; }
+      #how-it-works-button { bottom:18px; padding:12px 18px; font-size:13px; }
+      .how-card { padding:25px 22px 26px; }
+      .how-card h2 { font-size:21px; }
+      .how-step { grid-template-columns:42px 1fr; gap:12px; margin:14px 0; }
+      .how-icon { width:42px; height:42px; font-size:16px; }
+      .how-step h3 { font-size:14px; }
+      .how-step p { font-size:11px; }
+    }
   </style>
 </head>
 <body>

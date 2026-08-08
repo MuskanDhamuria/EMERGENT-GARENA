@@ -17,7 +17,6 @@ export const DIRECTOR_CARD_TYPES = Object.freeze([
 ]);
 
 export const SHORTCUTS = Object.freeze({
-  moss_trail: Object.freeze({ feature: 'hidden-cave', label: 'Moss Trail', roles: ['Explorer'] }),
   lantern_path: Object.freeze({ feature: 'secret-path', label: 'Lantern Path', roles: ['Explorer', 'Loner'] }),
   warden_way: Object.freeze({ feature: 'invisible-bridge', label: 'Warden Way', roles: ['Guardian'] }),
   veil_passage: Object.freeze({ feature: 'hidden-portal', label: 'Veil Passage', roles: ['Loner'] }),
@@ -72,7 +71,7 @@ export const STORY_TURNS = Object.freeze({
 
 export const FINALE_VARIANTS = Object.freeze({
   lantern_rite: Object.freeze({ title: 'Lantern Rite', description: 'Gather the four callings around the awakened temple.' }),
-  echo_accord: Object.freeze({ title: 'Echo Accord', description: 'Let relic, shrine, path, and veil answer one another.' }),
+  echo_accord: Object.freeze({ title: 'Echo Accord', description: 'Let relic, shrine, temple, and veil answer one another.' }),
   wardens_promise: Object.freeze({ title: 'Warden’s Promise', description: 'Protect the shared tale before the final gate opens.' }),
 });
 

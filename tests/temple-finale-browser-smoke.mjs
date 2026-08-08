@@ -43,7 +43,7 @@ try {
     const url = new URL(route.request().url()), pathname = decodeURIComponent(url.pathname);
     if (pathname === '/') { await route.fulfill({ contentType: 'text/html', body: html }); return; }
     if (pathname === '/preview.js') { await route.fulfill({ contentType: 'application/javascript', body: preview }); return; }
-    const relative = pathname.startsWith('/client/') ? pathname.slice(1) : pathname.startsWith('/game-art/') || pathname.startsWith('/assets/') ? path.join('public', pathname.slice(1)) : null;
+    const relative = pathname.startsWith('/client/') || pathname.startsWith('/shared/') ? pathname.slice(1) : pathname.startsWith('/game-art/') || pathname.startsWith('/assets/') ? path.join('public', pathname.slice(1)) : null;
     if (relative) {
       try {
         const body = await readFile(path.resolve(relative)), extension = path.extname(relative).toLowerCase();

@@ -124,13 +124,13 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'hidden-cave-mouth', type: 'cave', x: -21, z: -11, role: 'Explorer', terrain: 'hidden-cave-clearing', feature: 'hidden-cave-appears', label: 'Hidden Cave' }),
   Object.freeze({ id: 'hidden-temple-entrance', type: 'temple-entrance', x: 20, z: -8, role: 'Explorer', terrain: 'temple-staircase-ground', feature: 'temple-staircase-uncovered', label: 'Hidden Temple Entrance' }),
   // The Explorer reveals this location through exploration; once visible, the
-  // doorway is cooperative so the Collector can enter and recover Sunstones.
+  // doorway is cooperative so the full party can enter together.
   Object.freeze({ id: 'hidden-ruins-entrance', type: 'ruins-entrance', x: 12, z: -9, terrain: 'forgotten-ruins-site', feature: 'forgotten-ruins-emerge', label: 'Buried Ruins Arch' }),
   Object.freeze({ id: 'sunken-temple-exit', type: 'temple-exit', x: 0, z: 13, zone: 'sunken-temple', label: 'Return Staircase' }),
-  Object.freeze({ id: 'tideglass-shard-west', type: 'relic', x: -14, z: 0, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Western Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-north', type: 'relic', x: 0, z: -10, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Northern Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-east', type: 'relic', x: 14, z: 0, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Eastern Tideglass Shard' }),
-  Object.freeze({ id: 'tideglass-shard-heart', type: 'relic', x: 0, z: 0, zone: 'sunken-temple', role: 'Collector', feature: 'sunken-temple-open', label: 'Heart Tideglass Shard' }),
+  Object.freeze({ id: 'tideglass-shard-west', type: 'relic', x: -14, z: 0, zone: 'sunken-temple', role: 'Explorer', feature: 'sunken-temple-open', label: 'Western Tideglass Shard' }),
+  Object.freeze({ id: 'tideglass-shard-north', type: 'relic', x: 0, z: -10, zone: 'sunken-temple', role: 'Explorer', feature: 'sunken-temple-open', label: 'Northern Tideglass Shard' }),
+  Object.freeze({ id: 'tideglass-shard-east', type: 'relic', x: 14, z: 0, zone: 'sunken-temple', role: 'Explorer', feature: 'sunken-temple-open', label: 'Eastern Tideglass Shard' }),
+  Object.freeze({ id: 'tideglass-shard-heart', type: 'relic', x: 0, z: 0, zone: 'sunken-temple', role: 'Explorer', feature: 'sunken-temple-open', label: 'Heart Tideglass Shard' }),
   Object.freeze({ id: 'guardian-shrine', type: 'shrine', x: 14, z: -2, role: 'Guardian', terrain: 'guardian-bridge', label: 'Awakened Shrine' }),
   Object.freeze({ id: 'spirit-portal', type: 'spirit-portal', x: -3, z: 10, role: 'Loner', terrain: 'spirit-path', label: 'Spirit Portal' }),
   Object.freeze({ id: 'explorer-waystone', type: 'waystone', x: -16, z: -10, role: 'Explorer', terrain: 'moss-trail', label: 'Trail Waystone', feature: 'hidden-cave' }),
@@ -144,15 +144,15 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   // Loner interaction impossible despite its 3.25-unit interaction radius.
   Object.freeze({ id: 'final-gate', type: 'final-gate', x: 19, z: 6, role: 'Loner', label: 'Final Gate', feature: 'final-gate' }),
   Object.freeze({ id: 'dark-cave-exit', type: 'cave-exit', x: 0, z: 12, zone: 'dark-cave', label: 'Forest Passage' }),
-  Object.freeze({ id: 'gloom-shard-west', type: 'relic', x: -14, z: -2, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Umbral Shard' }),
-  Object.freeze({ id: 'gloom-shard-north', type: 'relic', x: 0, z: -10, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Starlit Gloom Shard' }),
-  Object.freeze({ id: 'gloom-shard-east', type: 'relic', x: 13, z: -3, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Fossil Shard' }),
-  Object.freeze({ id: 'gloom-shard-deep', type: 'relic', x: -6, z: 5, zone: 'dark-cave', role: 'Collector', feature: 'dark-cave-open', label: 'Deep Gloom Shard' }),
+  Object.freeze({ id: 'gloom-shard-west', type: 'relic', x: -14, z: -2, zone: 'dark-cave', role: 'Explorer', feature: 'dark-cave-open', label: 'Umbral Shard' }),
+  Object.freeze({ id: 'gloom-shard-north', type: 'relic', x: 0, z: -10, zone: 'dark-cave', role: 'Explorer', feature: 'dark-cave-open', label: 'Starlit Gloom Shard' }),
+  Object.freeze({ id: 'gloom-shard-east', type: 'relic', x: 13, z: -3, zone: 'dark-cave', role: 'Explorer', feature: 'dark-cave-open', label: 'Fossil Shard' }),
+  Object.freeze({ id: 'gloom-shard-deep', type: 'relic', x: -6, z: 5, zone: 'dark-cave', role: 'Explorer', feature: 'dark-cave-open', label: 'Deep Gloom Shard' }),
   Object.freeze({ id: 'hidden-ruins-exit', type: 'ruins-exit', x: 0, z: 12, zone: 'hidden-ruins', label: 'Sunlit Archway' }),
-  Object.freeze({ id: 'sunstone-shard-west', type: 'relic', x: -12, z: 5, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Western Sunstone Shard' }),
-  Object.freeze({ id: 'sunstone-shard-east', type: 'relic', x: 12, z: 5, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Eastern Sunstone Shard' }),
-  Object.freeze({ id: 'sunstone-shard-crown', type: 'relic', x: 0, z: -11, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Crown Sunstone Shard' }),
-  Object.freeze({ id: 'sunstone-shard-heart', type: 'relic', x: 0, z: 0, zone: 'hidden-ruins', role: 'Collector', feature: 'hidden-ruins-open', label: 'Heart Sunstone Shard' }),
+  Object.freeze({ id: 'sunstone-shard-west', type: 'relic', x: -12, z: 5, zone: 'hidden-ruins', role: 'Explorer', feature: 'hidden-ruins-open', label: 'Western Sunstone Shard' }),
+  Object.freeze({ id: 'sunstone-shard-east', type: 'relic', x: 12, z: 5, zone: 'hidden-ruins', role: 'Explorer', feature: 'hidden-ruins-open', label: 'Eastern Sunstone Shard' }),
+  Object.freeze({ id: 'sunstone-shard-crown', type: 'relic', x: 0, z: -11, zone: 'hidden-ruins', role: 'Explorer', feature: 'hidden-ruins-open', label: 'Crown Sunstone Shard' }),
+  Object.freeze({ id: 'sunstone-shard-heart', type: 'relic', x: 0, z: 0, zone: 'hidden-ruins', role: 'Explorer', feature: 'hidden-ruins-open', label: 'Heart Sunstone Shard' }),
   // These five are always part of the tale. They keep the overworld useful
   // between expeditions, while the AI selects which two four-shard realms open.
   Object.freeze({ id: 'everdawn-shard-campfire', type: 'relic', x: -9, z: 4, role: 'Collector', label: 'Emberglass Shard' }),

@@ -549,7 +549,7 @@ export function createRenderer(canvas, session) {
     }
   }
   function label(text, x, y, color = '#fff7d5', offset = 17) { ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = C.ink; ctx.fillText(text, px(x) + 1, py(y) - offset + 1); ctx.fillStyle = color; ctx.fillText(text, px(x), py(y) - offset); }
-  function wrap(text, x, y, max, line) { const words = String(text || '').split(' '); let current = '', yy = y; for (const word of words) { if (ctx.measureText(`${current}${word}`).width > max) { ctx.fillText(current, x, yy); current = `${word} `; yy += line; } else current += `${word} `; } ctx.fillText(current, x, yy); }
+  function wrap(text, x, y, max, line) { const words = String(text || '').split(' '); let current = '', yy = y; for (const word of words) { if (ctx.measureText(`${current}${word}`).width > max) { ctx.fillText(current, x, yy); current = `${word} `; yy += line; } else current += `${word} `; } ctx.fillText(current, x, yy); return Math.max(1, Math.round((yy - y) / line) + 1); }
   function drawRoleTracker() {
     const mine = state.mine; if (!mine?.archetype) return;
     const progress = abilityProgress(), awakened = progress.filter((ability) => ability.awakened).length;
@@ -567,14 +567,16 @@ export function createRenderer(canvas, session) {
   }
   function drawMinimalHud({ suppressNotice = false } = {}) {
     const mine = state.mine;
-    panel(14, 14, 282, 58); ctx.textAlign = 'left';
-    ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EVERDAWN', 27, 35);
+    const showCombatCue = mine?.zone === 'dark-cave';
+    panel(14, 14, 282, showCombatCue ? 58 : 52); ctx.textAlign = 'left';
+    ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EMERGENT', 27, 35);
     ctx.font = '10px monospace'; ctx.fillStyle = '#d2f0cf';
     const remaining = Number(state.world?.observationSecondsRemaining);
     const status = !state.network.connected ? 'CONNECTING…' : !gameReady() ? `${state.players.length}/4 LANTERNS` : mine?.zone === 'sunken-temple' ? 'SUNKEN TEMPLE' : mine?.zone === 'dark-cave' ? 'THE BLACK HOLLOW' : mine?.zone === 'hidden-ruins' ? 'THE HIDDEN RUINS' : state.world?.phase === 'observing' ? remaining > 0 ? `THE WORLD IS WATCHING · ${remaining}s` : 'THE CALLINGS AWAKEN' : mine?.archetype ? `${mine.archetype.toUpperCase()}` : 'YOUR STORY IS FORMING';
     ctx.fillText(status, 27, 54);
-    if (['dark-cave', 'hidden-ruins'].includes(mine?.zone)) {
-      ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#f7d25c'; ctx.fillText('SPACE · STRIKE', 27, 66);
+    if (showCombatCue) {
+      const roleCue = mine?.archetype ? `${mine.archetype.toUpperCase()} · ` : '';
+      ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#f7d25c'; ctx.fillText(`${roleCue}SPACE · STRIKE`, 27, 66);
     }
     const caveProgress = mine?.zone === 'dark-cave' ? state.world?.caveShardProgress : null;
     const ruinsProgress = mine?.zone === 'hidden-ruins' ? state.world?.ruinsShardProgress : null;
@@ -584,19 +586,27 @@ export function createRenderer(canvas, session) {
     if (visibleProgress) {
       const progress = visibleProgress;
       panel(350, 14, 245, 58); ctx.textAlign = 'center';
-      ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#9cebed'; ctx.fillText(`${caveProgress ? 'GLOOM' : ruinsProgress ? 'SUNSTONE' : templeProgress ? 'TIDEGLASS' : 'EVERDAWN'} SHARDS  ${progress.collected} / ${progress.total}`, 472, 37);
+      ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#9cebed'; ctx.fillText(`${caveProgress ? 'GLOOM' : ruinsProgress ? 'SUNSTONE' : templeProgress ? 'TIDEGLASS' : 'EMERGENT'} SHARDS  ${progress.collected} / ${progress.total}`, 472, 37);
       ctx.font = '9px monospace'; ctx.fillStyle = progress.collected === progress.total ? '#fff2bd' : '#92aeb3';
       ctx.fillText(progress.collected === progress.total ? 'COLLECTION COMPLETE' : `${progress.total - progress.collected} SHARDS REMAIN`, 472, 55);
     }
-    panel(760, 14, 186, 98); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd';
-    ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, 774, 34);
-    state.players.forEach((player, index) => { ctx.fillStyle = player.color; ctx.fillRect(775, 43 + index * 15, 7, 7); ctx.fillStyle = '#fff'; ctx.fillText(player.name, 788, 50 + index * 15); });
+    const partyPanel = { x: 752, y: 14, w: 194, h: 104 };
+    panel(partyPanel.x, partyPanel.y, partyPanel.w, partyPanel.h); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd';
+    ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, partyPanel.x + 14, partyPanel.y + 20);
+    state.players.forEach((player, index) => {
+      const y = partyPanel.y + 39 + index * 16;
+      ctx.fillStyle = player.color; ctx.fillRect(partyPanel.x + 15, y - 7, 8, 8);
+      ctx.fillStyle = '#fff'; ctx.fillText(player.name, partyPanel.x + 30, y);
+    });
     const hasNotice = state.noticeTimer > 0 || !gameReady();
     const message = hasNotice ? state.notice : state.guidance?.message;
     if (!suppressNotice && message) {
-      panel(165, 548, 630, 66); ctx.textAlign = 'center';
-      if (!hasNotice && state.guidance) { ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText('THE GAME MASTER ADVISES YOU', 480, 564); }
-      ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(message, 480, hasNotice ? 573 : 584, 570, 16);
+      const isOpeningIntroduction = !hasNotice && state.guidance?.id === 'first-steps';
+      const panelY = isOpeningIntroduction ? 526 : 548;
+      const panelHeight = isOpeningIntroduction ? 88 : 66;
+      panel(165, panelY, 630, panelHeight); ctx.textAlign = 'center';
+      if (!hasNotice && state.guidance) { ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText('THE GAME MASTER ADVISES YOU', 480, panelY + 16); }
+      ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(message, 480, hasNotice ? 573 : panelY + 40, 570, 16);
     }
   }
   function drawSprite(name, X, Y, width, height, alpha = 1) { const sprite = art[name]; if (!sprite) return false; const scale = Math.min(width / sprite.width, height / sprite.height), drawW = Math.max(1, Math.round(sprite.width * scale)), drawH = Math.max(1, Math.round(sprite.height * scale)); ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(sprite, Math.round(X + (width - drawW) / 2), Math.round(Y + (height - drawH)), drawW, drawH); ctx.restore(); return true; }
@@ -869,7 +879,7 @@ function drawCollectorGame(){
     const energy = status.energy === null ? 'ENERGY UNKNOWN' : `ENERGY ${Math.round(status.energy)}/${Math.round(status.maxEnergy)} · ${status.label.toUpperCase()}`;
     ctx.fillText(`A LAW HAS EMERGED · ${energy}`, 27, 298); ctx.fillStyle = '#fff7d5'; ctx.font = '10px monospace'; wrap(instruction || rules[0]?.message, 27, 317, 335, 12);
   }
-  function drawHud() { const mine = state.mine; panel(14, 14, 306, 62); ctx.textAlign = 'left'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EVERDAWN', 27, 35); ctx.font = '11px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText(!state.network.connected ? 'CONNECTING TO THE WORLD…' : !gameReady() ? `GATHERING LANTERNS · ${state.players.length}/4` : state.world?.phase === 'observing' ? `THE GM OBSERVES · ${state.world.observationSecondsRemaining ?? '?'}s` : `YOUR ROLE · ${mine?.archetype || 'awakening'}`, 27, 55); panel(600, 14, 148, 43); ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText('MOVE  WASD / ARROWS', 613, 33); ctx.fillText('INTERACT  E  ·  FULLSCREEN  F', 613, 48); panel(760, 14, 186, 104); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, 774, 34); state.players.forEach((player, index) => { ctx.fillStyle = player.color; ctx.fillRect(775, 43 + index * 15, 7, 7); ctx.fillStyle = '#fff'; ctx.fillText(`${player.name} · ${player.archetype || 'observed'}`, 788, 50 + index * 15); }); const target = mine && relics().filter((r) => !r.collectedBy).map((r) => ({ relic: r, ...mapPoint(r) })).sort((a, b) => Math.hypot(mine.x - a.x, mine.y - a.y) - Math.hypot(mine.x - b.x, mine.y - b.y))[0]; if (target) { panel(325, 14, 265, 43); ctx.fillText(`RELIC SIGNAL ${target.relic.id.replaceAll('-', ' ')}`, 338, 40); } if (mine?.archetype || abilities().length) { panel(14, 88, 365, 50); ctx.fillStyle = '#f4c7ff'; ctx.fillText(`ROLE · ${mine?.archetype || 'UNREAD'}`, 27, 108); ctx.fillStyle = '#fff7d5'; wrap(abilities().slice(0, 4).join(' · '), 27, 125, 335, 12); } if (state.privateRule) { panel(14, 146, 365, 58); ctx.fillStyle = '#f4c7ff'; ctx.fillText('A LAW ONLY YOU CAN HEAR', 27, 166); ctx.fillStyle = '#fff7d5'; wrap(state.privateRule.message || state.privateRule.title, 27, 184, 335, 12); } if (state.noticeTimer > 0 || !gameReady()) { panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.notice, 480, 573, 570, 16); } }
+  function drawHud() { const mine = state.mine; panel(14, 14, 306, 62); ctx.textAlign = 'left'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EMERGENT', 27, 35); ctx.font = '11px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText(!state.network.connected ? 'CONNECTING TO THE WORLD…' : !gameReady() ? `GATHERING LANTERNS · ${state.players.length}/4` : state.world?.phase === 'observing' ? `THE GM OBSERVES · ${state.world.observationSecondsRemaining ?? '?'}s` : `YOUR ROLE · ${mine?.archetype || 'awakening'}`, 27, 55); panel(600, 14, 148, 43); ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText('MOVE  WASD / ARROWS', 613, 33); ctx.fillText('INTERACT  E  ·  FULLSCREEN  F', 613, 48); panel(760, 14, 186, 104); ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(`LANTERNS · ${state.network.roomCode || '—'}`, 774, 34); state.players.forEach((player, index) => { ctx.fillStyle = player.color; ctx.fillRect(775, 43 + index * 15, 7, 7); ctx.fillStyle = '#fff'; ctx.fillText(`${player.name} · ${player.archetype || 'observed'}`, 788, 50 + index * 15); }); const target = mine && relics().filter((r) => !r.collectedBy).map((r) => ({ relic: r, ...mapPoint(r) })).sort((a, b) => Math.hypot(mine.x - a.x, mine.y - a.y) - Math.hypot(mine.x - b.x, mine.y - b.y))[0]; if (target) { panel(325, 14, 265, 43); ctx.fillText(`RELIC SIGNAL ${target.relic.id.replaceAll('-', ' ')}`, 338, 40); } if (mine?.archetype || abilities().length) { panel(14, 88, 365, 50); ctx.fillStyle = '#f4c7ff'; ctx.fillText(`ROLE · ${mine?.archetype || 'UNREAD'}`, 27, 108); ctx.fillStyle = '#fff7d5'; wrap(abilities().slice(0, 4).join(' · '), 27, 125, 335, 12); } if (state.privateRule) { panel(14, 146, 365, 58); ctx.fillStyle = '#f4c7ff'; ctx.fillText('A LAW ONLY YOU CAN HEAR', 27, 166); ctx.fillStyle = '#fff7d5'; wrap(state.privateRule.message || state.privateRule.title, 27, 184, 335, 12); } if (state.noticeTimer > 0 || !gameReady()) { panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(state.notice, 480, 573, 570, 16); } }
   function map4Tile(sourceX, sourceY, x, y, size = 32) { if (art.trialTerrain) ctx.drawImage(art.trialTerrain, sourceX, sourceY, 32, 32, Math.round(x), Math.round(y), size, size); else { ctx.fillStyle = '#78bd5d'; ctx.fillRect(x, y, size, size); } }
   function map4Patch(sourceX, sourceY, x, y, width, height, tile = 28) { for (let yy = y; yy < y + height; yy += tile) for (let xx = x; xx < x + width; xx += tile) map4Tile(sourceX, sourceY, xx, yy, tile); }
   function drawTiledTrialMap(box, mapKey, view = {}) {
@@ -1095,7 +1105,7 @@ function drawCollectorGame(){
       ctx.fillStyle = 'rgba(24,42,52,.8)'; ctx.fillRect(box.x + 6, box.y + 6, 250, 38); ctx.textAlign = 'left'; ctx.font = 'bold 11px monospace'; ctx.fillStyle = TEMPLE_ROLE_COLORS[pane.archetype] || '#fff3bd'; ctx.fillText(`${pane.name} · ${pane.archetype}`, box.x + 13, box.y + 21); ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${pane.completedObjectives}/2 RITES · ${pane.pillarActivated ? 'PILLAR AWAKE' : pane.atPedestal ? 'PRESS E' : 'RETURN TO YOUR PILLAR'}`, box.x + 13, box.y + 37);
       ctx.strokeStyle = pane.id === state.network.playerId ? '#fff1a4' : (TEMPLE_ROLE_COLORS[pane.archetype] || '#6b8c94'); ctx.lineWidth = 3; ctx.strokeRect(x + 2, y + 2, 476, 316);
     });
-    panel(226, 273, 508, 94); ctx.textAlign = 'center'; ctx.font = 'bold 14px monospace'; ctx.fillStyle = '#fff3bd'; ctx.fillText(temple.status === 'won' ? 'EVERDAWN REMEMBERS YOUR LEGEND' : 'FOUR VISIONS · ONE FINAL RITE', 480, 300); ctx.font = '11px monospace'; ctx.fillStyle = '#e3f3eb'; wrap(temple.narration?.at(-1)?.message || 'All four have gathered. Remain at your pillar and press E.', 480, 322, 460, 15);
+    panel(226, 273, 508, 94); ctx.textAlign = 'center'; ctx.font = 'bold 14px monospace'; ctx.fillStyle = '#fff3bd'; ctx.fillText(temple.status === 'won' ? 'EMERGENT REMEMBERS YOUR LEGEND' : 'FOUR VISIONS · ONE FINAL RITE', 480, 300); ctx.font = '11px monospace'; ctx.fillStyle = '#e3f3eb'; wrap(temple.narration?.at(-1)?.message || 'All four have gathered. Remain at your pillar and press E.', 480, 322, 460, 15);
     if (temple.status === 'won') { ctx.fillStyle = 'rgba(253,220,112,.3)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   }
   function drawTempleFinale() {
@@ -1244,6 +1254,17 @@ function drawCollectorGame(){
     ctx.font = '10px monospace'; ctx.fillStyle = '#71907a'; ctx.fillText('CLICK ANYWHERE TO BEGIN', 480, 454);
   }
   function drawLobby() { ctx.fillStyle = 'rgba(20,42,57,.74)'; ctx.fillRect(0, 0, canvas.width, canvas.height); panel(212, 214, 536, 188); ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('GATHERING THE EXPEDITION', 480, 255); ctx.font = 'bold 44px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${state.players.length} / 4`, 480, 315); ctx.font = '12px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText('The game begins exactly when four lanterns are present.', 480, 347); }
+  function drawMissionComplete() {
+    const completion = state.missionComplete;
+    if (!completion) return;
+    ctx.fillStyle = 'rgba(5, 12, 18, .78)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const x = 260, y = 235, w = 440, h = 170;
+    panel(x, y, w, h); ctx.textAlign = 'center';
+    ctx.font = 'bold 26px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('MISSION COMPLETE', 480, y + 46);
+    ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText(completion.title || 'EXPEDITION CLEARED', 480, y + 80);
+    ctx.font = '11px monospace'; ctx.fillStyle = '#fff7d5'; wrap(completion.message || 'Returning to Emergent.', 480, y + 112, 370, 16);
+    ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#8bd7aa'; ctx.fillText('RETURNING TO EMERGENT', 480, y + 147);
+  }
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state.joined) { drawStart(); return; }
@@ -1270,6 +1291,7 @@ function drawCollectorGame(){
     localPlayers.forEach((player) => label(player.name, player.x, player.y, player.color, ['dark-cave', 'hidden-ruins'].includes(player.zone) ? 48 : 34));
     drawMinimalHud(); drawDirectorHud(); drawCollectorGame();
     if (!gameReady()) drawLobby();
+    drawMissionComplete();
   }
   return { render };
 }

@@ -3,7 +3,7 @@
 // when a player's current role, realm, or puzzle reveals a useful new verb.
 
 const ROLE_GUIDANCE = Object.freeze({
-  Explorer: 'I saw you testing the edges of Everdawn. You are the Explorer. Follow unusual terrain, uncover entrances, and press E beside a landmark once you reach it.',
+  Explorer: 'I saw you testing the edges of Emergent. You are the Explorer. Follow unusual terrain, uncover entrances, and press E beside a landmark once you reach it.',
   Collector: 'I saw what you chose to keep. You are the Collector. Your relics reveal a pair of personal rites; their clues and answers are yours alone to read.',
   Guardian: 'I saw you remain when others moved on. You are the Guardian. Enter a sanctum with E, protect its wards with SPACE, then restore each marked objective with E.',
   Loner: 'I saw you listen at the edge of the group. You are the Loner. Purple paths answer only you; step into a portal with E and trust the signs hidden in the veil.',
@@ -11,12 +11,12 @@ const ROLE_GUIDANCE = Object.freeze({
 
 const EVOLUTION_GUIDANCE = Object.freeze({
   'hidden-cave-appears': 'A crack has opened in the northern forest. Find the Hidden Cave entrance and press E. Inside Black Hollow, use SPACE near demons and collect the shards they guarded.',
-  'temple-staircase-uncovered': 'The water has lowered around an old stair. Gather at the Sunken Temple entrance and press E. It is a quiet exploration space: the Collector can recover Tideglass with E.',
+  'temple-staircase-uncovered': 'The water has lowered around an old stair. Gather at the Sunken Temple entrance and press E. It is a quiet exploration space: the Explorer can recover Tideglass with E.',
   'forgotten-ruins-emerge': 'A buried arch has surfaced in the east. Press E at the Forgotten Ruins entrance. Mummies guard its Sunstones; move close and use SPACE before collecting them with E.',
   'relic-vault': 'A relic rite has taken shape from your habits. Read the private instructions I send you, gather any required clues, then press E at its landmark to begin.',
   'healing-shrine': 'Guardian sanctums have opened. Stand beside a portal and press E. Each trial has its own rule—watch the objective text, protect the wards, and restore the marked sites.',
   'spirit-realm': 'The Veil Portal is visible to you. Press E beside it. Your separate realm still affects the shared story, and I will warn you if you linger where movement matters.',
-  'shadow-forest': 'The Shadow Forest is a side-scrolling spirit route. Move right, use W to jump, and reach the trophy before returning to Everdawn.',
+  'shadow-forest': 'The Shadow Forest is a side-scrolling spirit route. Move right, use W to jump, and reach the trophy before returning to Emergent.',
   'moon-shrine': 'Moonlight has drawn a narrow silver route. Stay on the line, then press E at the altar when you reach it.',
   'ghost-village': 'The Haunted Library has awakened. Follow the aiming path and click toward each echo to catch all six before the veil closes.',
 });
@@ -29,9 +29,9 @@ const TRIAL_GUIDANCE = Object.freeze({
 });
 
 const EXPEDITION_GUIDANCE = Object.freeze({
-  'dark-cave': 'Black Hollow is hostile: approach a demon, press SPACE, and claim its Gloom shards with E only after the party clears the threat.',
-  'sunken-temple': 'The Sunken Temple is peaceful. Explore its flooded rooms together; the Collector alone can claim Tideglass relics with E.',
-  'hidden-ruins': 'The Hidden Ruins are guarded. Move close to a mummy, use SPACE until it falls, and then let the Collector claim the Sunstones with E.',
+  'dark-cave': 'Black Hollow is hostile: approach a demon, press SPACE, and once the party clears the threat let the Explorer claim its Gloom shards with E.',
+  'sunken-temple': 'The Sunken Temple is peaceful. Explore its flooded rooms together; the Explorer alone can claim Tideglass relics with E.',
+  'hidden-ruins': 'The Hidden Ruins are guarded. Move close to a mummy, use SPACE until it falls, and then let the Explorer claim the Sunstones with E.',
 });
 
 const REALM_GUIDANCE = Object.freeze({
@@ -71,7 +71,7 @@ export function createGameMasterGuidance({ event, now = () => Date.now() } = {})
 
   return Object.freeze({
     introduce(room, players) {
-      return players.map((player) => speak(room, player, 'first-steps', 'I will watch before I name you. Move with WASD or the arrow keys. Explore together or apart, and press E beside a glowing object. There is no fixed quest—your choices will teach me what to build.')).filter(Boolean);
+      return players.map((player) => speak(room, player, 'first-steps', 'For forty seconds, I watch. Move with WASD or the arrow keys. Explore together or apart, and press E beside what answers. There is no fixed quest. Your choices decide what this world becomes.')).filter(Boolean);
     },
     roleAwakened: (room, player) => speak(room, player, `role:${player.archetype}`, ROLE_GUIDANCE[player.archetype]),
     evolutionAwakened: (room, player, feature) => speak(room, player, `evolution:${feature}`, EVOLUTION_GUIDANCE[feature]),

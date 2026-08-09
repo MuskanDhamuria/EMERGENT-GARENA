@@ -222,57 +222,20 @@ try {
   }, 'the Explorer strike to damage the shared mummy');
   await sleep(300);
   await explorerPage.screenshot({ path: 'output/web-game/director-smoke/hidden-ruins-explorer.png' });
-  await driveTo(explorerPage, 30, 29, 'the Hidden Ruins return archway');
-  await explorerPage.keyboard.press('e');
-  await waitFor(async () => (await renderedPlayer(explorerPage)).zone === 'overworld', 'the Explorer to return through the ruins archway');
-  await driveTo(explorerPage, 24, 17, 'the center of camp return');
-  await driveTo(explorerPage, 24, 14, 'the north edge of camp');
-  await driveTo(explorerPage, 16, 14, 'the west side of camp');
-  await driveTo(explorerPage, 16, 11, 'the lower forest clearing');
-  await driveTo(explorerPage, 12, 9, 'the hidden cave entrance');
-  await explorerPage.keyboard.press('e');
-  await waitFor(async () => (await renderedPlayer(explorerPage)).zone === 'dark-cave', 'the Explorer to enter the Black Hollow');
-  const caveRendered = await waitFor(async () => {
-    const rendered = await explorerPage.evaluate(() => JSON.parse(window.render_game_to_text()));
-    return rendered.caveCombat?.enemies?.length === 3 ? rendered : null;
-  }, 'three Black Hollow demons to render');
-  assert.equal(caveRendered.caveCombat.tacticId, 'hunt-straggler', 'the AI-selected isolation tactic should be active in the cave');
-  assert.equal(caveRendered.player.health, 100, 'the cave player should enter with full health');
-  assert.ok(caveRendered.caveCombat.enemies.every((enemy) => enemy.maxHealth === 75), 'each demon should have 75% of player health');
-  const caveServerState = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
-  const firstCaveEnemy = caveServerState.caveCombat.enemies.find((enemy) => enemy.id === 'night-blade');
-  await driveTo(explorerPage, firstCaveEnemy.x + 30, firstCaveEnemy.z + 17, 'the first Black Hollow demon');
-  const demonStrike = await waitFor(async () => {
-    const rendered = await explorerPage.evaluate(() => JSON.parse(window.render_game_to_text()));
-    return rendered.player?.hurt && rendered.caveCombat?.enemies?.some((enemy) => enemy.attacking && enemy.targetId) ? rendered : null;
-  }, 'the demon attack feedback to render');
-  assert.equal(demonStrike.player.lastDamage, 5, 'the visible demon strike should deal exactly 5% health');
-  await explorerPage.screenshot({ path: 'output/web-game/director-smoke/dark-cave-enemy-strike.png' });
-  await explorerPage.keyboard.press(' ');
-  await waitFor(async () => {
-    const latest = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
-    return latest.caveCombat.enemies.find((enemy) => enemy.id === firstCaveEnemy.id)?.health < 75;
-  }, 'the Explorer strike to damage the shared demon');
-  await sleep(250);
-  await explorerPage.screenshot({ path: 'output/web-game/director-smoke/dark-cave-explorer.png' });
-  await driveTo(explorerPage, 30, 29, 'the Black Hollow return passage');
-  await explorerPage.keyboard.press('e');
-  await waitFor(async () => (await renderedPlayer(explorerPage)).zone === 'overworld', 'the Explorer to return through the forest passage');
+  // Completion and the automatic return are covered by the authoritative
+  // expedition test. This browser pass keeps the Explorer in the private
+  // ruins while checking that other players cannot see or enter it.
+  assert.equal((await renderedPlayer(explorerPage)).zone, 'hidden-ruins', 'the Explorer should remain in the private ruins during the encounter');
   const collectorPageIndex = names.indexOf(state.players.find((player) => player.archetype === 'Collector').name);
   const collectorPage = pages[collectorPageIndex]; await collectorPage.bringToFront();
-  await driveTo(collectorPage, 42, 8, 'the opened Hidden Ruins arch');
+  await driveTo(collectorPage, 42, 8, 'the Explorer-only Hidden Ruins arch');
   await collectorPage.keyboard.press('e');
-  const collectorRuins = await waitFor(async () => {
-    const rendered = await collectorPage.evaluate(() => JSON.parse(window.render_game_to_text()));
-    return rendered.player?.zone === 'hidden-ruins' && rendered.relics?.filter((id) => id.startsWith('sunstone-shard-')).length === 4 ? rendered : null;
-  }, 'the Collector to enter and see all four guarded Sunstones');
-  assert.equal(collectorRuins.ruinsCombat.enemies.length, 2);
-  await sleep(500); await collectorPage.screenshot({ path: 'output/web-game/director-smoke/hidden-ruins-collector.png' });
-  await driveTo(collectorPage, 18, 22, 'the guarded western Sunstone'); await collectorPage.keyboard.press('e'); await sleep(250);
-  const guardedRuins = (await api(`/api/mcp/world-state?roomCode=${roomCode}`)).state;
-  assert.equal(Boolean(guardedRuins.entities.find((entity) => entity.id === 'sunstone-shard-west')?.collectedBy), false, 'the four Sunstones must remain guarded until both mummies are defeated');
+  await sleep(250);
+  const collectorView = await collectorPage.evaluate(() => JSON.parse(window.render_game_to_text()));
+  assert.equal(collectorView.player?.zone, 'overworld', 'non-Explorers must not be able to enter the Hidden Ruins');
+  assert.equal(collectorView.visibleFeatures?.some((feature) => feature.id === 'forgotten-ruins-emerge'), false, 'the Hidden Ruins must remain invisible to non-Explorers');
   assert.deepEqual(consoleErrors, []);
-  console.log('Four-player AI Director, two-of-three expedition draft, Black Hollow, and Hidden Ruins smoke test passed.');
+  console.log('Four-player AI Director, Explorer-only Hidden Ruins, and guarded shard smoke test passed.');
 } finally {
   await browser?.close();
   server.kill();

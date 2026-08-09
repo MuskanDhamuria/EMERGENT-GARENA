@@ -19,6 +19,8 @@ const introductions = delivered.filter((item) => item.type === 'gm-guidance' && 
 assert.equal(introductions.length, 4, 'every player receives their own opening instruction');
 assert.equal(new Set(introductions.map((item) => item.privateTo)).size, 4, 'an opening instruction is never shared with another player');
 assert.ok(introductions.every((item) => item.privateTo === item.playerId), 'all guidance uses the private recipient channel');
+assert.match(introductions[0].message, /forty seconds/i, 'opening guidance explains the observation period');
+assert.match(introductions[0].message, /WASD or the arrow keys/i, 'opening guidance includes movement controls');
 
 stamp = 100;
 const assignments = [

@@ -29,7 +29,7 @@ export function createSession() {
   const state = {
     joined: false, notice: 'Light a lantern to join a four-player expedition.', noticeTimer: 0,
     camera: { x: 25, y: 17 }, frame: 0,
-    encounterHintTarget: null, aimScreen: null, dungeonAttack: null,
+    encounterHintTarget: null, aimScreen: null, dungeonAttack: null, missionComplete: null,
     combatHintsShown: {},
     network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '', serverOutdated: false },
     world: null, players: [], mine: null, privateRule: null, guidance: null, publicEvent: null,
@@ -376,11 +376,21 @@ export function createSession() {
     // be found and interacted with normally.
     const position = trial?.activeTrial && trial.position ? { x: trial.position.x, y: trial.position.z } : temple?.panes?.find((pane) => pane.id === state.network.playerId)?.position ? { x: temple.panes.find((pane) => pane.id === state.network.playerId).position.x, y: temple.panes.find((pane) => pane.id === state.network.playerId).position.z } : state.mine;
     const nearby = observing ? activeEntities().filter((entity) => entity.type === 'observation-item' || entity.kind === 'observation-item') : activeEntities();
-    const entity = nearest(position, nearby) || nearest(position, nearby.filter((item) => ['hidden-cave-mouth', 'hidden-temple-entrance', 'hidden-ruins-entrance'].includes(item.id)), 7);
+    // Shards are drawn with a generous glow, so let the interaction range match
+    // what players reasonably read as "beside it" on the screen.
+    const entity = nearest(position, nearby.filter((item) => item.kind === 'relic' || item.type === 'relic'), 6)
+      || nearest(position, nearby)
+      || nearest(position, nearby.filter((item) => ['hidden-cave-mouth', 'hidden-temple-entrance', 'hidden-ruins-entrance'].includes(item.id)), 7);
     const action = finalAction(entity);
-    if (!action) { note('Move near an object marked for your role.', 3); return; }
+    if (!action) {
+      note(state.mine.zone === 'hidden-ruins' && state.mine.archetype === 'Explorer'
+        ? 'Move closer to a Sunstone shard, then press E.'
+        : 'Move near an object marked for your role.', 3);
+      return;
+    }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
       if (reply?.ok && action === 'dungeon-attack') state.dungeonAttack = { timer: .28, targetX: entity.x, targetY: entity.y };
+      if (reply?.ok && reply.missionComplete) state.missionComplete = { ...reply.missionComplete, remaining: 4.5 };
       if (reply?.ok && action === 'collector-minigame-start') { beginCollectorGame(reply, entity); return; }
       if (reply?.ok && action === 'collect-clue' && reply.clueText) { note(reply.clueText, 7); return; }
       const shard = String(entity.id || '').startsWith('tideglass-shard-');
@@ -395,7 +405,7 @@ export function createSession() {
       const nextCaveShardCount = Math.min(caveProgress.total, caveProgress.collected + (caveShard ? 1 : 0));
       const nextRuinsShardCount = Math.min(ruinsProgress.total, ruinsProgress.collected + (ruinsShard ? 1 : 0));
       const nextEverdawnShardCount = Math.min(everdawnProgress.total, everdawnProgress.collected + (everdawnShard ? 1 : 0));
-      const success = action === 'enter-dark-cave' ? 'Cold air rises from the Black Hollow.' : action === 'exit-dark-cave' ? 'You climb back into the western forest.' : action === 'enter-sunken-temple' ? 'The temple stretches far beneath the lake.' : action === 'exit-sunken-temple' ? 'You return to Everdawn.' : action === 'enter-hidden-ruins' ? 'Dry air and old bandages stir beyond the buried arch.' : action === 'exit-hidden-ruins' ? 'You step back into Everdawn.' : everdawnShard ? `Everdawn shard recovered — ${nextEverdawnShardCount}/${everdawnProgress.total}.` : ruinsShard ? `Sunstone recovered — ${nextRuinsShardCount}/${ruinsProgress.total}.` : caveShard ? `Gloom shard recovered — ${nextCaveShardCount}/${caveProgress.total}.` : shard ? `Tideglass recovered — ${nextShardCount}/${progress.total}.${nextShardCount === progress.total ? ' The collection is complete.' : ''}` : `You activated ${entity.label || action.replaceAll('-', ' ')}.`;
+      const success = action === 'enter-dark-cave' ? 'Cold air rises from the Black Hollow.' : action === 'exit-dark-cave' ? 'You climb back into the western forest.' : action === 'enter-sunken-temple' ? 'The temple stretches far beneath the lake.' : action === 'exit-sunken-temple' ? 'You return to Emergent.' : action === 'enter-hidden-ruins' ? 'Dry air and old bandages stir beyond the buried arch.' : action === 'exit-hidden-ruins' ? 'You step back into Emergent.' : everdawnShard ? `Emergent shard recovered — ${nextEverdawnShardCount}/${everdawnProgress.total}.` : ruinsShard ? `Sunstone recovered — ${nextRuinsShardCount}/${ruinsProgress.total}.` : caveShard ? `Gloom shard recovered — ${nextCaveShardCount}/${caveProgress.total}.` : shard ? `Tideglass recovered — ${nextShardCount}/${progress.total}.${nextShardCount === progress.total ? ' The collection is complete.' : ''}` : `You activated ${entity.label || action.replaceAll('-', ' ')}.`;
       note(reply?.ok ? success : (reply?.error || 'That interaction did not work.'), reply?.ok ? 3 : 5);
     });
   }
@@ -423,6 +433,7 @@ export function createSession() {
   }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;
+    if (state.missionComplete) { state.missionComplete.remaining -= dt; if (state.missionComplete.remaining <= 0) state.missionComplete = null; }
     if (state.dungeonAttack) { state.dungeonAttack.timer -= dt; if (state.dungeonAttack.timer <= 0) state.dungeonAttack = null; }
     if(state.attackTimer>0)state.attackTimer=Math.max(0,state.attackTimer-dt);
     if(finalePreviewActive()){
@@ -445,7 +456,9 @@ export function createSession() {
       } else {
       const { x, z } = input; socket.emit('move', { x, z });
       if (performance.now() - state.network.lastTelemetry > 500) { const landmark = nearest(mine, LANDMARKS, 4); socket.emit('player-telemetry', { locationId: landmark?.label?.toLowerCase().replaceAll(' ', '-') }); state.network.lastTelemetry = performance.now(); }
-      const doorway = nearest(mine, activeEntities().filter((entity) => ['hidden-cave-mouth', 'dark-cave-exit', 'hidden-temple-entrance', 'sunken-temple-exit', 'hidden-ruins-entrance', 'hidden-ruins-exit'].includes(entity.id)), 7);
+      const encounterEntities = activeEntities();
+      const doorway = nearest(mine, encounterEntities.filter((entity) => ['hidden-cave-mouth', 'hidden-temple-entrance', 'hidden-ruins-entrance'].includes(entity.id)), 7)
+        || nearest(mine, encounterEntities.filter((entity) => ['dark-cave-exit', 'sunken-temple-exit', 'hidden-ruins-exit'].includes(entity.id)), 4);
       if (doorway && state.encounterHintTarget !== doorway.id) {
         state.encounterHintTarget = doorway.id;
         const hints = {
@@ -453,15 +466,15 @@ export function createSession() {
           'dark-cave-exit': 'Press E to leave.',
           'hidden-temple-entrance': 'Press E to enter.',
           'sunken-temple-exit': 'Press E to leave.',
-          'hidden-ruins-entrance': 'Enter with E. Strike nearby mummies with SPACE.',
-          'hidden-ruins-exit': 'Press E to leave.',
+          'hidden-ruins-entrance': 'Enter with E. Defeat both mummies, then the Explorer claims the Sunstones.',
+          'hidden-ruins-exit': state.world?.ruinsExitUnlocked ? 'The return arch is open. Press E to leave.' : 'The arch is sealed. Defeat both mummies; Explorer claims all Sunstones.',
         };
         note(hints[doorway.id], 4);
       }
       if (!doorway) state.encounterHintTarget = null;
       if (['dark-cave', 'hidden-ruins'].includes(mine.zone) && !state.combatHintsShown[mine.zone]) {
         state.combatHintsShown[mine.zone] = true;
-        note(mine.zone === 'hidden-ruins' ? 'Mummies guard these halls. Press SPACE near one to deal damage.' : 'Demons hunt in the dark. Press SPACE near one to deal damage.', 5);
+        note(mine.zone === 'hidden-ruins' ? 'Defeat both mummies, then Explorer claims all 4 Sunstones with E. The exit opens last.' : 'Defeat the demons with SPACE, then press E beside a shard.', 5);
       }
       }
     }

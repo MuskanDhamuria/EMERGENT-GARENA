@@ -31,7 +31,7 @@ export const ROLE_REQUESTS = Object.freeze({
 
 export const WORLD_MOODS = Object.freeze({
   dawn: Object.freeze({ label: 'Dawn', description: 'Warm lanternlight reveals the party’s next objective.' }),
-  mist: Object.freeze({ label: 'Whispering Mist', description: 'A soft mist settles over Everdawn; hidden signs glow.' }),
+  mist: Object.freeze({ label: 'Whispering Mist', description: 'A soft mist settles over Emergent; hidden signs glow.' }),
   storm: Object.freeze({ label: 'Warden Storm', description: 'Thunder rolls across the shrine, heightening the tale.' }),
   starlight: Object.freeze({ label: 'Veil Starlight', description: 'Starlight exposes spirit traces and old routes.' }),
 });
@@ -54,7 +54,7 @@ export const OBSTACLES = Object.freeze({
 // exposes no player voting or arbitrary feature selection surface.
 export const STORY_TURNS = Object.freeze({
   shrine_or_vault: Object.freeze({
-    prompt: 'Which memory should Everdawn protect first?',
+    prompt: 'Which memory should Emergent protect first?',
     options: Object.freeze([
       Object.freeze({ id: 'shrine', label: 'Protect the shrine', feature: 'healing-shrine' }),
       Object.freeze({ id: 'vault', label: 'Pursue the relic vault', feature: 'relic-vault' }),

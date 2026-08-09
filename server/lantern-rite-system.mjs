@@ -1,4 +1,4 @@
-const CORE = Object.freeze({ id:'lantern-core', type:'lantern-core', x:16, z:10, label:'Everdawn Energy Core' });
+const CORE = Object.freeze({ id:'lantern-core', type:'lantern-core', x:16, z:10, label:'Emergent Energy Core' });
 const ENTRY_GATE = Object.freeze({ id:'lantern-entry-gate', type:'lantern-entry-gate', x:16, z:18.8, label:'Lantern Rite Threshold' });
 const CORRIDORS = Object.freeze([
   { id:'west', x:2, z:10 },

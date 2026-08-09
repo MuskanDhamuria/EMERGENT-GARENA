@@ -1,5 +1,18 @@
 import assert from 'node:assert/strict';
 import { createGameWorld } from '../server/game-world.mjs';
+import { ghostVillageAimPoint } from '../client/session.js';
+import { applyRealmPreview } from '../client/realm-preview.js';
+
+assert.deepEqual(ghostVillageAimPoint(74, 110), { x: 0, z: 0 });
+assert.deepEqual(ghostVillageAimPoint(886, 518), { x: 28, z: 14 });
+assert.deepEqual(ghostVillageAimPoint(480, 314), { x: 14, z: 7 });
+for (const feature of ['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-village']) {
+  const preview = { network:{} };
+  assert.equal(applyRealmPreview(preview, feature), true);
+  assert.equal(preview.mine.archetype, 'Loner');
+  assert.equal(preview.world.code, 'PREVIEW');
+}
+assert.equal(applyRealmPreview({network:{}}, 'not-a-realm'), false);
 
 let stamp = 10_000;
 const world = createGameWorld({ clock: () => stamp });
@@ -27,7 +40,8 @@ assert.equal(world.interact(room, loner, 'dungeon-attack', 'dungeon-warden-1').o
 // Later Loner evolutions are separate, feature-gated realms and do not alter
 // Guardian portals or Temple state.
 loner.realm = 'overworld'; loner.x = -20; loner.z = 5;
-world.unlock(room, 'shadow-forest', 'The second forest wakes.');
+world.unlock(room, 'shadow-forest', 'The second forest wakes.', { privateTo: loner.id });
+assert.equal(room.world.unlocked.has('shadow-forest'), false, 'Loner realm remains private');
 assert.equal(world.interact(room, loner, 'enter-shadow-forest', 'shadow-forest-gate').ok, true);
 assert.equal(loner.realm, 'shadow-forest');
 snapshot = world.serializeRoom(room, loner.id);

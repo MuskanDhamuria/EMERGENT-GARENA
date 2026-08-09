@@ -41,6 +41,7 @@ assert.equal(player.x,-20);
 assert.equal(player.z,5);
 assert.equal(player.shadowForest.active,false);
 assert.equal(player.interactions['shadow-forest-crossing'],1);
+assert.equal(player.completedEvolutions.has('shadow-forest-awakens'),true);
 assert.ok(events.some((event)=>event.type==='shadow-forest-entered'));
 assert.ok(events.some((event)=>event.type==='shadow-forest-complete'));
 

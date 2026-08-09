@@ -48,15 +48,35 @@ export function createRenderer(canvas, session) {
   loadDecor('lanternFloor', '/game-art/finale/lantern-floor-emblem.png');
   loadDecor('lanternSwitch', '/game-art/finale/lantern-switch.png');
   loadDecor('dungeonTiles', '/game-art/dungeon/Dungeon_Tileset.png');
+  loadDecor('dungeonCharacters', '/game-art/dungeon/Dungeon_Character.png');
+  loadDecor('dungeonChest', '/game-art/dungeon/chest_1.png');
+  loadDecor('dungeonSeal', '/game-art/dungeon/coin_1.png');
   loadDecor('moonSky', '/game-art/moon-shrine/sky.png');
   loadDecor('moonShrine', '/game-art/moon-shrine/shrine.png');
   loadDecor('moonBackground', '/game-art/moon-shrine/background.png');
   loadDecor('shadowBackground', '/game-art/shadow-forest/background.png');
   loadDecor('shadowTerrain', '/game-art/shadow-forest/terrain.png');
   loadDecor('shadowExit', '/game-art/shadow-forest/exit.png');
+  loadDecor('shadowSpikes', '/game-art/shadow-forest/traps/spikes.png');
+  loadDecor('shadowFire', '/game-art/shadow-forest/traps/fire.png');
+  loadDecor('shadowFan', '/game-art/shadow-forest/traps/fan.png');
+  loadDecor('shadowSaw', '/game-art/shadow-forest/traps/saw.png');
+  loadDecor('shadowTrampoline', '/game-art/shadow-forest/traps/trampoline-idle.png');
   loadDecor('ghostBackground', '/game-art/ghost-village/background.png');
   loadDecor('ghost', '/game-art/ghost-village/ghost.png');
   loadDecor('ghostShard', '/game-art/ghost-village/shard.png');
+  const lonerPortal = new Image();
+  lonerPortal.addEventListener('load', () => {
+    const cutout = document.createElement('canvas'); cutout.width = lonerPortal.width; cutout.height = lonerPortal.height;
+    const portalContext = cutout.getContext('2d'); portalContext.imageSmoothingEnabled = false; portalContext.drawImage(lonerPortal, 0, 0);
+    const pixels = portalContext.getImageData(0, 0, cutout.width, cutout.height);
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const red = pixels.data[index], green = pixels.data[index + 1], blue = pixels.data[index + 2];
+      if (red > 210 && green < 105 && blue > 180) pixels.data[index + 3] = 0;
+    }
+    portalContext.putImageData(pixels, 0, 0); art.lonerPortal = cutout; render();
+  });
+  lonerPortal.src = '/game-art/loner-portal/portal-chroma.png';
   for (let index = 1; index <= 5; index += 1) loadDecor(`sandRuin${index}`, `/game-art/hidden-ruins/sand-ruin-${index}.png`);
   [['trialTerrain', '/game-art/guardian-trials/terrain-map4.png'], ['trialGarden', '/game-art/guardian-trials/garden-map4.png'], ['trialVillas', '/game-art/guardian-trials/villas-map4.png']].forEach(([key, src]) => loadDecor(key, src));
   fetch('/game-art/forest.json').then((response) => response.ok ? response.json() : null).then((layout) => { authoredForest = layout; render(); }).catch(() => {});
@@ -80,7 +100,7 @@ export function createRenderer(canvas, session) {
     const X = px(point.x), Y = py(point.y), width = columns * T, height = rows * T;
     if (kind.includes('water')) { ctx.fillStyle = 'rgba(57,161,211,.38)'; ctx.fillRect(X, Y, width, height); return; }
     if (kind.includes('bridge')) { ctx.fillStyle = '#6a4931'; ctx.fillRect(X, Y + 6, width, Math.max(7, height - 10)); ctx.fillStyle = '#c3975e'; for (let x = 3; x < width; x += 12) ctx.fillRect(X + x, Y + 7, 8, Math.max(5, height - 12)); return; }
-    if (kind.includes('spirit')) { ctx.fillStyle = 'rgba(123,80,175,.2)'; ctx.beginPath(); ctx.ellipse(X + width / 2, Y + height / 2, width / 2, height / 2, 0, 0, Math.PI * 2); ctx.fill(); return; }
+    if (kind.includes('spirit')) return;
     if (kind.includes('cave')) {
       ctx.fillStyle = 'rgba(42,63,48,.72)'; ctx.beginPath(); ctx.moveTo(X + 10, Y); ctx.lineTo(X + width - 12, Y + 3); ctx.lineTo(X + width, Y + 18); ctx.lineTo(X + width - 7, Y + height - 8); ctx.lineTo(X + 14, Y + height); ctx.lineTo(X, Y + height - 17); ctx.closePath(); ctx.fill();
       const rocks = [[8,10,12,8],[width-24,12,14,9],[4,height-21,15,10],[width-28,height-18,18,9]]; for (const [x,y,w,h] of rocks) { ctx.fillStyle = '#566358'; ctx.fillRect(X+x,Y+y,w,h); ctx.fillStyle = '#758174'; ctx.fillRect(X+x+3,Y+y-2,w-6,3); } return;
@@ -90,8 +110,17 @@ export function createRenderer(canvas, session) {
     }
   }
   function drawEntity(entity) { const X = px(entity.x), Y = py(entity.y), kind = String(entity.kind || entity.type || '').toLowerCase(); if (kind.includes('relic')) { ctx.fillStyle = C.gold; ctx.fillRect(X + 6, Y + 4, 8, 12); ctx.fillStyle = '#fff4b5'; ctx.fillRect(X + 8, Y + 2, 4, 5); } else if (kind.includes('cave')) { ctx.fillStyle = '#26343d'; ctx.fillRect(X + 1, Y + 3, 18, 17); ctx.fillStyle = '#101a22'; ctx.fillRect(X + 5, Y + 8, 10, 12); } else if (kind.includes('gate') || kind.includes('spirit')) { ctx.fillStyle = '#4f376f'; ctx.fillRect(X + 3, Y + 2, 14, 16); ctx.fillStyle = '#d9b4ff'; ctx.fillRect(X + 6, Y + 5, 8, 11); } else if (kind.includes('shrine')) { ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 3, Y + 7, 14, 10); ctx.fillStyle = C.purple; ctx.fillRect(X + 7, Y + 1, 6, 9); } else if (kind.includes('temple') || kind.includes('altar')) { ctx.fillStyle = '#b9a882'; ctx.fillRect(X, Y + 5, 20, 15); ctx.fillStyle = kind.includes('altar') ? C.gold : '#706879'; ctx.fillRect(X + 7, Y + 8, 6, 12); } else { ctx.fillStyle = '#d8d4bd'; ctx.fillRect(X + 4, Y + 4, 12, 12); } }
+  function drawLonerPortal(entity) {
+    const X = px(entity.x), Y = py(entity.y), pulse = 1 + Math.sin(state.frame * 1.6) * .045, bob = Math.sin(state.frame * 1.25) * 1.2, width = 30 * pulse, height = 45 * pulse;
+    ctx.save(); ctx.imageSmoothingEnabled = false;
+    if (art.lonerPortal) ctx.drawImage(art.lonerPortal, 340, 55, 580, 1010, X + 10 - width / 2, Y + 9 - height / 2 + bob, width, height);
+    else { ctx.fillStyle = '#17dff2'; ctx.beginPath(); ctx.ellipse(X + 10, Y + 9 + bob, 8, 15, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#173fba'; ctx.beginPath(); ctx.ellipse(X + 10, Y + 9 + bob, 5, 11, 0, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
   function drawWorldEntity(entity) {
     const kind = String(entity.kind || entity.type || '').toLowerCase();
+    if (entity.id === 'spirit-portal') { drawLonerPortal(entity); return; }
+    if (kind === 'realm-portal') { drawLonerPortal(entity); return; }
     if (entity.collectorChallenge) {
       const X = px(entity.x), Y = py(entity.y), asset = art[entity.sprite];
       const pulse = 1 + Math.sin(state.frame * 1.6 + entity.x) * .06;
@@ -890,49 +919,58 @@ export function createRenderer(canvas, session) {
     return { x: 74 + (Number(player?.x || 0) / width) * 812, y: 110 + (Number(player?.y ?? player?.z ?? 0) / height) * 408 };
   }
   function drawRealmHeader(title, instruction) {
-    drawMinimalHud({ suppressNotice: true });
-    panel(300, 14, 430, 55); ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#d5b6ff'; ctx.fillText(title, 515, 35);
-    ctx.font = '9px monospace'; ctx.fillStyle = '#f7efd6'; ctx.fillText(instruction, 515, 53);
+    panel(210, 14, 540, 58); ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#d5b6ff'; ctx.fillText(title, 480, 35);
+    ctx.font = '9px monospace'; ctx.fillStyle = '#f7efd6'; ctx.fillText(instruction, 480, 55);
   }
   function drawLonerRealm() {
     const mine = state.mine, realm = mine?.realm;
     if (!['dungeon', 'shadow-forest', 'moon-shrine', 'ghost-village'].includes(realm)) return false;
     if (realm === 'dungeon') {
-      ctx.fillStyle = '#151529'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      if (art.dungeonTiles) for (let row = 0; row < 15; row += 1) for (let column = 0; column < 20; column += 1) ctx.drawImage(art.dungeonTiles, ((column + row) % 4) * 16, 0, 16, 16, 70 + column * 41, 80 + row * 30, 42, 31);
-      else { ctx.fillStyle = '#314157'; ctx.fillRect(70, 80, 820, 465); }
-      for (const entity of activeEntities()) {
-        const p = realmPoint(entity, 20, 16);
-        ctx.fillStyle = String(entity.type).includes('enemy') ? '#c96b8d' : String(entity.type).includes('sigil') ? '#b8f3ff' : '#e7c66f';
-        ctx.beginPath(); ctx.arc(p.x, p.y, String(entity.type).includes('enemy') ? 13 : 10, 0, Math.PI * 2); ctx.fill();
-        ctx.font = '8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff7d5'; ctx.fillText(entity.label, p.x, p.y - 18);
+      ctx.fillStyle = '#120f19'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const dungeonTile = 30;
+      const dungeonX = (x) => Math.floor(x * dungeonTile - (state.camera.x * dungeonTile - canvas.width / 2));
+      const dungeonY = (y) => Math.floor(y * dungeonTile - (state.camera.y * dungeonTile - canvas.height / 2));
+      const wall = (x, y) => x < 1 || x > 18 || y < 1 || y > 14 || (x === 9 && y >= 2 && y <= 6 && y !== 4) || (y === 8 && x >= 3 && x <= 16 && ![7, 10, 14].includes(x));
+      for (let y = Math.floor(state.camera.y - 12); y <= Math.ceil(state.camera.y + 12); y += 1) for (let x = Math.floor(state.camera.x - 18); x <= Math.ceil(state.camera.x + 18); x += 1) {
+        const X = dungeonX(x), Y = dungeonY(y), isWall = wall(x, y); ctx.fillStyle = isWall ? '#231b2d' : '#35243e'; ctx.fillRect(X, Y, dungeonTile, dungeonTile);
+        if (art.dungeonTiles) ctx.drawImage(art.dungeonTiles, isWall ? 16 : 32, isWall ? 0 : 32, 16, 16, X, Y, dungeonTile, dungeonTile);
       }
-      const p = realmPoint(mine, 20, 16); character(mine, p.x - 12, p.y - 14, 25);
+      for (const entity of activeEntities()) {
+        const X = dungeonX(entity.x), Y = dungeonY(entity.y), kind = String(entity.type || entity.kind);
+        if (kind.includes('enemy') && art.dungeonCharacters) { const sprite=Number(entity.sprite)||0,sx=(sprite%7)*16,sy=Math.floor(sprite/7)*16;ctx.drawImage(art.dungeonCharacters,sx,sy,16,16,X-3,Y-6,36,36); }
+        else if (kind.includes('sigil') && art.dungeonSeal) ctx.drawImage(art.dungeonSeal,X+3,Y+3,24,24);
+        else if (kind.includes('altar') && art.dungeonChest) ctx.drawImage(art.dungeonChest,X,Y,32,32);
+        else if (kind.includes('exit')) { ctx.fillStyle=entity.active?'#76d9ee':'#433650';ctx.fillRect(X+4,Y+2,22,27);ctx.fillStyle='#171322';ctx.fillRect(X+10,Y+8,10,21); }
+      }
+      const playerX=dungeonX(mine.x),playerY=dungeonY(mine.y);character(mine,playerX-7,playerY-13,42);
+      if(state.dungeonAttack){const dx=dungeonX(state.dungeonAttack.targetX)-playerX,dy=dungeonY(state.dungeonAttack.targetY)-playerY,base=Math.atan2(dy,dx),progress=1-state.dungeonAttack.timer/.28,swing=base-.9+progress*1.8;ctx.save();ctx.translate(playerX+15,playerY+13);ctx.rotate(swing);ctx.fillStyle='#8b6b46';ctx.fillRect(5,-4,9,8);ctx.fillStyle='#d9e7ee';ctx.fillRect(12,-3,28,6);ctx.fillStyle='#fff8c9';ctx.fillRect(36,-2,10,4);ctx.restore();}
       drawRealmHeader('THE SPIRIT REALM', 'PRESS E BESIDE WARDENS, SEALS, THE ALTAR, OR THE RETURN PORTAL');
+      const health=mine.dungeon||{health:0,maxHealth:1};ctx.fillStyle='#371b29';ctx.fillRect(385,65,190,9);ctx.fillStyle='#e96370';ctx.fillRect(385,65,190*Math.max(0,health.health)/Math.max(1,health.maxHealth),9);ctx.strokeStyle='#fff0d0';ctx.strokeRect(384,64,192,11);ctx.textAlign='center';ctx.font='bold 8px monospace';ctx.fillStyle='#fff7d5';ctx.fillText(`HEALTH ${health.health}/${health.maxHealth}`,480,84);
     } else if (realm === 'shadow-forest') {
-      ctx.fillStyle = '#173948'; ctx.fillRect(0, 0, canvas.width, canvas.height); if (art.shadowBackground) ctx.drawImage(art.shadowBackground, 0, 0, canvas.width, canvas.height);
-      const platform = (x, y, w) => { ctx.fillStyle = '#285846'; ctx.fillRect(55 + x * 34, 92 + y * 33, w * 34, 16); ctx.fillStyle = '#6da85c'; ctx.fillRect(55 + x * 34, 88 + y * 33, w * 34, 7); };
-      [[0,12,5],[6,11,4],[11,12,3],[15,10,3],[19,12,6],[3,8,4],[8,7,3],[12,5,4],[17,7,3],[21,5,3]].forEach(([x, y, w]) => platform(x, y, w));
-      ctx.fillStyle = '#f08157'; ctx.fillRect(55 + 16.1 * 34, 92 + 10 * 33, 26, 13); ctx.fillStyle = '#d74e48'; ctx.fillRect(55 + 7.35 * 34, 92 + 11 * 33, 31, 12);
-      if (art.shadowExit) ctx.drawImage(art.shadowExit, 55 + 22 * 34, 92 + 3.7 * 33, 65, 65);
-      const p = realmPoint(mine, 25, 14); character(mine, p.x - 12, p.y - 14, 25);
+      ctx.fillStyle='#123c46';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.shadowBackground){const scale=Math.max(canvas.width/art.shadowBackground.width,canvas.height/art.shadowBackground.height),w=art.shadowBackground.width*scale,h=art.shadowBackground.height*scale;ctx.drawImage(art.shadowBackground,(canvas.width-w)/2,(canvas.height-h)/2,w,h);}
+      [[0,12,5],[6,11,4],[11,12,3],[15,10,3],[19,12,6],[3,8,4],[8,7,3],[12,5,4],[17,7,3],[21,5,3]].forEach(([x,y,w])=>{for(let column=x;column<x+w;column+=1){const X=px(column),Y=py(y);ctx.fillStyle='#6e4736';ctx.fillRect(X,Y,T,T);if(art.shadowTerrain)ctx.drawImage(art.shadowTerrain,96,0,16,16,X,Y,T,T);}});
+      [[7.35,11,1.1],[19.65,12,1.1]].forEach(([x,y,w])=>{if(art.shadowSpikes)ctx.drawImage(art.shadowSpikes,0,0,16,16,px(x),py(y)-16,w*T,20);});
+      [[16.1,10,1],[21.1,12,.9]].forEach(([x,y,w],index)=>{if(art.shadowFire)ctx.drawImage(art.shadowFire,(Math.floor(state.frame*1.5+index)%3)*16,0,16,32,px(x),py(y)-28,w*T,32);});
+      if(art.shadowTrampoline)ctx.drawImage(art.shadowTrampoline,0,0,28,28,px(3.15),py(12)-14,T,20);
+      const fanX=px(12.6),fanY=py(12);if(art.shadowFan)ctx.drawImage(art.shadowFan,(Math.floor(state.frame*2)%4)*24,0,24,8,fanX,fanY-10,1.1*T,10);ctx.strokeStyle='rgba(210,245,255,.55)';for(let i=1;i<4;i+=1){ctx.beginPath();ctx.moveTo(fanX+i*5,fanY-14);ctx.lineTo(fanX+i*5+Math.sin(state.frame*.8+i)*4,py(5.2));ctx.stroke();}
+      const sawX=8.15+(Math.sin(Number(mine.shadowForest?.sawTime||0)*2.4)+1)*1.05;if(art.shadowSaw)ctx.drawImage(art.shadowSaw,(Math.floor(state.frame*2)%8)*38,0,38,38,px(sawX)-9,py(5.8)-9,38,38);
+      const exitX=px(22.15),exitY=py(2.7);ctx.fillStyle='rgba(220,255,238,.28)';ctx.fillRect(exitX-4,exitY-4,48,55);if(art.shadowExit)ctx.drawImage(art.shadowExit,0,0,64,64,exitX,exitY,40,40);
+      character(mine, px(mine.x) - 6, py(mine.y) - 10, 32);
       drawRealmHeader('THE SHADOW FOREST', 'MOVE RIGHT · W JUMPS · REACH THE TROPHY AND PRESS E');
     } else if (realm === 'moon-shrine') {
-      ctx.fillStyle = '#0e1f46'; ctx.fillRect(0, 0, canvas.width, canvas.height); if (art.moonBackground || art.moonSky) ctx.drawImage(art.moonBackground || art.moonSky, 0, 0, canvas.width, canvas.height);
-      const points = [[2,10],[7,10],[7,7],[13,7],[13,10],[19,10],[19,6],[24,6],[28,5]];
-      ctx.strokeStyle = '#e8e9ff'; ctx.shadowColor = '#aabaff'; ctx.shadowBlur = 12; ctx.lineWidth = 5; ctx.beginPath(); points.forEach(([x,z], index) => { const p = realmPoint({ x, y: z }, 30, 14); index ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }); ctx.stroke(); ctx.shadowBlur = 0;
-      if (art.moonShrine) ctx.drawImage(art.moonShrine, 780, 155, 100, 150); else { ctx.fillStyle = '#ddd8ed'; ctx.fillRect(810, 185, 45, 98); }
-      const p = realmPoint(mine, 30, 14); character(mine, p.x - 12, p.y - 14, 25);
+      ctx.fillStyle='#0d1428';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.moonBackground)ctx.drawImage(art.moonBackground,0,0,canvas.width,canvas.height);const mission=mine.moonShrine||{},path=[[2,10],[7,10],[7,7],[13,7],[13,10],[19,10],[19,6],[24,6],[28,5]],ready=Number(mission.pathStep||0)>=path.length-1;
+      ctx.strokeStyle=mission.lineFailed?'#b73f58':'rgba(222,248,255,.9)';ctx.lineWidth=7;ctx.lineCap='round';ctx.lineJoin='round';ctx.shadowColor=mission.lineFailed?'#7d1f38':'#a8e8ff';ctx.shadowBlur=12;ctx.beginPath();path.forEach(([x,y],index)=>index?ctx.lineTo(px(x)+10,py(y)+10):ctx.moveTo(px(x)+10,py(y)+10));ctx.stroke();ctx.shadowBlur=0;
+      path.forEach(([x,y],index)=>{ctx.fillStyle=index<=Number(mission.pathStep||0)?'#effcff':'#53637b';ctx.beginPath();ctx.arc(px(x)+10,py(y)+10,6,0,Math.PI*2);ctx.fill();});if(ready){const X=px(28)+10,Y=py(5)+10,pulse=30+Math.sin(state.frame)*6,glow=ctx.createRadialGradient(X,Y,4,X,Y,pulse);glow.addColorStop(0,'rgba(235,252,255,.95)');glow.addColorStop(1,'rgba(140,215,255,0)');ctx.fillStyle=glow;ctx.beginPath();ctx.arc(X,Y,pulse,0,Math.PI*2);ctx.fill();ctx.shadowColor='#dff8ff';ctx.shadowBlur=22;}if(art.moonShrine)ctx.drawImage(art.moonShrine,0,0,112,224,px(27),py(1),40,80);ctx.shadowBlur=0;
+      character(mine, px(mine.x) - 6, py(mine.y) - 10, 32);
       drawRealmHeader('THE MOON SHRINE', 'STAY ON THE SILVER LINE · PRESS E AT THE SHRINE');
     } else {
-      ctx.fillStyle = '#27314e'; ctx.fillRect(0, 0, canvas.width, canvas.height); if (art.ghostBackground) ctx.drawImage(art.ghostBackground, 0, 0, canvas.width, canvas.height);
+      ctx.fillStyle='#100c1d';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.ghostBackground)ctx.drawImage(art.ghostBackground,0,50,canvas.width,540);
       const village = mine.ghostVillage || {};
-      for (const ghost of village.ghosts || []) if (ghost.active) { const p = realmPoint({ x: ghost.x, y: ghost.z }, 28, 14); if (art.ghost) ctx.drawImage(art.ghost, p.x - 18, p.y - 35, 36, 36); else { ctx.fillStyle = '#c7e7ff'; ctx.beginPath(); ctx.arc(p.x, p.y, 13, 0, Math.PI * 2); ctx.fill(); } }
-      for (const shot of village.projectiles || []) { const p = realmPoint({ x: shot.x, y: shot.z }, 28, 14); ctx.fillStyle = '#fff2a5'; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill(); }
-      const p = realmPoint(mine, 28, 14); character(mine, p.x - 12, p.y - 14, 25);
+      for (const ghost of village.ghosts || []) if (ghost.active) { const X=px(ghost.x),Y=py(ghost.z),bob=Math.sin(state.frame+ghost.x)*4;ctx.fillStyle='rgba(175,225,255,.18)';ctx.beginPath();ctx.arc(X+10,Y+10+bob,18,0,Math.PI*2);ctx.fill();if(art.ghost)ctx.drawImage(art.ghost,X-2,Y-2+bob,24,24); }
+      for (const shot of village.projectiles || []) { const X=px(shot.x),Y=py(shot.z);ctx.fillStyle='rgba(190,240,255,.35)';ctx.beginPath();ctx.arc(X+8,Y+8,12,0,Math.PI*2);ctx.fill();if(art.ghostShard)ctx.drawImage(art.ghostShard,X,Y,16,16); }
+      character(mine, px(mine.x) - 6, py(mine.y) - 10, 32);
       drawRealmHeader('THE GHOST VILLAGE', `CLICK TOWARD GHOSTS · ${village.caught || 0}/6 ECHOES REMEMBERED`);
     }
-    drawDirectorHud();
     return true;
   }
   function drawLanternRite() {

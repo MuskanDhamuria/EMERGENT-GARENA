@@ -11,7 +11,7 @@ const START={x:1.5,z:11};
 export function createShadowForestSystem(world){
   function enter(room,player){
     if(player.archetype!=='Loner')return {ok:false,error:'Only the Loner can follow a path made from shadow.'};
-    if(!room.world.unlocked.has('shadow-forest'))return {ok:false,error:'The Shadow Forest has not awakened.'};
+    if(!room.world.unlocked.has('shadow-forest')&&!room.world.privateUnlocks?.get(player.id)?.has('shadow-forest'))return {ok:false,error:'The Shadow Forest has not awakened.'};
     if(player.realm!=='overworld')return {ok:false,error:'Return from the current hidden realm first.'};
     player.shadowForest={active:true,returnPosition:{x:player.x,z:player.z},vx:0,vy:0,onGround:false,jumpHeld:false,falls:0,trapHits:0,sawTime:0,enteredAt:Date.now()};
     player.realm='shadow-forest';player.x=START.x;player.z=START.z;player.inputX=0;player.inputZ=0;
@@ -21,7 +21,7 @@ export function createShadowForestSystem(world){
     if(vy<0)return null;const previousBottom=previousY+.85,nextBottom=nextY+.85;
     return SHADOW_PLATFORMS.filter((platform)=>x+.28>platform.x&&x-.28<platform.x+platform.w&&previousBottom<=platform.y+.08&&nextBottom>=platform.y).sort((a,b)=>a.y-b.y)[0]||null;
   }
-  function complete(room,player){const returned=player.shadowForest.returnPosition;player.realm='overworld';player.x=returned.x;player.z=returned.z;player.inputX=0;player.inputZ=0;player.shadowForest={...player.shadowForest,active:false,completedAt:Date.now()};player.interactions['shadow-forest-crossing']=(player.interactions['shadow-forest-crossing']||0)+1;player.completedEvolutions?.add('shadow-forest-awakens');world.event(room,'shadow-forest-complete','The Loner claims the forgotten trophy. The forest settles back into an ordinary horizon.',{playerId:player.id});}
+  function complete(room,player){const returned=player.shadowForest.returnPosition;player.realm='overworld';player.x=returned.x;player.z=returned.z;player.inputX=0;player.inputZ=0;player.shadowForest={...player.shadowForest,active:false,completedAt:Date.now()};player.interactions['shadow-forest-crossing']=(player.interactions['shadow-forest-crossing']||0)+1;if(!(player.completedEvolutions instanceof Set))player.completedEvolutions=new Set(player.completedEvolutions||[]);player.completedEvolutions.add('shadow-forest-awakens');world.event(room,'shadow-forest-complete','The Loner claims the forgotten trophy. The forest settles back into an ordinary horizon.',{playerId:player.id});}
   function exit(room,player){if(player.realm!=='shadow-forest'||!player.shadowForest?.active)return {ok:false,error:'You are not inside the Shadow Forest.'};if(player.x<22.4||player.z>=6.3)return {ok:false,error:'Stand beside the trophy before pressing E.'};complete(room,player);return {ok:true};}
   function tick(room,player,delta){
     const state=player.shadowForest;if(!state?.active)return;

@@ -37,5 +37,6 @@ for (const ghost of player.ghostVillage.ghosts) {
 
 assert.equal(player.realm, 'overworld');
 assert.equal(player.interactions['ghost-village-cleared'], 1);
+assert.equal(player.completedEvolutions.has('ghost-village-appears'), true);
 assert.ok(events.some((event) => event.type === 'ghost-village-complete'));
 console.log('Ghost Village tests passed.');

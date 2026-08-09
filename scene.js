@@ -1,5 +1,6 @@
 import { createSession } from './client/session.js';
 import { createRenderer } from './client/renderer.js';
+import { applyRealmPreview } from './client/realm-preview.js';
 
 // Thin composition root: browser setup, controls, and the join form only.
 const canvas = document.createElement('canvas');
@@ -38,6 +39,8 @@ howModal.querySelector('.how-got-it').addEventListener('click', closeHowItWorks)
 howModal.addEventListener('click', (event) => { if (event.target === howModal) closeHowItWorks(); });
 
 const session = createSession();
+const previewRealm = new URLSearchParams(location.search).get('preview');
+applyRealmPreview(session.state, previewRealm);
 const { state, attack, gameReady, interact, aimAt, joinRoom, update, activeEntities, handleCollectorPointer, handleCollectorKey, lanternSupport } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};

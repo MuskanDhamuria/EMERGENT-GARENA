@@ -65,7 +65,7 @@ export function createDungeonSystem(world){
     if(action==='dungeon-exit'&&entity.type==='dungeon-exit'){
       if(player.dungeon.phase!=='ESCAPE')return {ok:false,error:'The return portal has no path to follow yet.'};
       const returned=player.dungeon.returnPosition;player.realm='overworld';player.x=returned.x;player.z=returned.z;player.inputX=0;player.inputZ=0;
-      player.dungeon={...player.dungeon,active:false,phase:'COMPLETE',completedAt:Date.now()};player.dungeonCompletions=(player.dungeonCompletions||0)+1;player.completedEvolutions?.add('spirit-portal-opens');
+      player.dungeon={...player.dungeon,active:false,phase:'COMPLETE',completedAt:Date.now()};player.dungeonCompletions=(player.dungeonCompletions||0)+1;if(!(player.completedEvolutions instanceof Set))player.completedEvolutions=new Set(player.completedEvolutions||[]);player.completedEvolutions.add('spirit-portal-opens');
       world.event(room,'dungeon-complete','The Loner returns carrying a silence that now knows the way home.',{playerId:player.id});return {ok:true,escaped:true};
     }
     return {ok:false,error:'That action does not answer this dungeon object.'};

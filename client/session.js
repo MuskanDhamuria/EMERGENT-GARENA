@@ -14,11 +14,22 @@ export const LANDMARKS = [
   { x: 53, y: 28, label: 'Ancient Temple' },
 ];
 
+export function ghostVillageAimPoint(screenX, screenY, camera = null) {
+  if (camera) return {
+    x: Math.max(0, Math.min(28, (Number(screenX) + Number(camera.x) * 20 - 480) / 20)),
+    z: Math.max(0, Math.min(14, (Number(screenY) + Number(camera.y) * 20 - 320) / 20)),
+  };
+  return {
+    x: Math.max(0, Math.min(28, (Number(screenX) - 74) / 812 * 28)),
+    z: Math.max(0, Math.min(14, (Number(screenY) - 110) / 408 * 14)),
+  };
+}
+
 export function createSession() {
   const state = {
     joined: false, notice: 'Light a lantern to join a four-player expedition.', noticeTimer: 0,
     camera: { x: 25, y: 17 }, frame: 0,
-    encounterHintTarget: null,
+    encounterHintTarget: null, aimScreen: null, dungeonAttack: null,
     combatHintsShown: {},
     network: { connected: false, playerId: null, roomCode: null, lastTelemetry: 0, error: '', serverOutdated: false },
     world: null, players: [], mine: null, privateRule: null, guidance: null, publicEvent: null,
@@ -53,6 +64,12 @@ export function createSession() {
       'forgotten-ruins-emerge': 'Hidden Ruins',
     };
     const collector = state.world?.collectorTrial;
+    if (state.mine?.archetype === 'Loner') {
+      const titles = { 'spirit-realm': 'Spirit Realm', 'shadow-forest': 'Shadow Forest', 'moon-shrine': 'Moon Shrine', 'ghost-village': 'Ghost Village' };
+      const completionIds = { 'spirit-realm': 'spirit-portal-opens', 'shadow-forest': 'shadow-forest-awakens', 'moon-shrine': 'moon-shrine-visible', 'ghost-village': 'ghost-village-appears' };
+      const complete = new Set(state.mine.completedEvolutions || []);
+      return (state.mine.evolutions || []).map((id) => ({ id, label: titles[id] || id.replaceAll('-', ' '), awakened: complete.has(completionIds[id]) }));
+    }
     if (state.mine?.archetype === 'Collector' && collector?.plan?.length) {
       const titles = { 'crystal-mine': 'Crystal Heart', 'ancient-vault': 'Ancient Vault', 'treasure-cache': 'Treasure Cache', 'relic-forge': 'Relic Forge', 'sunken-relic': 'Sunken Crown' };
       const complete = new Set(collector.completedFeatures || []);
@@ -109,9 +126,15 @@ export function createSession() {
     const previous = new Map(state.players.map((player) => [player.id, player]));
     state.players = world.players.map((player, index) => {
       const target = mapPoint(player), old = previous.get(player.id);
-      return { ...player, x: old?.x ?? target.x, y: old?.y ?? target.y, targetX: target.x, targetY: target.y, color: PLAYER_COLORS[index % PLAYER_COLORS.length] };
+      const changedRealm = old && old.realm !== player.realm;
+      return { ...player, x: changedRealm ? target.x : old?.x ?? target.x, y: changedRealm ? target.y : old?.y ?? target.y, targetX: target.x, targetY: target.y, color: PLAYER_COLORS[index % PLAYER_COLORS.length] };
     });
     state.mine = state.players.find((player) => player.id === state.network.playerId) || null;
+    const previousMine = previous.get(state.network.playerId);
+    if (state.mine && previousMine && previousMine.realm !== state.mine.realm) {
+      state.camera.x = state.mine.x;
+      state.camera.y = state.mine.y;
+    }
     const sourceMine = world.players.find((player) => player.id === state.network.playerId);
     if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y, color: state.mine.color });
     if (world.phase === 'observing' && /waiting|lantern is lit/i.test(state.notice)) {
@@ -263,6 +286,7 @@ export function createSession() {
     const action = finalAction(entity);
     if (!action) { note('Move near an object marked for your role.', 3); return; }
     socket.emit('interact', { type: action, targetId: entity.targetId || entity.id }, (reply) => {
+      if (reply?.ok && action === 'dungeon-attack') state.dungeonAttack = { timer: .28, targetX: entity.x, targetY: entity.y };
       if (reply?.ok && action === 'collector-minigame-start') { startCollectorGame(reply, entity); return; }
       if (reply?.ok && action === 'collect-clue' && reply.clueText) { note(reply.clueText, 7); return; }
       const shard = String(entity.id || '').startsWith('tideglass-shard-');
@@ -293,9 +317,10 @@ export function createSession() {
   }
   function aimAt(screenX, screenY, width = 960, height = 640) {
     if (state.mine?.realm !== 'ghost-village') return false;
-    const tile = 20;
-    const aimX = (screenX + state.camera.x * tile - width / 2) / tile;
-    const aimZ = (screenY + state.camera.y * tile - height / 2) / tile;
+    const scaledX = Number(screenX) * 960 / Math.max(1, Number(width));
+    const scaledY = Number(screenY) * 640 / Math.max(1, Number(height));
+    const { x: aimX, z: aimZ } = ghostVillageAimPoint(scaledX, scaledY, state.camera);
+    state.aimScreen = { x: scaledX, y: scaledY, worldX: aimX, worldZ: aimZ };
     socket.emit('interact', { type: 'ghost-village-aim', aimX, aimZ }, (reply) => {
       if (!reply?.ok) note(reply?.error || 'The spirit shard does not answer that throw.', 2);
     });
@@ -303,6 +328,7 @@ export function createSession() {
   }
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;
+    if (state.dungeonAttack) { state.dungeonAttack.timer -= dt; if (state.dungeonAttack.timer <= 0) state.dungeonAttack = null; }
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
     const mine = state.mine;
     if (gameReady() && mine) {

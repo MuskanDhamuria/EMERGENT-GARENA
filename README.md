@@ -1,10 +1,17 @@
-# Emergent / Everdawn
+# Emergent 
 
-Everdawn is the playable pixel-art stage for **Emergent**: a shared adventure with no preset player roles or quest. A server-authoritative Game Master observes group behaviour, assigns distinct identities, evolves the world, and builds an ending around that group.
+Emergent is a server-authoritative, four-player cooperative adventure. Players begin without roles. A constrained AI Game Master observes their behaviour, assigns the unique Explorer, Collector, Guardian, and Loner roles, selects missions and adaptations, and helps compose one of two finales. 
 
-For a quick map of which file owns which part of the game, see [TEAM_GUIDE.md](TEAM_GUIDE.md). Role content, special terrain, entities, and action IDs live together in `shared/game-content.js`.
+## Requirements
 
-## Run the game
+- Node.js 22 or newer
+- npm
+- Four browser windows or four devices on the same network
+- Google Gemini API key for the live AI Game Master
+
+## Setup
+
+Clone the repository, open PowerShell in its root, and install dependencies:
 
 ```powershell
 npm.cmd install
@@ -12,17 +19,80 @@ npm.cmd run build
 npm.cmd run api
 ```
 
-Open [http://127.0.0.1:8787](http://127.0.0.1:8787) in exactly four browser windows, enter the same room code, and choose different names. There is no solo mode: a room remains in its lobby until all four players are connected. The 40-second observation period then begins, before the Game Master assigns the unique Explorer, Collector, Guardian, and Loner identities.
+Open [http://127.0.0.1:8787](http://127.0.0.1:8787). For other devices on the same network, use the `LAN` address printed by the server. Open exactly four clients, enter the same 4–6 character room code, and use different player names.
 
-For visual iteration only, use `npm.cmd run dev` and open the Vite address it prints. Use the API server for shared rooms and agent behaviour.
+The fourth player begins a 40-second observation period. For faster local testing:
 
-## Agentic Game Master
+```powershell
+$env:GAME_TEST_OBSERVATION_MS="3000"
+npm.cmd run api
+```
 
-`npm.cmd run mcp` starts a stdio MCP server for an MCP host. To run the live Gemini Game Master bridge, use `npm.cmd run agent:gemini`; it starts an MCP client internally and calls Gemini for each decision cycle. It connects to the local game server by default (`http://127.0.0.1:8787`); set `EMERGENT_GAME_SERVER_URL` to change that address.
+If port 8787 is already occupied, stop the existing server or select another port:
 
-Create a `.env` file in the project root (beside `package.json`) and add `GM_API_KEY=your_key_here`. The bridge also accepts `GEMINI_API_KEY`. The file is ignored by Git and must never be committed. `GM_MODEL` (or `GEMINI_MODEL`) can select a model. `GM_API_URL` is optional: omit it for Gemini's native API, use a Gemini `generateContent` URL for native REST, or retain an OpenAI-compatible Gemini proxy URL if that is your existing setup.
+```powershell
+$env:PORT="8788"
+npm.cmd run api
+```
 
-Run the live stack in two terminals:
+### Development and previews
+
+```powershell
+npm.cmd run dev       # Vite development client
+npm.cmd run build     # Production build
+npm.cmd run preview   # Preview the production build
+npm.cmd run api       # Authoritative game and Socket.IO server
+```
+
+`npm.cmd run dev` proxies `/api` and `/socket.io` to the game server on port 8787, so run `npm.cmd run api` in a second terminal for multiplayer play. The production server serves `dist/`, the API, and Socket.IO together.
+
+
+### Tests
+
+```powershell
+npm.cmd run test:full
+```
+
+Individual suites are available through `test:emergent`, `test:guidance`, `test:input`, `test:explorer`, `test:realms`, `test:collector`, and `test:lantern`.
+
+## Architecture overview
+
+The game follows a server-authoritative design:
+
+```text
+Four browser clients
+  ├─ Canvas renderer, input, music, local puzzle presentation
+  └─ Socket.IO intents and synchronized state
+                    │
+                    ▼
+Node HTTP + Socket.IO server (authoritative)
+  ├─ room lifecycle, movement, combat and telemetry
+  ├─ role, mission, realm and finale systems
+  ├─ validation and deterministic AI fallbacks
+  └─ constrained HTTP control plane
+                    ▲
+                    │
+Gemini agent → local MCP client/server → validated game tools
+```
+
+Important files and ownership:
+
+- `client/session.js` manages browser state, input and Socket.IO communication.
+- `client/renderer.js` renders the canvas and all realms, HUDs, finales and recap screens.
+- `client/music.js` chooses landing, mission, finale and ending music.
+- `server.mjs` serves the application, creates Socket.IO, and runs the 100 ms authoritative tick.
+- `server/game-world.mjs` owns rooms, players, serialization, telemetry, role evolution and progression.
+- `server/socket-gateway.mjs` translates socket messages into validated world actions.
+- `server/*-system.mjs` contains isolated Collector, Guardian, Loner realm, encounter and finale rules.
+- `shared/game-content.js` is the shared catalog of roles, entities, features, abilities and timings.
+- `mcp-game-master.mjs` exposes a narrow set of validated Game Master tools over stdio MCP.
+- `gemini-mcp-agent.mjs` reads authoritative telemetry, requests one model decision, validates it locally, and invokes one MCP tool.
+- `public/game-art` and `public/audio` contain runtime media; the Vite plugin copies these curated directories into `dist`.
+
+
+## Game Master prompt and agent configuration
+
+The live agent is optional. Without it, the server assigns roles and uses authored, behaviour-based fallbacks. With it, start the stack in two terminals:
 
 ```powershell
 # Terminal 1
@@ -32,27 +102,55 @@ npm.cmd run api
 npm.cmd run agent:gemini
 ```
 
-The bridge starts its own MCP stdio child process, lists only rooms with exactly four connected players, reads authoritative state and telemetry through MCP, asks Gemini for one safe decision, validates its preconditions, then executes that decision through an MCP tool. Do not run `npm.cmd run mcp` separately when using `agent:gemini`.
+Create a `.env` file beside `package.json`(You can duplicate `.env.example`).
 
-The MCP server exposes validated tools for an AI Game Master to:
+The complete runtime prompt is assembled by `prompt()` in `gemini-mcp-agent.mjs`. Its central instructions are:
 
-- read room telemetry and world state;
-- assign all four unique archetypes to the four current players after observation;
-- choose exactly two of the three expedition maps from the group's behaviour;
-- adapt hostile encounters to hunt isolated players, break clustered formations, or pressure the Collector;
-- narrate publicly or privately;
-- reveal safe, whitelisted world features, including private paths;
-- evolve an archetype;
-- create the session-specific finale; and
-- bind observed behaviour to a compatible, reversible emergent-rule primitive.
+- act as a safe decision engine for a four-player-only cooperative world;
+- observe first, make one small and legible change, narrate why, then observe again;
+- act only with exactly four connected players and wait until observation ends before assigning roles;
+- prioritize pending mechanical decisions over decorative narration;
+- treat destinations fairly and base choices on supplied telemetry;
+- return strict JSON containing one `action`, its `args`, and a short evidence-based `reason`.
 
-The MCP process cannot alter the game client or execute arbitrary code. The game server validates every tool result, remains authoritative for player state, and broadcasts the resulting world changes to the room. It is a local-development control plane, not authentication: keep the game server and MCP process on a trusted network.
+The agent uses a system instruction of “safe, concise game-master decision engine” and JSON-only output. Default generation settings are temperature `0.35`, a maximum of `550` output tokens, and the `gemini-3-flash-preview` model. Every result is checked by `validateDecision()` and then validated again by the MCP and authoritative game server. Permitted actions include role assignment, expedition selection, encounter adaptation, narration, safe feature unlocks, role evolution, Guardian/Loner mission selection, authored director cards, reversible emergent rules, and finale creation.
 
-## Demo flow
+Run `npm.cmd run mcp` only when connecting a separate MCP host. The Gemini bridge starts its own MCP subprocess and does not require a separately running MCP command.
 
-1. Exactly four players join the same lantern room with no assigned role; the session does not begin with fewer players.
-2. They choose naturally: explore apart, gather relics, shadow another player, or take risks.
-3. The Game Master interprets those signals, awakens four unique identities after 40 seconds, and chooses two expeditions that fit the group.
-4. Continued play evolves identities and reveals caves, bridges, vaults, shrines, private spirit paths, and portals.
-5. When a hostile expedition begins, its enemies use the AI-selected tactic while retaining the fixed 5% per-hit fairness rule.
-6. The Guardian and Loner complete their two authored personal rites, which reveals the Ancient Temple entrance. Once all four players arrive, the Game Master chooses a Muskan finale from post-role behaviour: a cooperative Lantern Rite with telemetry-shaped waves, repairs and role switches, or the alternate Echo Accord living-trail arena. The choice, evolution history and role-specific guidance remain server-authoritative and visible in the final reflection.
+## Third-party disclosures
+
+### Libraries and tools
+
+- [Socket.IO](https://socket.io/) and `socket.io-client` provide real-time multiplayer transport.
+- [Model Context Protocol SDK](https://github.com/modelcontextprotocol/typescript-sdk) provides the constrained local AI tool interface.
+- [Zod](https://zod.dev/) validates MCP tool arguments.
+- [Three.js](https://threejs.org/) is installed as a runtime dependency; the current primary presentation is Canvas 2D.
+- [Vite](https://vite.dev/) builds and serves the client during development.
+- [Playwright](https://playwright.dev/) supports browser and smoke testing.
+
+Exact versions are recorded in `package-lock.json`; declared compatible ranges are in `package.json`.
+
+### Models and APIs
+
+- The live Game Master calls the [Google Gemini API](https://ai.google.dev/gemini-api/docs). Its default model is `gemini-3-flash-preview`.
+
+
+### Art and audio
+
+- `public/game-art/retro-characters` uses the Super Retro World collection. Its bundled licence requires credit to Gif (`@gif_not_jif`), Noiracide (`@Noiracide`), and Romi (`@DessRomaric`), permits commercial use and modification, and prohibits redistribution of the assets themselves. See the bundled `LICENCE.txt` and `CREDITS.txt`.
+- `public/game-art/dark-cave` includes a link to the [CraftPix licence](https://craftpix.net/file-licenses/). 
+- `public/game-art/moon-shrine` includes an author note identifying the assets as free for commercial use with optional credit and links to Anokolisa’s Patreon.
+- Mission music is the supplied `white_records-8-bit-background-music-for-arcade-game-come-on-mario-164702.mp3`, stored in the build as `public/audio/missions.mp3`.
+- Playable-finale music is the supplied `paulyudin-game-game-music-573991.mp3`, stored as `public/audio/finale.mp3`.
+- Landing and post-finale music are stored as `public/audio/landing.mp3` and `public/audio/ending.mp3` from user-supplied source files.
+
+
+## Gameplay flow
+
+1. Exactly four players join one room.
+2. The server observes movement, proximity, collection, exploration, rescues and risk-taking for 40 seconds.
+3. Four unique roles awaken, and two role-relevant mission paths are selected.
+4. Players complete the Explorer, Collector, Guardian and Loner content while the world records their decisions.
+5. After all required missions, a shared portal appears in the centre of the original map.
+6. All four players enter either a cooperative or competitive multiplayer finale.
+7. Everyone sees the same post-finale recap built from the authoritative session record, then returns to the landing page.

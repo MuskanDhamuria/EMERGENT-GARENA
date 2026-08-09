@@ -11,7 +11,7 @@ export const LANDMARKS = [
   { x: 20, y: 17, label: 'Starting Village' }, { x: 7, y: 7, label: 'Whispering Forest' },
   { x: 43, y: 25, label: 'Lake of Glass' }, { x: 50, y: 6, label: 'Crystal Cave' },
   { x: 48, y: 17, label: 'Sacred Shrine' }, { x: 26, y: 28, label: 'Small Graveyard' },
-  { x: 53, y: 28, label: 'Ancient Temple' },
+  { x: 30, y: 17, label: 'Finale Portal' },
 ];
 
 export function ghostVillageAimPoint(screenX, screenY, camera = null) {
@@ -137,6 +137,7 @@ export function createSession() {
     }
     const sourceMine = world.players.find((player) => player.id === state.network.playerId);
     if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y, color: state.mine.color });
+    if (state.mine?.realm === 'lantern-rite') state.mine.lanternRite = world.lanternRite;
     if (world.phase === 'observing' && /waiting|lantern is lit/i.test(state.notice)) {
       state.notice = '';
       state.noticeTimer = 0;
@@ -335,8 +336,34 @@ export function createSession() {
     socket.emit('interact', { type, targetId: target.id }, (reply) => note(reply?.ok ? (kind === 'heal' ? `Healing light reaches ${target.name}.` : `${target.name} is shielded.`) : (reply?.error || 'That blessing cannot reach an ally yet.'), 3));
     return true;
   }
+  const finalePreviewActive = () => state.network.roomCode === 'PREVIEW' && ['lantern-rite','echo-accord'].includes(state.mine?.realm);
+  function syncLanternPreviewEntities() {
+    const rite=state.mine.lanternRite;
+    if(rite.phase==='ENTRY') state.world.entities=[{id:'lantern-entry-gate',type:'lantern-entry-gate',zone:'lantern-rite',x:16,z:18.5,readyCount:Object.keys(rite.entry.ready).length,action:'lantern-enter'}];
+    else if(rite.phase==='DEFEND') state.world.entities=[{id:'lantern-core',type:'lantern-core',zone:'lantern-rite',x:16,z:10,health:rite.core.health,maxHealth:rite.core.maxHealth},...rite.enemies.filter((enemy)=>!enemy.defeated).map((enemy)=>({...enemy,zone:'lantern-rite',type:'lantern-enemy',action:'lantern-attack'}))];
+    else state.world.entities=[{id:'lantern-core',type:'lantern-core',zone:'lantern-rite',x:16,z:10,health:rite.core.health,maxHealth:rite.core.maxHealth},...['Explorer','Collector','Guardian','Loner'].map((role,index)=>({id:`lantern-switch-${role.toLowerCase()}`,type:'lantern-switch',zone:'lantern-rite',x:[13,19,13,19][index],z:[7,7,13,13][index],role,action:'lantern-switch'}))];
+  }
+  function interactFinalePreview(){
+    const mine=state.mine;
+    if(mine.realm==='echo-accord'){note('Steer continuously with WASD or the arrow keys. Gather light and avoid every trail.',4);return true;}
+    const rite=mine.lanternRite,entity=nearest(mine,activeEntities(),3);
+    if(!entity){note('Move closer to the glowing objective, then press E.',3);return true;}
+    if(rite.phase==='ENTRY'&&entity.type==='lantern-entry-gate'){
+      rite.entry.ready=Object.fromEntries(state.players.map((player)=>[player.id,Date.now()]));rite.phase='DEFEND';rite.task='Test wave: press E beside each enemy to attack.';mine.x=14;mine.y=15.6;
+      rite.enemies=[{id:'preview-runner',enemyType:'swift',label:'Veil Runner',x:13,z:11,hp:2,maxHp:2,sprite:2},{id:'preview-raider',enemyType:'raider',label:'Lantern Raider',x:18,z:11,hp:3,maxHp:3,sprite:0},{id:'preview-brute',enemyType:'brute',label:'Stone Warden',x:16,z:7,hp:4,maxHp:4,sprite:22}];syncLanternPreviewEntities();note('All four previews entered. Defeat the test wave with E.',4);return true;
+    }
+    if(rite.phase==='DEFEND'&&entity.type==='lantern-enemy'){
+      const enemy=rite.enemies.find((item)=>item.id===entity.id);enemy.hp-=1;state.attackTimer=.28;state.attackTargetId=enemy.id;state.attackTargetX=enemy.x;state.attackTargetY=enemy.z;if(enemy.hp<=0)enemy.defeated=true;
+      if(rite.enemies.every((item)=>item.defeated)){rite.phase='SWITCHES';rite.task='Test wave cleared. Find YOUR GUARDIAN SWITCH and press E.';note('Wave cleared. Activate the Guardian switch.',4);}syncLanternPreviewEntities();return true;
+    }
+    if(rite.phase==='SWITCHES'&&entity.type==='lantern-switch'){
+      if(entity.role!==mine.archetype){note(`That is the ${entity.role} switch. Find the Guardian switch.`,3);return true;}rite.switches.participants=Object.fromEntries(state.players.map((player)=>[player.id,Date.now()]));rite.task='Finale preview complete!';state.world.finalObjective.phase='COMPLETE';note('Lantern Rite preview complete!',8);syncLanternPreviewEntities();return true;
+    }
+    return true;
+  }
   function interact() {
     if (!gameReady() || !state.mine) return;
+    if (finalePreviewActive()) { interactFinalePreview(); return; }
     if (state.network.serverOutdated) { note('The game server is out of date. Restart npm run api, then refresh this tab.', 10); return; }
     const observing = state.world?.phase === 'observing';
     if (!observing && !['evolving', 'finale'].includes(state.world?.phase)) {
@@ -397,6 +424,18 @@ export function createSession() {
   function update(dt, input) {
     state.frame += dt * 10; if (state.noticeTimer > 0) state.noticeTimer -= dt;
     if (state.dungeonAttack) { state.dungeonAttack.timer -= dt; if (state.dungeonAttack.timer <= 0) state.dungeonAttack = null; }
+    if(state.attackTimer>0)state.attackTimer=Math.max(0,state.attackTimer-dt);
+    if(finalePreviewActive()){
+      const mine=state.mine,{x,z}=input,speed=5;
+      if(mine.realm==='lantern-rite'){
+        const nx=mine.x+x*speed*dt,ny=mine.y+z*speed*dt;if(nx>=1&&nx<=31&&ny>=1&&ny<=27.5){mine.x=nx;mine.y=ny;}syncLanternPreviewEntities();
+      }else{
+        const game=state.world.finalObjective.echoAccord,mag=Math.hypot(x,z);if(mag>.15){const next={x:x/mag,z:z/mag},current=mine.echoDirection||next;if(next.x*current.x+next.z*current.z>-.7)mine.echoDirection=next;}
+        const direction=mine.echoDirection||{x:1,z:0};mine.x+=direction.x*5.2*dt;mine.y+=direction.z*5.2*dt;mine.echoStepAt=(mine.echoStepAt||0)+dt;if(mine.echoStepAt>=.085){mine.echoStepAt=0;mine.echoTrail.unshift({x:mine.x,z:mine.y});mine.echoTrail.length=Math.min(mine.echoTrail.length,7+(mine.echoCollected||0));}
+        for(const orb of game.echoes)if(orb.active&&Math.hypot(mine.x-orb.x,mine.y-orb.z)<.85){orb.active=false;mine.echoCollected+=1;break;}if(mine.x<game.arena.minX||mine.x>game.arena.maxX||mine.y<game.arena.minZ||mine.y>game.arena.maxZ){mine.x=24;mine.y=16;mine.echoTrail=[];note('Trail reset after touching the arena wall.',3);}
+      }
+      state.camera.x+=(mine.x-state.camera.x)*Math.min(1,dt*5);state.camera.y+=(mine.y-state.camera.y)*Math.min(1,dt*5);return;
+    }
     for (const player of state.players) { const ease = Math.min(1, dt * 14); player.x += (player.targetX - player.x) * ease; player.y += (player.targetY - player.y) * ease; }
     const mine = state.mine;
     if (gameReady() && mine) {

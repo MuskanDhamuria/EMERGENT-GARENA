@@ -20,7 +20,7 @@ assert.ok(room.finaleEntrance, 'the authored Guardian and Loner gates still reve
 
 assert.equal(world.directorRules.apply(room, { card: 'finale_variant', payload: { variantId: 'lantern_rite' } }).ok, true, 'the MCP-facing Director can select the cooperative Lantern Rite');
 for (const player of players) {
-  player.x = 16; player.z = 8;
+  player.x = 0; player.z = 0;
   const result = world.interact(room, player, 'enter-final-temple', 'finale-entrance');
   if (player === players.at(-1)) assert.equal(result.lanternRite, true);
 }

@@ -1,6 +1,6 @@
 import { createSession } from './client/session.js';
 import { createRenderer } from './client/renderer.js';
-import { applyCollectorPreview, applyRealmPreview } from './client/realm-preview.js';
+import { applyCollectorPreview, applyFinalePreview, applyRealmPreview } from './client/realm-preview.js';
 
 // Thin composition root: browser setup, controls, and the join form only.
 const canvas = document.createElement('canvas');
@@ -42,6 +42,7 @@ const session = createSession();
 const previewRealm = new URLSearchParams(location.search).get('preview');
 applyRealmPreview(session.state, previewRealm);
 applyCollectorPreview(session.state, previewRealm);
+applyFinalePreview(session.state, previewRealm);
 const { state, attack, gameReady, activeEntities, interact, aimAt, joinRoom, update, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, lanternSupport } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};

@@ -138,7 +138,7 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'moon-shrine-gate', type: 'realm-portal', x: -9, z: 12, role: 'Loner', label: 'Moon Shrine', feature: 'moon-shrine' }),
   Object.freeze({ id: 'ghost-village-gate', type: 'realm-portal', x: -16, z: 11, role: 'Loner', label: 'Haunted Library', feature: 'ghost-village' }),
   Object.freeze({ id: 'final-altar', type: 'altar', x: 19, z: 9, role: 'Collector', label: 'Relic Altar', feature: 'ancient-temple' }),
-  Object.freeze({ id: 'finale-entrance', type: 'finale-entrance', x: 16, z: 8, label: 'Ancient Temple Entrance', feature: 'ancient-temple' }),
+  Object.freeze({ id: 'finale-entrance', type: 'finale-entrance', x: 0, z: 0, label: 'Finale Portal', feature: 'ancient-temple' }),
   // This is deliberately beside the altar, on a walkable tile.  The former
   // position at (20, 10) was surrounded by collision tiles, making the final
   // Loner interaction impossible despite its 3.25-unit interaction radius.

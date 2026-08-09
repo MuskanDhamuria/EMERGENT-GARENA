@@ -21,7 +21,7 @@ players.find((player) => player.archetype === 'Loner').roleObjectives = new Set(
 assert.equal(world.createFinalObjective(room)?.variant.id, 'echo_accord', 'continued separation and risk select Muskan\'s alternate finale');
 world.tickRoom(room, 0);
 for (const player of players) {
-  player.x = 16; player.z = 8;
+  player.x = 0; player.z = 0;
   world.interact(room, player, 'enter-final-temple', 'finale-entrance');
 }
 assert.equal(players.every((player) => player.realm === 'echo-accord'), true, 'the selected Echo Accord owns the final arena');

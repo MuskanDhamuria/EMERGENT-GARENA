@@ -1,5 +1,6 @@
 const REALMS = new Set(['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-village']);
 const COLLECTOR_PREVIEWS = new Set(['collector-crystal-mine', 'collector-ancient-vault', 'collector-treasure-cache', 'collector-relic-forge', 'collector-sunken-relic']);
+const FINALE_PREVIEWS = new Set(['finale-lantern-rite', 'finale-echo-accord']);
 
 function dungeonEntities() {
   return [
@@ -42,4 +43,26 @@ export function applyCollectorPreview(state, requestedPreview) {
   state.joined=true;state.network.connected=false;state.network.playerId=player.id;state.network.roomCode='PREVIEW';state.players=[player];state.mine=player;state.camera={x:30,y:17};state.collectorGame=games[feature];
   state.world={code:'PREVIEW',phase:'evolving',players:[player],entities:[],terrain:[],relics:[],world:{unlocked:[feature],privateUnlocks:[]},collectorTrial:{plan:[feature],completedFeatures:[],active:{feature,title:shared.title,completed:false}},events:[]};
   state.notice='';state.noticeTimer=0;state.guidance=null;state.privateRule=null;return true;
+}
+
+export function applyFinalePreview(state, requestedPreview) {
+  if (!FINALE_PREVIEWS.has(requestedPreview)) return false;
+  const lantern = requestedPreview === 'finale-lantern-rite';
+  const realm = lantern ? 'lantern-rite' : 'echo-accord';
+  const roles = ['Explorer', 'Collector', 'Guardian', 'Loner'];
+  const colors = ['#76d7c4', '#f3c969', '#83b9f5', '#c999ed'];
+  const players = roles.map((archetype, index) => ({
+    id:`preview-${index}`,name:['Ari','Bea','Cy','Dee'][index],archetype,color:colors[index],sprite:[1,2,3,5][index],
+    facing:'down',moving:false,realm,zone:'overworld',x:lantern?[14,18,14,18][index]:[8,40,8,40][index],
+    y:lantern?[21,21,24,24][index]:[8,8,24,24][index],lanternHealth:9,lanternMaxHealth:9,
+    echoAlive:true,echoCollected:index,echoColor:colors[index],echoTrail:[],evolutions:[],completedEvolutions:[],
+  }));
+  state.joined=true;state.network.connected=false;state.network.playerId=players[2].id;state.network.roomCode='PREVIEW';
+  state.players=players;state.mine=players[2];state.camera={x:16,y:17};state.notice='';state.noticeTimer=0;state.guidance=null;state.privateRule=null;
+  const finalObjective=lantern
+    ? {status:'active',phase:'LANTERN_ENTRY',variant:{id:'lantern_rite',title:'Lantern Rite'}}
+    : {status:'active',phase:'ECHO_ACCORD',variant:{id:'echo_accord',title:'Echo Accord'},echoAccord:{mode:'LAST_SNAKE_STANDING',arena:{minX:2,maxX:46,minZ:2,maxZ:30},echoes:[{id:'orb-a',x:18,z:12,active:true,hue:0},{id:'orb-b',x:28,z:18,active:true,hue:2}]}};
+  state.world={code:'PREVIEW',phase:'finale',players,entities:lantern?[{id:'lantern-entry-gate',type:'lantern-entry-gate',zone:'lantern-rite',x:16,z:18.5,readyCount:2}]:[],terrain:[],relics:[],world:{unlocked:[],privateUnlocks:[]},finalObjective,lanternRite:lantern?{phase:'ENTRY',task:'All four players must cross the glowing threshold together.',wave:0,waveCount:3,entry:{ready:{}}}:null,events:[]};
+  if (lantern) state.mine.lanternRite={active:true,...state.world.lanternRite,core:{health:100,maxHealth:100},enemies:[],switches:{participants:{}},repair:{progress:0,goal:10}};
+  return true;
 }

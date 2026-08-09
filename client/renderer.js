@@ -31,6 +31,11 @@ export function createRenderer(canvas, session) {
   loadDecor('caveMushroomLarge', '/game-art/dark-cave/mushroom-large.png');
   loadDecor('caveMushroomSmall', '/game-art/dark-cave/mushroom-small.png');
   loadDecor('caveDemonSkull', '/game-art/dark-cave/demon-skull.png');
+  loadDecor('guardianGate', '/game-art/guardian-portals/big-gate.png');
+  loadDecor('guardianGateComplete', '/game-art/guardian-portals/big-gate-red-orb.png');
+  loadDecor('guardianChapel', '/game-art/guardian-portals/grace-chapel.png');
+  loadDecor('guardianTree', '/game-art/guardian-portals/warden-tree.png');
+  loadDecor('guardianTreePumpkins', '/game-art/guardian-portals/warden-tree-pumpkins.png');
   loadDecor('claw-fiend', '/game-art/dark-cave/demons/claw-fiend.png');
   loadDecor('bone-wing', '/game-art/dark-cave/demons/bone-wing.png');
   loadDecor('night-blade', '/game-art/dark-cave/demons/night-blade.png');
@@ -115,6 +120,10 @@ export function createRenderer(canvas, session) {
   function drawTerrain(area) {
     const point = mapPoint(area), columns = Math.max(1, Number(area.w) || 1), rows = Math.max(1, Number(area.h) || 1), kind = String(area.kind || '').toLowerCase();
     const X = px(point.x), Y = py(point.y), width = columns * T, height = rows * T;
+    // The Warden Bridge is a legacy presentation-only strip.  The Guardian's
+    // real interaction remains at guardian-shrine, now shown as the tree
+    // landmark below, so do not draw a disconnected plank bridge underneath.
+    if (area.id === 'guardian-bridge') return;
     if (kind.includes('water')) { ctx.fillStyle = 'rgba(57,161,211,.38)'; ctx.fillRect(X, Y, width, height); return; }
     if (kind.includes('bridge')) { ctx.fillStyle = '#6a4931'; ctx.fillRect(X, Y + 6, width, Math.max(7, height - 10)); ctx.fillStyle = '#c3975e'; for (let x = 3; x < width; x += 12) ctx.fillRect(X + x, Y + 7, 8, Math.max(5, height - 12)); return; }
     if (kind.includes('spirit')) return;
@@ -142,6 +151,45 @@ export function createRenderer(canvas, session) {
       if(art.finalePortal)ctx.drawImage(art.finalePortal,baseX-size/2,baseY-size/2,size,size);else drawLonerPortal(entity);
       const X=baseX,Y=baseY-size/2-8;
       ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillStyle='#c8f8ff';ctx.fillText('FINALE PORTAL · E',X,Y);
+      return;
+    }
+    // This is the original overworld Guardian objective, distinct from the
+    // two dynamically generated Guardian trial portals below.  It used the
+    // generic shrine placeholder, which is the small white-and-purple marker
+    // visible on the Warden Bridge.  Keep its coordinate and interaction
+    // untouched; only replace that placeholder with the supplied tree art.
+    if (entity.id === 'guardian-shrine') {
+      const guardianTask = state.world?.finalObjective?.required?.find((task) => task.playerId === state.network.playerId && task.archetype === 'Guardian');
+      const awakened = Boolean(guardianTask?.completed);
+      const asset = awakened ? art.guardianTreePumpkins : art.guardianTree;
+      const X = px(entity.x) + 10, Y = py(entity.y) + 10;
+      const size = 72;
+      const glow = ctx.createRadialGradient(X, Y - 12, 5, X, Y - 12, 40);
+      glow.addColorStop(0, awakened ? 'rgba(255,158,64,.42)' : 'rgba(196,230,210,.24)');
+      glow.addColorStop(1, 'rgba(36,95,64,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(X, Y - 12, 40, 0, Math.PI * 2); ctx.fill();
+      if (asset) ctx.drawImage(asset, X - size / 2, Y - size + 10, size, size);
+      else drawEntity(entity);
+      ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff5c8';
+      ctx.fillText(awakened ? 'AWAKENED WARD' : 'WARDEN TREE', X, Y - size + 5);
+      return;
+    }
+    if (kind === 'guardian-portal') {
+      const trial = state.world?.guardianTrial;
+      const completed = Boolean(trial?.completedTrialIds?.includes(entity.trialId));
+      // These are the two Guardian portals.  They are gates, not the separate
+      // Guardian tree-switch landmark rendered above.
+      const asset = completed ? art.guardianGateComplete : art.guardianGate;
+      const X = px(entity.x) + 10, Y = py(entity.y) + 10;
+      const width = 78, height = 98;
+      const glow = ctx.createRadialGradient(X, Y, 4, X, Y, completed ? 42 : 34);
+      glow.addColorStop(0, completed ? 'rgba(255,92,172,.46)' : 'rgba(214,233,255,.28)');
+      glow.addColorStop(1, 'rgba(60,32,90,0)');
+      ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(X, Y, completed ? 42 : 34, 0, Math.PI * 2); ctx.fill();
+      if (asset) ctx.drawImage(asset, X - width / 2, Y - height + 11, width, height);
+      else drawEntity(entity);
+      ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff5c8';
+      ctx.fillText(completed ? 'RESTORED WARD' : entity.label, X, Y - height + 5);
       return;
     }
     if (entity.id === 'spirit-portal') { drawLonerPortal(entity); return; }
@@ -994,12 +1042,14 @@ function drawCollectorGame(){
     ctx.font = '9px monospace'; ctx.fillStyle = '#fff2bd';
     const summary = spirits === 1 ? '1 SPIRIT REMAINS' : `${spirits} SPIRITS REMAIN`;
     ctx.fillText(summary, 480, 53);
-    panel(14, 214, 365, 56); ctx.textAlign = 'left'; ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#9de3ff';
+    // Keep the full playfield clear: contextual guidance and mechanic status
+    // belong together in a single footer, not over the sanctum artwork.
+    panel(110, 536, 740, 86); ctx.textAlign = 'center'; ctx.font = 'bold 10px monospace'; ctx.fillStyle = '#9de3ff';
     const advice = state.guidance?.message || state.publicEvent || trial.rule;
-    ctx.fillText(state.guidance ? 'THE GAME MASTER ADVISES YOU' : 'THE GAME MASTER WATCHES', 27, 234);
-    ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; wrap(advice, 27, 251, 335, 12);
-    panel(165, 548, 630, 66); ctx.textAlign = 'center'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5';
-    wrap(status, 480, 573, 570, 16);
+    ctx.fillText(state.guidance ? 'THE GAME MASTER ADVISES YOU' : 'THE GAME MASTER WATCHES', 480, 553);
+    ctx.font = '10px monospace'; ctx.fillStyle = '#fff7d5'; wrap(advice, 480, 570, 690, 12);
+    ctx.strokeStyle = 'rgba(245,221,138,.42)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(138, 594); ctx.lineTo(822, 594); ctx.stroke();
+    ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#fff2bd'; wrap(status, 480, 611, 660, 13);
   }
   function drawGuardianTrial() {
     const trialState = state.world?.guardianTrial, trial = trialState?.activeTrial;

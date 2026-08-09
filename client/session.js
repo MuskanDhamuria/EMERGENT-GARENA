@@ -65,7 +65,7 @@ export function createSession() {
     };
     const collector = state.world?.collectorTrial;
     if (state.mine?.archetype === 'Loner') {
-      const titles = { 'spirit-realm': 'Spirit Realm', 'shadow-forest': 'Shadow Forest', 'moon-shrine': 'Moon Shrine', 'ghost-village': 'Ghost Village' };
+      const titles = { 'spirit-realm': 'Spirit Realm', 'shadow-forest': 'Shadow Forest', 'moon-shrine': 'Moon Shrine', 'ghost-village': 'Haunted Library' };
       const completionIds = { 'spirit-realm': 'spirit-portal-opens', 'shadow-forest': 'shadow-forest-awakens', 'moon-shrine': 'moon-shrine-visible', 'ghost-village': 'ghost-village-appears' };
       const complete = new Set(state.mine.completedEvolutions || []);
       return (state.mine.evolutions || []).map((id) => ({ id, label: titles[id] || id.replaceAll('-', ' '), awakened: complete.has(completionIds[id]) }));
@@ -315,12 +315,13 @@ export function createSession() {
       } else if (!reply?.cooldown) note(reply?.error || 'The strike did not connect.', 2.5);
     });
   }
-  function aimAt(screenX, screenY, width = 960, height = 640) {
+  function aimAt(screenX, screenY, width = 960, height = 640, shoot = true) {
     if (state.mine?.realm !== 'ghost-village') return false;
     const scaledX = Number(screenX) * 960 / Math.max(1, Number(width));
     const scaledY = Number(screenY) * 640 / Math.max(1, Number(height));
     const { x: aimX, z: aimZ } = ghostVillageAimPoint(scaledX, scaledY, state.camera);
     state.aimScreen = { x: scaledX, y: scaledY, worldX: aimX, worldZ: aimZ };
+    if (!shoot) return true;
     socket.emit('interact', { type: 'ghost-village-aim', aimX, aimZ }, (reply) => {
       if (!reply?.ok) note(reply?.error || 'The spirit shard does not answer that throw.', 2);
     });

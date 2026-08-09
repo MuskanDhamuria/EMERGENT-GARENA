@@ -1,6 +1,6 @@
 export const MOON_PATH=Object.freeze([{x:2,z:10},{x:7,z:10},{x:7,z:7},{x:13,z:7},{x:13,z:10},{x:19,z:10},{x:19,z:6},{x:24,z:6},{x:28,z:5}]);
 export const MOON_ALTAR=Object.freeze({x:28,z:5});
-const START=MOON_PATH[0],TOLERANCE=.85;
+const START=MOON_PATH[0],TOLERANCE=30/20;
 function segmentDistance(point,a,b){const dx=b.x-a.x,dz=b.z-a.z,length=dx*dx+dz*dz,t=length?Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.z-a.z)*dz)/length)):0;return {distance:Math.hypot(point.x-(a.x+t*dx),point.z-(a.z+t*dz)),t};}
 export function createMoonShrineSystem(world){
   function enter(room,player){if(player.archetype!=='Loner')return {ok:false,error:'Only the Loner can hear the moonlit stones.'};if(!room.world.unlocked.has('moon-shrine')&&!room.world.privateUnlocks?.get(player.id)?.has('moon-shrine'))return {ok:false,error:'The Moon Shrine is not visible yet.'};if(player.realm!=='overworld')return {ok:false,error:'Return from the current hidden realm first.'};player.moonShrine={active:true,returnPosition:{x:player.x,z:player.z},pathStep:0,lineFailed:false,enteredAt:Date.now()};player.realm='moon-shrine';player.x=START.x;player.z=START.z;player.inputX=0;player.inputZ=0;world.event(room,'moon-shrine-entered','A single silver line reaches from the Loner’s feet to the distant shrine. It must not be abandoned.',{privateTo:player.id});return {ok:true};}

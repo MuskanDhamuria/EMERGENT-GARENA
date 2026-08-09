@@ -18,7 +18,7 @@ const EVOLUTION_GUIDANCE = Object.freeze({
   'spirit-realm': 'The Veil Portal is visible to you. Press E beside it. Your separate realm still affects the shared story, and I will warn you if you linger where movement matters.',
   'shadow-forest': 'The Shadow Forest is a side-scrolling spirit route. Move right, use W to jump, and reach the trophy before returning to Everdawn.',
   'moon-shrine': 'Moonlight has drawn a narrow silver route. Stay on the line, then press E at the altar when you reach it.',
-  'ghost-village': 'The Ghost Village has awakened. Click toward each echo to cast your light and catch all six before the veil closes.',
+  'ghost-village': 'The Haunted Library has awakened. Follow the aiming path and click toward each echo to catch all six before the veil closes.',
 });
 
 const TRIAL_GUIDANCE = Object.freeze({
@@ -38,7 +38,7 @@ const REALM_GUIDANCE = Object.freeze({
   dungeon: 'In the Spirit Realm, press E repeatedly beside wardens until they yield, collect their seals with E, and find the exit when the last answer is revealed.',
   'shadow-forest': 'Keep moving right through the Shadow Forest. W jumps; the trophy at the far end is the way home.',
   'moon-shrine': 'The silver line is safe. Step off it and the shrine returns you to the previous point, so take each corner carefully.',
-  'ghost-village': 'Aim with the mouse and click toward a ghost. Each echo needs a direct hit before it can rejoin the village.',
+  'ghost-village': 'Aim with the mouse and follow the visible arc, then click toward a ghost. Each echo needs a direct hit.',
 });
 
 const COLLECTOR_TRIAL_GUIDANCE = Object.freeze({

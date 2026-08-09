@@ -128,7 +128,7 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'explorer-waystone', type: 'waystone', x: -16, z: -10, role: 'Explorer', terrain: 'moss-trail', label: 'Trail Waystone', feature: 'hidden-cave' }),
   Object.freeze({ id: 'shadow-forest-gate', type: 'realm-portal', x: -20, z: 5, role: 'Loner', label: 'Shadow Forest Crossing', feature: 'shadow-forest' }),
   Object.freeze({ id: 'moon-shrine-gate', type: 'realm-portal', x: -9, z: 12, role: 'Loner', label: 'Moon Shrine', feature: 'moon-shrine' }),
-  Object.freeze({ id: 'ghost-village-gate', type: 'realm-portal', x: -16, z: 11, role: 'Loner', label: 'Ghost Village', feature: 'ghost-village' }),
+  Object.freeze({ id: 'ghost-village-gate', type: 'realm-portal', x: -16, z: 11, role: 'Loner', label: 'Haunted Library', feature: 'ghost-village' }),
   Object.freeze({ id: 'final-altar', type: 'altar', x: 19, z: 9, role: 'Collector', label: 'Relic Altar', feature: 'ancient-temple' }),
   Object.freeze({ id: 'finale-entrance', type: 'finale-entrance', x: 16, z: 8, label: 'Ancient Temple Entrance', feature: 'ancient-temple' }),
   // This is deliberately beside the altar, on a walkable tile.  The former
@@ -174,7 +174,7 @@ export const EVOLUTION_LIBRARY = Object.freeze({
     Object.freeze(['spirit-realm', 'The Loner can now read the paths behind the veil.']),
     Object.freeze(['shadow-forest', 'The Loner sees a second forest growing beneath the first.']),
     Object.freeze(['moon-shrine', 'Moon-white stones emerge where only the Loner can follow them.']),
-    Object.freeze(['ghost-village', 'A village of echoes appears at the edge of the shared world.']),
+    Object.freeze(['ghost-village', 'A haunted library of echoes appears at the edge of the shared world.']),
   ]),
 });
 
@@ -203,7 +203,7 @@ export const WORLD_EVOLUTIONS = Object.freeze([
   worldEvolution('spirit-portal-opens', 'Loner', 'Spirit Portal', 'spirit-realm', -3, 10),
   worldEvolution('shadow-forest-awakens', 'Loner', 'Shadow Forest', 'shadow-forest', -20, 5),
   worldEvolution('moon-shrine-visible', 'Loner', 'Moon Shrine', 'moon-shrine', -9, 12),
-  worldEvolution('ghost-village-appears', 'Loner', 'Ghost Village', 'ghost-village', -16, 11),
+  worldEvolution('ghost-village-appears', 'Loner', 'Haunted Library', 'ghost-village', -16, 11),
 ]);
 
 // Client input is translated through this single lookup.  When adding a new

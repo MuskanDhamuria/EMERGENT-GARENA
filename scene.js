@@ -98,6 +98,11 @@ addEventListener('keydown', (event) => {
 addEventListener('keyup', (event) => { if (!isTypingTarget(event.target)) keys[inputKey(event)] = false; });
 addEventListener('blur', () => { for (const key of Object.keys(keys)) keys[key] = false; });
 canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
+canvas.addEventListener('pointermove', (event) => {
+  if (state.mine?.realm !== 'ghost-village') return;
+  const bounds = canvas.getBoundingClientRect();
+  aimAt((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height, canvas.width, canvas.height, false);
+});
 canvas.addEventListener('click', (event) => {
   if (!state.joined && !document.getElementById('lantern-gate')) { showLanternGate(); return; }
   if (state.collectorGame) {

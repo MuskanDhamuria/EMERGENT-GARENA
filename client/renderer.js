@@ -54,7 +54,7 @@ export function createRenderer(canvas, session) {
   loadDecor('moonSky', '/game-art/moon-shrine/sky.png');
   loadDecor('moonShrine', '/game-art/moon-shrine/shrine.png');
   loadDecor('moonBackground', '/game-art/moon-shrine/background.png');
-  loadDecor('shadowBackground', '/game-art/shadow-forest/background.png');
+  loadDecor('shadowBackground', '/game-art/shadow-forest/forest-background.avif');
   loadDecor('shadowTerrain', '/game-art/shadow-forest/terrain.png');
   loadDecor('shadowExit', '/game-art/shadow-forest/exit.png');
   loadDecor('shadowSpikes', '/game-art/shadow-forest/traps/spikes.png');
@@ -961,15 +961,16 @@ export function createRenderer(canvas, session) {
       ctx.fillStyle='#0d1428';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.moonBackground)ctx.drawImage(art.moonBackground,0,0,canvas.width,canvas.height);const mission=mine.moonShrine||{},path=[[2,10],[7,10],[7,7],[13,7],[13,10],[19,10],[19,6],[24,6],[28,5]],ready=Number(mission.pathStep||0)>=path.length-1;
       ctx.strokeStyle=mission.lineFailed?'#b73f58':'rgba(222,248,255,.9)';ctx.lineWidth=7;ctx.lineCap='round';ctx.lineJoin='round';ctx.shadowColor=mission.lineFailed?'#7d1f38':'#a8e8ff';ctx.shadowBlur=12;ctx.beginPath();path.forEach(([x,y],index)=>index?ctx.lineTo(px(x)+10,py(y)+10):ctx.moveTo(px(x)+10,py(y)+10));ctx.stroke();ctx.shadowBlur=0;
       path.forEach(([x,y],index)=>{ctx.fillStyle=index<=Number(mission.pathStep||0)?'#effcff':'#53637b';ctx.beginPath();ctx.arc(px(x)+10,py(y)+10,6,0,Math.PI*2);ctx.fill();});if(ready){const X=px(28)+10,Y=py(5)+10,pulse=30+Math.sin(state.frame)*6,glow=ctx.createRadialGradient(X,Y,4,X,Y,pulse);glow.addColorStop(0,'rgba(235,252,255,.95)');glow.addColorStop(1,'rgba(140,215,255,0)');ctx.fillStyle=glow;ctx.beginPath();ctx.arc(X,Y,pulse,0,Math.PI*2);ctx.fill();ctx.shadowColor='#dff8ff';ctx.shadowBlur=22;}if(art.moonShrine)ctx.drawImage(art.moonShrine,0,0,112,224,px(27),py(1),40,80);ctx.shadowBlur=0;
-      character(mine, px(mine.x) - 6, py(mine.y) - 10, 32);
+      character(mine, px(mine.x) - 6, py(mine.y) + 2, 32);
       drawRealmHeader('THE MOON SHRINE', 'STAY ON THE SILVER LINE · PRESS E AT THE SHRINE');
     } else {
       ctx.fillStyle='#100c1d';ctx.fillRect(0,0,canvas.width,canvas.height);if(art.ghostBackground)ctx.drawImage(art.ghostBackground,0,50,canvas.width,540);
       const village = mine.ghostVillage || {};
-      for (const ghost of village.ghosts || []) if (ghost.active) { const X=px(ghost.x),Y=py(ghost.z),bob=Math.sin(state.frame+ghost.x)*4;ctx.fillStyle='rgba(175,225,255,.18)';ctx.beginPath();ctx.arc(X+10,Y+10+bob,18,0,Math.PI*2);ctx.fill();if(art.ghost)ctx.drawImage(art.ghost,X-2,Y-2+bob,24,24); }
+      for (const ghost of village.ghosts || []) if (ghost.active) { const X=px(ghost.x),Y=py(ghost.z)+10,bob=Math.sin(state.frame+ghost.x)*2;ctx.fillStyle='rgba(175,225,255,.18)';ctx.beginPath();ctx.arc(X+10,Y+10+bob,18,0,Math.PI*2);ctx.fill();if(art.ghost)ctx.drawImage(art.ghost,X-2,Y-2+bob,24,24); }
       for (const shot of village.projectiles || []) { const X=px(shot.x),Y=py(shot.z);ctx.fillStyle='rgba(190,240,255,.35)';ctx.beginPath();ctx.arc(X+8,Y+8,12,0,Math.PI*2);ctx.fill();if(art.ghostShard)ctx.drawImage(art.ghostShard,X,Y,16,16); }
-      character(mine, px(mine.x) - 6, py(mine.y) - 10, 32);
-      drawRealmHeader('THE GHOST VILLAGE', `CLICK TOWARD GHOSTS · ${village.caught || 0}/6 ECHOES REMEMBERED`);
+      if(state.aimScreen){const dx=state.aimScreen.worldX-mine.x,dz=state.aimScreen.worldZ-(mine.y-.4),length=Math.max(.2,Math.hypot(dx,dz)),vx=dx/length*10,vz=dz/length*10;ctx.fillStyle='rgba(225,250,255,.78)';for(let t=.12;t<2.1;t+=.16){const x=mine.x+vx*t,z=mine.y-.4+vz*t+3.5*t*t;if(z>13||x<0||x>28)break;ctx.beginPath();ctx.arc(px(x)+8,py(z)+8,3,0,Math.PI*2);ctx.fill();}}
+      character(mine, px(mine.x) - 6, py(mine.y) + 2, 32);
+      drawRealmHeader('THE HAUNTED LIBRARY', `CLICK TOWARD GHOSTS · ${village.caught || 0}/6 ECHOES REMEMBERED`);
     }
     return true;
   }

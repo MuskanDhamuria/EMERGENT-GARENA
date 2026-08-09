@@ -16,6 +16,7 @@ const PORT = Number(process.env.PORT || 8787);
 const configuredDuration = (name, fallback, minimum) => Number.isFinite(Number(process.env[name])) ? Math.max(minimum, Number(process.env[name])) : fallback;
 const observationMs = configuredDuration('GAME_TEST_OBSERVATION_MS', OBSERVATION_MS, 100);
 const gmAssignmentGraceMs = configuredDuration('GAME_TEST_GM_ASSIGNMENT_GRACE_MS', 0, 0);
+const unlockAllLonerPortals = process.argv.includes('--all-loner-portals');
 const emergentOptions = Object.fromEntries([
   ['GAME_TEST_EMERGENT_ANALYSIS_MS', 'analysisIntervalMs'],
   ['GAME_TEST_EMERGENT_BOND_SECONDS', 'bondSeconds'],
@@ -51,7 +52,7 @@ const server = createServer(async (request, response) => {
 });
 const io = new Server(server, { cors: { origin: true } });
 const world = createGameWorld({
-  collisionTiles: loadCollisionTiles(), observationMs, gmAssignmentGraceMs, emergentOptions,
+  collisionTiles: loadCollisionTiles(), observationMs, gmAssignmentGraceMs, emergentOptions, unlockAllLonerPortals,
   emitEvent: (room, item) => item.privateTo ? io.to(item.privateTo).emit('gm-private', item) : io.to(room.code).emit('gm-event', item),
   emitState: (playerId, state) => io.to(playerId).emit('world-state', state),
 });

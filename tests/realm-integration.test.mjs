@@ -14,6 +14,10 @@ for (const feature of ['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-vi
 }
 assert.equal(applyRealmPreview({network:{}}, 'not-a-realm'), false);
 
+const portalTestWorld = createGameWorld({ unlockAllLonerPortals: true });
+const portalTestRoom = portalTestWorld.createRoom('PORTALS');
+for (const feature of ['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-village']) assert.equal(portalTestRoom.world.unlocked.has(feature), true);
+
 let stamp = 10_000;
 const world = createGameWorld({ clock: () => stamp });
 const room = world.createRoom('REALM');

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "api": "node server.mjs",
+    "api:all-portals": "node server.mjs --all-loner-portals",
     "mcp": "node mcp-game-master.mjs",
     "agent:gemini": "node gemini-mcp-agent.mjs",
     "build": "vite build",

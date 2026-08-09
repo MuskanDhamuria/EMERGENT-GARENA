@@ -12,6 +12,8 @@ export default defineConfig({
     closeBundle() {
       mkdirSync('dist/game-art', { recursive: true });
       cpSync('public/game-art', 'dist/game-art', { recursive: true });
+      mkdirSync('dist/audio', { recursive: true });
+      cpSync('public/audio', 'dist/audio', { recursive: true });
     },
   }],
   build: { copyPublicDir: false },

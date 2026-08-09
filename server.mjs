@@ -22,7 +22,7 @@ const emergentOptions = Object.fromEntries([
   ['GAME_TEST_EMERGENT_BOND_SECONDS', 'bondSeconds'],
   ['GAME_TEST_EMERGENT_GUARDIAN_SECONDS', 'guardianSeconds'],
 ].map(([environmentKey, optionKey]) => [optionKey, Number(process.env[environmentKey])]).filter(([, value]) => Number.isFinite(value)));
-const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.woff2': 'font/woff2' };
+const contentTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg' };
 
 function loadCollisionTiles() {
   try {

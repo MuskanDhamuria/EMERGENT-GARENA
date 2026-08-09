@@ -62,6 +62,7 @@ export function createRenderer(canvas, session) {
   loadDecor('lanternFloor', '/game-art/finale/lantern-floor-emblem.png');
   loadDecor('lanternEmblem', '/game-art/finale/lantern-floor-emblem.png');
   loadDecor('lanternSwitch', '/game-art/finale/lantern-switch.png');
+  loadDecor('finalePortal', '/game-art/finale/finale-portal.png');
   loadDecor('dungeonTiles', '/game-art/dungeon/Dungeon_Tileset.png');
   loadDecor('dungeonCharacters', '/game-art/dungeon/Dungeon_Character.png');
   loadDecor('dungeonChest', '/game-art/dungeon/chest_1.png');
@@ -135,8 +136,10 @@ export function createRenderer(canvas, session) {
   function drawWorldEntity(entity) {
     const kind = String(entity.kind || entity.type || '').toLowerCase();
     if (entity.id === 'finale-entrance') {
-      drawLonerPortal(entity);
-      const X=px(entity.x)+10,Y=py(entity.y)-26;
+      const baseX=px(entity.x)+10,baseY=py(entity.y)+8,size=70;
+      const aura=ctx.createRadialGradient(baseX,baseY,5,baseX,baseY,43);aura.addColorStop(0,'rgba(255,236,143,.32)');aura.addColorStop(.48,'rgba(105,218,255,.17)');aura.addColorStop(1,'rgba(145,86,231,0)');ctx.fillStyle=aura;ctx.beginPath();ctx.arc(baseX,baseY,43,0,Math.PI*2);ctx.fill();
+      if(art.finalePortal)ctx.drawImage(art.finalePortal,baseX-size/2,baseY-size/2,size,size);else drawLonerPortal(entity);
+      const X=baseX,Y=baseY-size/2-8;
       ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillStyle='#c8f8ff';ctx.fillText('FINALE PORTAL · E',X,Y);
       return;
     }

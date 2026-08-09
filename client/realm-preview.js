@@ -66,3 +66,11 @@ export function applyFinalePreview(state, requestedPreview) {
   if (lantern) state.mine.lanternRite={active:true,...state.world.lanternRite,core:{health:100,maxHealth:100},enemies:[],switches:{participants:{}},repair:{progress:0,goal:10}};
   return true;
 }
+
+export function applyFinalePortalPreview(state, requestedPreview) {
+  if (requestedPreview !== 'finale-portal') return false;
+  const roles=['Explorer','Collector','Guardian','Loner'],players=roles.map((archetype,index)=>{const x=[28,32,28,32][index],y=[15,15,19,19][index];return{id:`portal-${index}`,name:['Ari','Bea','Cy','Dee'][index],archetype,color:['#76d7c4','#f3c969','#83b9f5','#c999ed'][index],sprite:[1,2,3,5][index],facing:'down',moving:false,realm:'overworld',zone:'overworld',x,y,targetX:x,targetY:y,evolutions:[],completedEvolutions:[]};});
+  state.joined=true;state.network.connected=true;state.network.playerId=players[0].id;state.network.roomCode='PREVIEW';state.players=players;state.mine=players[0];state.camera={x:30,y:17};state.notice='';state.noticeTimer=0;
+  state.world={code:'PREVIEW',phase:'finale',players,entities:[{id:'finale-entrance',type:'finale-entrance',x:0,z:0,label:'Finale Portal',feature:'ancient-temple',action:'enter-final-temple'}],terrain:[],relics:[],world:{unlocked:['ancient-temple'],privateUnlocks:[]},finalObjective:{status:'entrance-revealed',variant:{id:'lantern_rite',title:'Lantern Rite'}},events:[]};
+  return true;
+}

@@ -118,9 +118,6 @@ export const ENTITY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'curio-shard-2', type: 'observation-item', x: 17, z: -4, label: 'Golden Relic Shard', sprite: 'relic-shard', action: 'collect-curio' }),
   Object.freeze({ id: 'curio-gem-2', type: 'observation-item', x: -4, z: 11, label: 'Strange Crystal', sprite: 'glowing-gem-cluster', action: 'collect-curio' }),
   Object.freeze({ id: 'curio-coin-3', type: 'observation-item', x: 12, z: 10, label: 'Ancient Token', sprite: 'ancient-coin', action: 'collect-curio' }),
-  Object.freeze({ id: 'river-pearl', type: 'relic', x: 12, z: 7, role: 'Collector', terrain: 'echo-water', label: 'River Pearl' }),
-  Object.freeze({ id: 'drowned-idol', type: 'relic', x: 10, z: 5, role: 'Collector', terrain: 'echo-water', label: 'Drowned Idol' }),
-  Object.freeze({ id: 'vault-amber', type: 'relic', x: 14, z: 8, role: 'Collector', terrain: 'echo-water', label: 'Vault Amber' }),
   Object.freeze({ id: 'hidden-cave-mouth', type: 'cave', x: -21, z: -11, role: 'Explorer', terrain: 'hidden-cave-clearing', feature: 'hidden-cave-appears', label: 'Hidden Cave' }),
   Object.freeze({ id: 'hidden-temple-entrance', type: 'temple-entrance', x: 20, z: -8, role: 'Explorer', terrain: 'temple-staircase-ground', feature: 'temple-staircase-uncovered', label: 'Hidden Temple Entrance' }),
   // The Explorer reveals this location through exploration; once visible, the
@@ -244,7 +241,6 @@ export const FEATURE_FALLBACK_ENTITIES = Object.freeze({
   'temple-staircase-uncovered': entityById('hidden-temple-entrance'),
   'forgotten-ruins-emerge': entityById('hidden-ruins-entrance'),
   'hidden-cave': entityById('hidden-cave-mouth'),
-  'relic-vault': entityById('river-pearl'),
   'healing-shrine': entityById('guardian-shrine'),
   'spirit-realm': entityById('spirit-portal'),
   'ancient-temple': entityById('final-altar'),

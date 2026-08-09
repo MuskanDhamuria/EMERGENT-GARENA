@@ -16,6 +16,7 @@ export function createRenderer(canvas, session) {
   const templeDetailImage = new Image(); templeDetailImage.src = '/game-art/sunken-temple-seamless-32.png'; templeDetailImage.addEventListener('load', () => { art.templeDetail = templeDetailImage; render(); });
   const flameImage = new Image(); flameImage.src = '/game-art/temple-flame.png'; flameImage.addEventListener('load', () => { art.flame = flameImage; render(); });
   const loadDecor = (key, source) => { const asset = new Image(); asset.addEventListener('load', () => { art[key] = asset; render(); }); asset.src = source; };
+  loadDecor('landingBackground', '/game-art/landing/landing-background.png');
   loadDecor('ruinsArch', '/game-art/decor/ruins-arch.png');
   loadDecor('ruinsStone', '/game-art/decor/ruins-stone.png');
   for (const id of [1, 2, 3, 5]) loadDecor(`player${id}`, `/game-art/retro-characters/player-${id}.png`);
@@ -62,6 +63,7 @@ export function createRenderer(canvas, session) {
   loadDecor('lanternFloor', '/game-art/finale/lantern-floor-emblem.png');
   loadDecor('lanternEmblem', '/game-art/finale/lantern-floor-emblem.png');
   loadDecor('lanternSwitch', '/game-art/finale/lantern-switch.png');
+  loadDecor('finalePortal', '/game-art/finale/finale-portal.png');
   loadDecor('dungeonTiles', '/game-art/dungeon/Dungeon_Tileset.png');
   loadDecor('dungeonCharacters', '/game-art/dungeon/Dungeon_Character.png');
   loadDecor('dungeonChest', '/game-art/dungeon/chest_1.png');
@@ -135,8 +137,10 @@ export function createRenderer(canvas, session) {
   function drawWorldEntity(entity) {
     const kind = String(entity.kind || entity.type || '').toLowerCase();
     if (entity.id === 'finale-entrance') {
-      drawLonerPortal(entity);
-      const X=px(entity.x)+10,Y=py(entity.y)-26;
+      const baseX=px(entity.x)+10,baseY=py(entity.y)+8,size=70;
+      const aura=ctx.createRadialGradient(baseX,baseY,5,baseX,baseY,43);aura.addColorStop(0,'rgba(255,236,143,.32)');aura.addColorStop(.48,'rgba(105,218,255,.17)');aura.addColorStop(1,'rgba(145,86,231,0)');ctx.fillStyle=aura;ctx.beginPath();ctx.arc(baseX,baseY,43,0,Math.PI*2);ctx.fill();
+      if(art.finalePortal)ctx.drawImage(art.finalePortal,baseX-size/2,baseY-size/2,size,size);else drawLonerPortal(entity);
+      const X=baseX,Y=baseY-size/2-8;
       ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillStyle='#c8f8ff';ctx.fillText('FINALE PORTAL · E',X,Y);
       return;
     }
@@ -1231,14 +1235,18 @@ function drawCollectorGame(){
   function drawLanternRite(){if(state.mine?.realm!=='lantern-rite')return false;state.camera||={x:16,y:17};if(!state.mine.lanternRite&&state.world?.lanternRite)state.mine.lanternRite={active:true,...state.world.lanternRite};drawLanternArena();activeEntities().filter((entity)=>String(entity.kind||entity.type).startsWith('lantern-')).forEach(drawMuskanLanternEntity);state.players.filter((player)=>player.realm==='lantern-rite').forEach((player)=>{character(player);drawLanternPlayerWorldStatus(player);label(player.name,player.x,player.y,player.color);});drawMuskanAttack();drawLanternHud();return true;}
   function drawEchoAccord(){if(state.mine?.realm!=='echo-accord'||!state.world?.finalObjective?.echoAccord)return false;state.camera||={x:state.mine.x,y:state.mine.y};drawMuskanEchoAccord();return true;}
   function drawStart() {
-    const gradient = ctx.createRadialGradient(480, 320, 40, 480, 320, 620);
-    gradient.addColorStop(0, '#163f2e'); gradient.addColorStop(.5, '#0d2b20'); gradient.addColorStop(1, '#061710');
-    ctx.fillStyle = gradient; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(109,177,117,.05)';
-    for (let x = 0; x < canvas.width; x += 32) for (let y = 0; y < canvas.height; y += 32) if ((x + y) % 96 === 0) ctx.fillRect(x, y, 2, 2);
-    ctx.strokeStyle = 'rgba(94,161,109,.18)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, 102); ctx.bezierCurveTo(125, 80, 142, 150, 270, 122); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(960, 510); ctx.bezierCurveTo(825, 540, 790, 474, 670, 505); ctx.stroke();
+    if (art.landingBackground) {
+      const scale = Math.max(canvas.width / art.landingBackground.width, canvas.height / art.landingBackground.height);
+      const width = art.landingBackground.width * scale, height = art.landingBackground.height * scale;
+      ctx.drawImage(art.landingBackground, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+      const veil = ctx.createRadialGradient(480, 300, 80, 480, 300, 540);
+      veil.addColorStop(0, 'rgba(2,17,17,.24)'); veil.addColorStop(.62, 'rgba(2,17,17,.10)'); veil.addColorStop(1, 'rgba(2,10,9,.32)');
+      ctx.fillStyle = veil; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      const gradient = ctx.createRadialGradient(480, 320, 40, 480, 320, 620);
+      gradient.addColorStop(0, '#163f2e'); gradient.addColorStop(.5, '#0d2b20'); gradient.addColorStop(1, '#061710');
+      ctx.fillStyle = gradient; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.textAlign = 'center'; ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#78b88c'; ctx.fillText('AN EVER-CHANGING CO-OP WORLD', 480, 90);
     ctx.font = 'bold 60px monospace'; ctx.fillStyle = '#020d09'; ctx.fillText('EMERGENT', 483, 177); ctx.fillStyle = '#fff0b6'; ctx.fillText('EMERGENT', 480, 172);
     ctx.fillStyle = '#f2c85e'; ctx.fillRect(426, 192, 108, 2);
@@ -1265,9 +1273,29 @@ function drawCollectorGame(){
     ctx.font = '11px monospace'; ctx.fillStyle = '#fff7d5'; wrap(completion.message || 'Returning to Emergent.', 480, y + 112, 370, 16);
     ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#8bd7aa'; ctx.fillText('RETURNING TO EMERGENT', 480, y + 147);
   }
+  function drawEndingRecap() {
+    const finale=state.world?.finalObjective,recap=finale?.reflection;if(finale?.phase!=='COMPLETE'||!recap)return false;
+    ctx.fillStyle='#05070d';ctx.fillRect(0,0,canvas.width,canvas.height);
+    const elapsed=Math.max(0,(Date.now()-Number(finale.completedAt||Date.now()))/1000),drift=elapsed*19;
+    for(let index=0;index<90;index+=1){const x=(index*137)%canvas.width,y=((index*83-drift*.12)%canvas.height+canvas.height)%canvas.height,bright=index%7===0;ctx.fillStyle=bright?'rgba(211,233,255,.42)':'rgba(137,164,195,.20)';ctx.fillRect(x,y,bright?2:1,bright?2:1);}
+    const blocks=[];
+    blocks.push({text:'THE WORLD YOU CREATED',size:24,color:'#fff2b8',gap:52});
+    blocks.push({text:`FINALE · ${recap.finale?.title||finale.variant?.title||'COMPLETE'}`,size:12,color:'#9ee8ff',gap:44});
+    blocks.push({text:'Four strangers entered one changing world.',size:11,color:'#d9e1ed',gap:24});
+    blocks.push({text:'This is what the world remembers.',size:11,color:'#d9e1ed',gap:54});
+    for(const player of recap.playerRecaps||[]){blocks.push({text:`${player.name.toUpperCase()} · ${String(player.archetype).toUpperCase()}`,size:14,color:{Explorer:'#9de3ff',Collector:'#ffe49b',Guardian:'#9ff0b8',Loner:'#d9b4ff'}[player.archetype]||'#fff',gap:27});blocks.push({text:`Travelled ${player.travelled} steps · Visited ${player.placesVisited} places`,size:10,color:'#c9d3df',gap:18});blocks.push({text:`Completed ${player.missionsCompleted+player.objectivesCompleted} missions · Collected ${player.relicsCollected+player.curiosCollected} discoveries`,size:10,color:'#c9d3df',gap:18});blocks.push({text:`Together ${player.secondsTogether}s · Alone ${player.secondsAlone}s · Rescues ${player.rescues} · Risks ${player.riskEvents}`,size:10,color:'#c9d3df',gap:42});}
+    if(recap.worldEvolutions?.length){blocks.push({text:'THE WORLD CHANGED',size:15,color:'#fff2b8',gap:32});for(const evolution of recap.worldEvolutions)blocks.push({text:`✦ ${evolution.title||evolution.feature}`,size:10,color:'#bce7c4',gap:19});blocks.push({text:'',size:10,color:'#fff',gap:28});}
+    if(recap.highlights?.length){blocks.push({text:'MOMENTS THE WORLD REMEMBERS',size:15,color:'#fff2b8',gap:34});for(const highlight of recap.highlights.slice(-8))blocks.push({text:highlight,size:10,color:'#cbd5e4',gap:28});}
+    if(recap.finale?.winnerName)blocks.push({text:`${recap.finale.winnerName.toUpperCase()} WAS THE LAST LIVING ECHO`,size:15,color:'#f3c6ff',gap:52});
+    blocks.push({text:'You did not follow a story.',size:12,color:'#e8edf5',gap:25});blocks.push({text:'You taught the world what story to become.',size:12,color:'#e8edf5',gap:42});blocks.push({text:'SO I CREATED THIS WORLD.',size:17,color:'#fff2b8',gap:80});blocks.push({text:'Thank you for playing.',size:11,color:'#8fa1b8',gap:30});
+    let y=canvas.height+30-drift;ctx.textAlign='center';
+    for(const block of blocks){ctx.font=`bold ${block.size}px monospace`;ctx.fillStyle=block.color;if(block.text){const words=String(block.text).split(/\s+/);let line='',lines=[];for(const word of words){const next=line?`${line} ${word}`:word;if(ctx.measureText(next).width>690&&line){lines.push(line);line=word;}else line=next;}if(line)lines.push(line);for(const text of lines){if(y>-30&&y<canvas.height+30)ctx.fillText(text,canvas.width/2,y);y+=block.size+7;}}y+=block.gap;}
+    const fade=ctx.createLinearGradient(0,0,0,canvas.height);fade.addColorStop(0,'rgba(5,7,13,1)');fade.addColorStop(.12,'rgba(5,7,13,0)');fade.addColorStop(.86,'rgba(5,7,13,0)');fade.addColorStop(1,'rgba(5,7,13,1)');ctx.fillStyle=fade;ctx.fillRect(0,0,canvas.width,canvas.height);ctx.textAlign='left';return true;
+  }
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state.joined) { drawStart(); return; }
+    if (drawEndingRecap()) return;
     if (drawTempleFinale() || drawGuardianTrial() || drawLanternRite() || drawEchoAccord() || drawLonerRealm()) return;
     const zone = state.mine?.zone || 'overworld';
     if (zone === 'sunken-temple') drawSunkenTemple();

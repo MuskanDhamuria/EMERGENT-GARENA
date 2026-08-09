@@ -336,7 +336,7 @@ export function createSession() {
     socket.emit('interact', { type, targetId: target.id }, (reply) => note(reply?.ok ? (kind === 'heal' ? `Healing light reaches ${target.name}.` : `${target.name} is shielded.`) : (reply?.error || 'That blessing cannot reach an ally yet.'), 3));
     return true;
   }
-  const finalePreviewActive = () => state.network.roomCode === 'PREVIEW' && ['lantern-rite','echo-accord'].includes(state.mine?.realm);
+  const finalePreviewActive = () => state.network.roomCode === 'PREVIEW' && state.world?.finalObjective?.phase !== 'COMPLETE' && ['lantern-rite','echo-accord'].includes(state.mine?.realm);
   function syncLanternPreviewEntities() {
     const rite=state.mine.lanternRite;
     if(rite.phase==='ENTRY') state.world.entities=[{id:'lantern-entry-gate',type:'lantern-entry-gate',zone:'lantern-rite',x:16,z:18.5,readyCount:Object.keys(rite.entry.ready).length,action:'lantern-enter'}];

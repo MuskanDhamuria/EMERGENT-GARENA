@@ -12,7 +12,7 @@ const system = createCollectorSystem({
 
 const collector = {
   id: 'collector', name: 'Mira', archetype: 'Collector', x: 0, z: 0,
-  relicIds: new Set(['river-pearl', 'drowned-idol']), visited: new Set(['village', 'forest', 'lake']),
+  relicIds: new Set(['collected-relic-a', 'collected-relic-b']), visited: new Set(['village', 'forest', 'lake']),
   interactions: { relic: 2 }, movement: 96, nearSeconds: 28, aloneSeconds: 4, riskEvents: 0, follows: 2,
 };
 const helper = { id: 'helper', name: 'Ari', archetype: 'Guardian', x: 0, z: 0, interactions: {} };

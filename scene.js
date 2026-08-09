@@ -1,6 +1,7 @@
 import { createSession } from './client/session.js';
 import { createRenderer } from './client/renderer.js';
-import { applyCollectorPreview, applyFinalePreview, applyRealmPreview } from './client/realm-preview.js';
+import { applyCollectorPreview, applyEndingPreview, applyFinalePortalPreview, applyFinalePreview, applyRealmPreview } from './client/realm-preview.js';
+import { createMusicController } from './client/music.js';
 
 // Thin composition root: browser setup, controls, and the join form only.
 const canvas = document.createElement('canvas');
@@ -43,8 +44,12 @@ const previewRealm = new URLSearchParams(location.search).get('preview');
 applyRealmPreview(session.state, previewRealm);
 applyCollectorPreview(session.state, previewRealm);
 applyFinalePreview(session.state, previewRealm);
+applyFinalePortalPreview(session.state, previewRealm);
+applyEndingPreview(session.state, previewRealm);
 const { state, attack, gameReady, activeEntities, interact, aimAt, joinRoom, update, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, lanternSupport } = session;
 const { render } = createRenderer(canvas, session);
+const music = createMusicController(state);
+window.music_status = () => music.status();
 const keys = {};
 
 function movementInput() {
@@ -122,7 +127,7 @@ function loop(now) {
   const dt = Math.min(.05, (now - last) / 1000); last = now;
   howButton.hidden = state.joined || Boolean(document.getElementById('lantern-gate')) || !howModal.hidden;
   if (state.joined && !gameFocusClaimed) { canvas.focus({ preventScroll: true }); gameFocusClaimed = true; }
-  update(dt, movementInput()); render(); requestAnimationFrame(loop);
+  update(dt, movementInput()); music.sync(); render(); requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
 

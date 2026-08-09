@@ -969,7 +969,7 @@ export function createRenderer(canvas, session) {
       for (const ghost of village.ghosts || []) if (ghost.active) { const X=px(ghost.x),Y=py(ghost.z)+10,bob=Math.sin(state.frame+ghost.x)*2;ctx.fillStyle='rgba(175,225,255,.18)';ctx.beginPath();ctx.arc(X+10,Y+10+bob,18,0,Math.PI*2);ctx.fill();if(art.ghost)ctx.drawImage(art.ghost,X-2,Y-2+bob,24,24); }
       for (const shot of village.projectiles || []) { const X=px(shot.x),Y=py(shot.z);ctx.fillStyle='rgba(190,240,255,.35)';ctx.beginPath();ctx.arc(X+8,Y+8,12,0,Math.PI*2);ctx.fill();if(art.ghostShard)ctx.drawImage(art.ghostShard,X,Y,16,16); }
       if(state.aimScreen){const dx=state.aimScreen.worldX-mine.x,dz=state.aimScreen.worldZ-(mine.y-.4),length=Math.max(.2,Math.hypot(dx,dz)),vx=dx/length*10,vz=dz/length*10;ctx.fillStyle='rgba(225,250,255,.78)';for(let t=.12;t<2.1;t+=.16){const x=mine.x+vx*t,z=mine.y-.4+vz*t+3.5*t*t;if(z>13||x<0||x>28)break;ctx.beginPath();ctx.arc(px(x)+8,py(z)+8,3,0,Math.PI*2);ctx.fill();}}
-      character(mine, px(mine.x) - 6, py(mine.y) + 2, 32);
+      character(mine, px(mine.x) - 6, py(mine.y) + 19, 32);
       drawRealmHeader('THE HAUNTED LIBRARY', `CLICK TOWARD GHOSTS · ${village.caught || 0}/6 ECHOES REMEMBERED`);
     }
     return true;

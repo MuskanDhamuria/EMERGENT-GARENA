@@ -20,7 +20,7 @@ export function applyRealmPreview(state, requestedRealm) {
   if (realm === 'ghost-village') player.ghostVillage = { active:true, caught:2, ghosts:Array.from({length:6},(_,index)=>({id:`ghost-${index+1}`,x:4+index*4,z:4+(index%3)*2,active:index>=2})),projectiles:[{x:10,z:8}] };
   state.joined = true; state.network.connected = false; state.network.playerId = player.id; state.network.roomCode = 'PREVIEW';
   state.players = [player]; state.mine = player;
-  state.camera = { x: player.x, y: player.y };
+  state.camera = { x: player.x, y: realm === 'ghost-village' ? 1 : player.y };
   state.world = { code:'PREVIEW', phase:'evolving', players:[player], entities:realm==='dungeon'?dungeonEntities():[], terrain:[], relics:[], world:{unlocked:[requestedRealm],privateUnlocks:[requestedRealm]}, events:[] };
   state.notice = ''; state.noticeTimer = 0; state.guidance = null; state.privateRule = null;
   return true;

@@ -133,7 +133,7 @@ export function createSession() {
     const previousMine = previous.get(state.network.playerId);
     if (state.mine && previousMine && previousMine.realm !== state.mine.realm) {
       state.camera.x = state.mine.x;
-      state.camera.y = state.mine.y;
+      state.camera.y = state.mine.realm === 'ghost-village' ? 1 : state.mine.y;
     }
     const sourceMine = world.players.find((player) => player.id === state.network.playerId);
     if (state.mine && sourceMine) Object.assign(state.mine, sourceMine, { x: state.mine.x, y: state.mine.y, color: state.mine.color });
@@ -364,7 +364,7 @@ export function createSession() {
       // of centering on the doorway and exposing empty void.
       const interior = ['sunken-temple', 'dark-cave', 'hidden-ruins'].includes(mine.zone);
       const cameraTargetX = interior ? 30 : mine.x;
-      const cameraTargetY = interior ? 17 : mine.y;
+      const cameraTargetY = mine.realm === 'ghost-village' ? 1 : interior ? 17 : mine.y;
       state.camera.x += (cameraTargetX - state.camera.x) * Math.min(1, dt * 5);
       state.camera.y += (cameraTargetY - state.camera.y) * Math.min(1, dt * 5);
     }

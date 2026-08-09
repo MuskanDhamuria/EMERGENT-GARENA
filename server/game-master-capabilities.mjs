@@ -10,6 +10,7 @@ export const GAME_MASTER_CAPABILITIES = Object.freeze([
   Object.freeze({ id: 'evolve-archetype', phase: 'evolving', purpose: 'Reveal the next bounded, authored evolution for one player.' }),
   Object.freeze({ id: 'unlock-feature', phase: 'evolving', purpose: 'Reveal a validated physical world change.' }),
   Object.freeze({ id: 'choose-guardian-trials', phase: 'evolving', purpose: 'Choose two immutable Guardian portal trials.' }),
+  Object.freeze({ id: 'choose-loner-missions', phase: 'evolving', purpose: 'Choose and order two of four authored Loner missions from observed behaviour.' }),
   Object.freeze({ id: 'create-emergent-rule', phase: 'evolving', purpose: 'Apply one validated, reversible behaviour-to-effect rule.' }),
   Object.freeze({ id: 'apply-director-card', phase: 'evolving', purpose: 'Apply one authored Director intervention.' }),
   Object.freeze({ id: 'create-finale', phase: 'evolving', purpose: 'Open the authored cooperative Temple finale when prerequisites are met.' }),

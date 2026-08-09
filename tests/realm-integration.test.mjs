@@ -18,6 +18,20 @@ const portalTestWorld = createGameWorld({ unlockAllLonerPortals: true });
 const portalTestRoom = portalTestWorld.createRoom('PORTALS');
 for (const feature of ['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-village']) assert.equal(portalTestRoom.world.unlocked.has(feature), true);
 
+const selectionWorld = createGameWorld();
+const selectionRoom = selectionWorld.createRoom('SELECT');
+const selectedLoner = selectionWorld.createPlayer('selected-loner', 'Selected Loner', 0);
+selectedLoner.archetype = 'Loner'; selectionRoom.players.set(selectedLoner.id, selectedLoner); selectionRoom.phase = 'evolving';
+assert.equal(selectionWorld.chooseLonerMissions(selectionRoom, selectedLoner.id, ['moon-shrine', 'ghost-village'], 'Careful pathing and ranged experimentation.', 'test').ok, true);
+assert.equal(selectionWorld.evolve(selectionRoom, selectedLoner.id, 'test').feature, 'moon-shrine', 'the AI-selected first mission awakens first');
+assert.equal(selectionWorld.chooseLonerMissions(selectionRoom, selectedLoner.id, ['spirit-realm', 'shadow-forest'], 'too late', 'test').ok, false, 'the plan locks after portal one awakens');
+assert.equal(selectionWorld.evolve(selectionRoom, selectedLoner.id, 'test').feature, 'ghost-village', 'the AI-selected second mission preserves its order');
+const fallbackRoom = selectionWorld.createRoom('FALLBK');
+const fallbackLoner = selectionWorld.createPlayer('fallback-loner', 'Fallback Loner', 0);
+fallbackLoner.archetype = 'Loner'; fallbackRoom.players.set(fallbackLoner.id, fallbackLoner); fallbackRoom.phase = 'evolving';
+assert.equal(selectionWorld.evolve(fallbackRoom, fallbackLoner.id, 'fallback').feature, 'spirit-realm');
+assert.equal(selectionWorld.evolve(fallbackRoom, fallbackLoner.id, 'fallback').feature, 'shadow-forest');
+
 let stamp = 10_000;
 const world = createGameWorld({ clock: () => stamp });
 const room = world.createRoom('REALM');

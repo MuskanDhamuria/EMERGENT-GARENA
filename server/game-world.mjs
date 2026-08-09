@@ -75,6 +75,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   const worldBounds = { minX: -29, maxX: 28, minZ: -16, maxZ: 16, mapWidth: 60, offsetX: 30, offsetZ: 17 };
   const colors = [0x2563eb, 0xdb2777, 0xf59e0b, 0x16a34a];
   const playerSprites = [1, 2, 3, 5];
+  const fallbackLonerPlan = Object.freeze(['spirit-realm', 'shadow-forest']);
   const initialUnlocks = () => new Set(unlockAllLonerPortals ? ['starting-village', 'spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-village'] : ['starting-village']);
   const spawns = [[-6, 0], [-4, 0], [-5, 2], [-3, 2]];
   const now = () => clock();
@@ -151,6 +152,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       if (combat && !combat.tacticId) pending.push({ type: 'adapt-encounter', expeditionId, allowedTactics: ENCOUNTER_TACTIC_IDS });
     }
     if (['evolving', 'finale'].includes(room.phase)) for (const player of players(room)) {
+      if (player.archetype === 'Loner' && !player.lonerPlan) pending.push({ type: 'choose-loner-missions', playerId: player.id, choices: EVOLUTION_LIBRARY.Loner.map(([feature]) => feature), count: 2, priority: 'high' });
       if (player.archetype && availableEvolutionSteps(room, player)?.some(([feature]) => !player.evolutions.includes(feature))) pending.push({ type: 'evolve-player', playerId: player.id, archetype: player.archetype });
     }
     if (room.phase === 'evolving' && !room.finalObjective && players(room).length === MAX_PLAYERS && players(room).every((player) => player.archetype && player.evolutions.length)) pending.push({ type: 'create-finale', priority: 'high' });
@@ -288,7 +290,9 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     ? selectedExplorerSteps(room)
     : player.archetype === 'Collector'
       ? collector.availableSteps(player)
-      : EVOLUTION_LIBRARY[player.archetype];
+      : player.archetype === 'Loner'
+        ? (player.lonerPlan || fallbackLonerPlan).map((feature) => EVOLUTION_LIBRARY.Loner.find(([id]) => id === feature)).filter(Boolean)
+        : EVOLUTION_LIBRARY[player.archetype];
   function canAssign(room) { return room.players.size === MAX_PLAYERS && room.phase === 'observing' && room.observationEndsAt && now() >= room.observationEndsAt; }
   function assignArchetypes(room, assignments, source = 'server', expeditionIds = null) {
     if (!canAssign(room)) return { ok: false, error: 'Roles can be assigned only after all four players finish the observation period.' };
@@ -302,6 +306,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     for (const { playerId, archetype } of assignments) {
       const player = getPlayer(room, playerId);
       player.archetype = archetype;
+      if (archetype === 'Loner') player.lonerPlan = null;
       // The finale reads what happened after the role was revealed, so it
       // responds to continued play rather than re-scoring the opening minute.
       player.evolutionBaseline = { movement: player.movement, near: player.nearSeconds, alone: player.aloneSeconds, relics: player.relicIds.size, risk: player.riskEvents, rescues: player.rescues, follows: player.follows };
@@ -431,6 +436,17 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     room.director = { narration: `The Game Master observed ${player.name}'s guardianship and chose ${labels}.`, source, at: now() };
     event(room, 'guardian-trials-chosen', room.director.narration, { playerId, trialIds });
     return { ok: true, trials: choice.trials };
+  }
+  function chooseLonerMissions(room, playerId, missionIds, reason = '', source = 'MCP Game Master') {
+    const player = getPlayer(room, playerId), allowed = new Set(EVOLUTION_LIBRARY.Loner.map(([feature]) => feature));
+    if (!player || player.archetype !== 'Loner') return { ok: false, error: 'Choose missions only for the current Loner.' };
+    if (!Array.isArray(missionIds) || missionIds.length !== 2 || new Set(missionIds).size !== 2 || missionIds.some((id) => !allowed.has(id))) return { ok: false, error: 'Choose exactly two different authored Loner missions.' };
+    if (player.evolutions.length || player.realm !== 'overworld') return { ok: false, error: 'The Loner mission order locks when the first portal awakens.' };
+    player.lonerPlan = [...missionIds];
+    const explanation = cleanText(reason, 'The selection follows how the Loner explored, separated from the group, and approached risk.', 220);
+    recordAiDecision(room, 'loner-missions', missionIds.join(' + '), explanation, source, { playerId, missions: [...missionIds] });
+    event(room, 'loner-missions-chosen', 'The Game Master shapes two private paths from what the Loner revealed.', { privateTo: player.id, playerId, missionIds: [...missionIds] });
+    return { ok: true, missionIds: [...missionIds] };
   }
   function discoverExplorerEvolution(room, player, x, z) {
     if (player.archetype !== 'Explorer' || zoneOf(player) !== 'overworld' || !['evolving', 'finale'].includes(room.phase)) return null;
@@ -911,9 +927,15 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     world.emergentRules.tick(room, delta);
     maybeRevealFinaleEntrance(room);
     advanceRoom(room);
+    const fallbackLoner = players(room).find((player) => player.archetype === 'Loner');
+    if (['evolving', 'finale'].includes(room.phase) && fallbackLoner && !fallbackLoner.evolutions.length && now() >= room.gmActiveUntil && now() >= (room.archetypesAssignedAt || 0) + gmAssignmentGraceMs) {
+      fallbackLoner.lonerPlan = [...fallbackLonerPlan];
+      recordAiDecision(room, 'loner-missions', fallbackLonerPlan.join(' + '), 'The AI did not provide a mission selection in time, so the authored fallback order was used.', 'behaviour-model fallback', { playerId: fallbackLoner.id, missions: [...fallbackLonerPlan] });
+      evolve(room, fallbackLoner.id, 'behaviour-model fallback');
+    }
   }
 
-  const world = { rooms, observationMs, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, playerTelemetry, roomTelemetry, markGmActive, event, assignArchetypes, selectExpeditions, adaptEncounter, unlock, evolve, chooseGuardianTrials, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact, attackDarkCave, attackEncounter, guardGuardianTrial, completeFinale, tickRoom };
+  const world = { rooms, observationMs, cleanText, clamp, getPlayer, createRoom, createPlayer, resetRoomForRoster, beginObservation, playerTelemetry, roomTelemetry, markGmActive, event, assignArchetypes, selectExpeditions, adaptEncounter, unlock, evolve, chooseGuardianTrials, chooseLonerMissions, createFinalObjective, serializeRoom, broadcastState, recordTelemetry, interact, attackDarkCave, attackEncounter, guardGuardianTrial, completeFinale, tickRoom };
   world.directorRules = createDirectorRules(world);
   world.emergentRules = createEmergentRules(world, emergentOptions);
   collector = createCollectorSystem({ event, now });

@@ -15,7 +15,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { ARCHETYPES, ENCOUNTER_TACTIC_IDS, EXPEDITION_IDS, MAX_PLAYERS } from './shared/game-content.js';
+import { ARCHETYPES, ENCOUNTER_TACTIC_IDS, EVOLUTION_LIBRARY, EXPEDITION_IDS, MAX_PLAYERS } from './shared/game-content.js';
 import { DIRECTOR_CARD_TYPES } from './server/director-rules.mjs';
 import { EMERGENT_EFFECT_IDS, EMERGENT_MARKERS, EMERGENT_TRIGGER_IDS } from './server/emergent-rules.mjs';
 import { GUARDIAN_TRIALS } from './server/portal-system.mjs';
@@ -233,6 +233,24 @@ server.registerTool('choose_guardian_trials', {
     const state = await requireReadyRoom(roomCode);
     if (state.players.find((player) => player.id === playerId)?.archetype !== 'Guardian') return toolError('Choose trials only for the current Guardian.');
     return toolResult(await gameRequest('/api/mcp/guardian-trials', { method: 'POST', body: { roomCode, playerId, trialIds } }));
+  }
+  catch (error) { return toolError(error.message); }
+});
+
+server.registerTool('choose_loner_missions', {
+  title: 'Choose two ordered Loner missions',
+  description: 'After observing the Loner, choose exactly two distinct authored realms in the order they should appear. Base the choice and order on telemetry such as solitude, movement, risk, and exploration. If this tool is not used, the server falls back to Spirit Realm followed by Shadow Forest.',
+  inputSchema: {
+    roomCode: roomCodeSchema,
+    playerId: playerIdSchema,
+    missionIds: z.array(z.enum(EVOLUTION_LIBRARY.Loner.map(([feature]) => feature))).length(2),
+    reason: z.string().trim().min(3).max(220),
+  },
+}, async ({ roomCode, playerId, missionIds, reason }) => {
+  try {
+    const state = await requireReadyRoom(roomCode);
+    if (state.players.find((player) => player.id === playerId)?.archetype !== 'Loner') return toolError('Choose missions only for the current Loner.');
+    return toolResult(await gameRequest('/api/mcp/loner-missions', { method: 'POST', body: { roomCode, playerId, missionIds, reason } }));
   }
   catch (error) { return toolError(error.message); }
 });

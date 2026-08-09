@@ -16,6 +16,7 @@ export function createRenderer(canvas, session) {
   const templeDetailImage = new Image(); templeDetailImage.src = '/game-art/sunken-temple-seamless-32.png'; templeDetailImage.addEventListener('load', () => { art.templeDetail = templeDetailImage; render(); });
   const flameImage = new Image(); flameImage.src = '/game-art/temple-flame.png'; flameImage.addEventListener('load', () => { art.flame = flameImage; render(); });
   const loadDecor = (key, source) => { const asset = new Image(); asset.addEventListener('load', () => { art[key] = asset; render(); }); asset.src = source; };
+  loadDecor('landingBackground', '/game-art/landing/landing-background.png');
   loadDecor('ruinsArch', '/game-art/decor/ruins-arch.png');
   loadDecor('ruinsStone', '/game-art/decor/ruins-stone.png');
   for (const id of [1, 2, 3, 5]) loadDecor(`player${id}`, `/game-art/retro-characters/player-${id}.png`);
@@ -1224,14 +1225,18 @@ function drawCollectorGame(){
   function drawLanternRite(){if(state.mine?.realm!=='lantern-rite')return false;state.camera||={x:16,y:17};if(!state.mine.lanternRite&&state.world?.lanternRite)state.mine.lanternRite={active:true,...state.world.lanternRite};drawLanternArena();activeEntities().filter((entity)=>String(entity.kind||entity.type).startsWith('lantern-')).forEach(drawMuskanLanternEntity);state.players.filter((player)=>player.realm==='lantern-rite').forEach((player)=>{character(player);drawLanternPlayerWorldStatus(player);label(player.name,player.x,player.y,player.color);});drawMuskanAttack();drawLanternHud();return true;}
   function drawEchoAccord(){if(state.mine?.realm!=='echo-accord'||!state.world?.finalObjective?.echoAccord)return false;state.camera||={x:state.mine.x,y:state.mine.y};drawMuskanEchoAccord();return true;}
   function drawStart() {
-    const gradient = ctx.createRadialGradient(480, 320, 40, 480, 320, 620);
-    gradient.addColorStop(0, '#163f2e'); gradient.addColorStop(.5, '#0d2b20'); gradient.addColorStop(1, '#061710');
-    ctx.fillStyle = gradient; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = 'rgba(109,177,117,.05)';
-    for (let x = 0; x < canvas.width; x += 32) for (let y = 0; y < canvas.height; y += 32) if ((x + y) % 96 === 0) ctx.fillRect(x, y, 2, 2);
-    ctx.strokeStyle = 'rgba(94,161,109,.18)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, 102); ctx.bezierCurveTo(125, 80, 142, 150, 270, 122); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(960, 510); ctx.bezierCurveTo(825, 540, 790, 474, 670, 505); ctx.stroke();
+    if (art.landingBackground) {
+      const scale = Math.max(canvas.width / art.landingBackground.width, canvas.height / art.landingBackground.height);
+      const width = art.landingBackground.width * scale, height = art.landingBackground.height * scale;
+      ctx.drawImage(art.landingBackground, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+      const veil = ctx.createRadialGradient(480, 300, 80, 480, 300, 540);
+      veil.addColorStop(0, 'rgba(2,17,17,.24)'); veil.addColorStop(.62, 'rgba(2,17,17,.10)'); veil.addColorStop(1, 'rgba(2,10,9,.32)');
+      ctx.fillStyle = veil; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      const gradient = ctx.createRadialGradient(480, 320, 40, 480, 320, 620);
+      gradient.addColorStop(0, '#163f2e'); gradient.addColorStop(.5, '#0d2b20'); gradient.addColorStop(1, '#061710');
+      ctx.fillStyle = gradient; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
     ctx.textAlign = 'center'; ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#78b88c'; ctx.fillText('AN EVER-CHANGING CO-OP WORLD', 480, 90);
     ctx.font = 'bold 60px monospace'; ctx.fillStyle = '#020d09'; ctx.fillText('EMERGENT', 483, 177); ctx.fillStyle = '#fff0b6'; ctx.fillText('EMERGENT', 480, 172);
     ctx.fillStyle = '#f2c85e'; ctx.fillRect(426, 192, 108, 2);

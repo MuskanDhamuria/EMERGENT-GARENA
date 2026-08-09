@@ -13,6 +13,7 @@ import { createLanternRiteSystem } from './lantern-rite-system.mjs';
 import { createFinaleSystem, chooseFinaleVariant, FINALE_COMPLICATIONS } from './finale-system.mjs';
 
 const ACTIVE_PHASES = new Set(['observing', 'evolving', 'finale']);
+const EXPEDITION_REENTRY_COOLDOWN_MS = 40_000;
 const ROLE_ACTIONS = Object.freeze({ relic: 'relic', 'discover-temple': 'temple-entrance', 'trace-waystone': 'waystone', 'enter-dark-cave': 'cave', 'exit-dark-cave': 'cave-exit', 'enter-sunken-temple': 'temple-entrance', 'exit-sunken-temple': 'temple-exit', 'enter-hidden-ruins': 'ruins-entrance', 'exit-hidden-ruins': 'ruins-exit', 'activate-shrine': 'shrine', 'enter-spirit-realm': 'spirit-portal', 'enter-shadow-forest': 'realm-portal', 'enter-moon-shrine': 'realm-portal', 'enter-ghost-village': 'realm-portal', 'enter-final-temple': 'finale-entrance', 'offer-relics': 'altar', 'open-final-gate': 'final-gate' });
 const EXPLORER_EXPEDITION_ACTIONS = new Set(['enter-dark-cave', 'enter-sunken-temple', 'enter-hidden-ruins']);
 const EXPLORER_EXPEDITION_ENTITIES = new Set(['hidden-cave-mouth', 'cave-exit', 'hidden-temple-entrance', 'temple-exit', 'hidden-ruins-entrance', 'ruins-exit']);
@@ -45,7 +46,6 @@ function freshCaveCombat() {
     enemies: [
       { id: 'claw-fiend', name: 'Claw Fiend', sprite: 'claw-fiend', x: -8, z: -6, health: CAVE_DEMON_MAX_HEALTH, maxHealth: CAVE_DEMON_MAX_HEALTH, lastAttackAt: -Infinity, hitUntil: 0, attackUntil: 0, targetId: null },
       { id: 'bone-wing', name: 'Bone Wing', sprite: 'bone-wing', x: 8, z: -4, health: CAVE_DEMON_MAX_HEALTH, maxHealth: CAVE_DEMON_MAX_HEALTH, lastAttackAt: -Infinity, hitUntil: 0, attackUntil: 0, targetId: null },
-      { id: 'night-blade', name: 'Night Blade', sprite: 'night-blade', x: -1, z: 3, health: CAVE_DEMON_MAX_HEALTH, maxHealth: CAVE_DEMON_MAX_HEALTH, lastAttackAt: -Infinity, hitUntil: 0, attackUntil: 0, targetId: null },
     ],
   };
 }
@@ -520,14 +520,14 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     return muskanFinale?.complete(room) || { ok: false, error: 'The finale system is unavailable.' };
   }
   function ejectFromCave(room, player) {
-    player.health = 0; player.caveLocked = true; player.zone = 'overworld'; player.x = -20; player.z = -8;
+    player.health = 0; player.caveLocked = false; player.caveReentryUntil = now() + EXPEDITION_REENTRY_COOLDOWN_MS; player.zone = 'overworld'; player.x = -20; player.z = -8;
     player.inputX = 0; player.inputZ = 0; player.locationId = locationFor(player.x, player.z);
-    event(room, 'cave-defeat', `${player.name}'s lantern went dark. The Black Hollow will not admit them again this tale.`, { playerId: player.id });
+    event(room, 'cave-defeat', `${player.name}'s lantern went dark. The Black Hollow will answer again in 40 seconds.`, { playerId: player.id, privateTo: player.id });
   }
   function ejectFromRuins(room, player) {
-    player.health = 0; player.ruinsLocked = true; player.zone = 'overworld'; player.x = 6; player.z = -7;
+    player.health = 0; player.ruinsLocked = false; player.ruinsReentryUntil = now() + EXPEDITION_REENTRY_COOLDOWN_MS; player.zone = 'overworld'; player.x = 6; player.z = -7;
     player.inputX = 0; player.inputZ = 0; player.locationId = locationFor(player.x, player.z);
-    event(room, 'ruins-defeat', `${player.name} was cast out by the mummy wardens. The buried arch seals against them.`, { playerId: player.id });
+    event(room, 'ruins-defeat', `${player.name} was cast out by the mummy wardens. The buried arch will answer again in 40 seconds.`, { playerId: player.id, privateTo: player.id });
   }
   function ejectFromTemple(room, player) {
     player.health = 0; player.templeLocked = true; player.zone = 'overworld'; player.x = 20; player.z = -5;
@@ -595,7 +595,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
   }
   function damagePlayer(room, player, amount) {
     const zone = zoneOf(player);
-    if (!['dark-cave', 'hidden-ruins'].includes(zone) || player.health <= 0 || (zone === 'dark-cave' ? player.caveLocked : player.ruinsLocked)) return;
+    if (!['dark-cave', 'hidden-ruins'].includes(zone) || player.health <= 0) return;
     const damage = Math.max(0, amount); player.health = Math.max(0, player.health - damage); player.lastDamage = damage; player.hurtUntil = now() + 550;
     if (player.health <= 0) (zone === 'dark-cave' ? ejectFromCave : ejectFromRuins)(room, player);
   }
@@ -605,8 +605,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (!['evolving', 'finale'].includes(room.phase) || !['dark-cave', 'hidden-ruins'].includes(zone)) return { ok: false, error: 'You can only fight inside a hostile expedition.' };
     if (player.archetype !== 'Explorer') return { ok: false, error: 'Only the Explorer can enter this expedition.' };
     const ruins = zone === 'hidden-ruins', combat = ruins ? room.ruinsCombat : room.caveCombat;
-    const locked = ruins ? player.ruinsLocked : player.caveLocked;
-    if (locked || player.health <= 0) return { ok: false, error: `${ruins ? 'The buried arch' : 'The Black Hollow'} no longer answers your lantern.` };
+    if (player.health <= 0) return { ok: false, error: 'You need a moment before you can fight again.' };
     const lastAttackAt = Math.max(player.lastCombatAttackAt ?? -Infinity, player.lastCaveAttackAt ?? -Infinity);
     if (now() - lastAttackAt < 380) return { ok: false, cooldown: true, error: 'Your weapon is still recovering.' };
     const target = combat.enemies.filter((enemy) => enemy.health > 0).sort((left, right) => Math.hypot(player.x - left.x, player.z - left.z) - Math.hypot(player.x - right.x, player.z - right.z))[0];
@@ -615,13 +614,13 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     if (target.health === 0) event(room, ruins ? 'ruins-enemy-defeated' : 'cave-enemy-defeated', `${player.name} and the party defeated the ${target.name}.`, { playerId: player.id, targetId: target.id });
     if (combat.enemies.every((enemy) => enemy.health <= 0) && !combat.cleared) {
       combat.cleared = true;
-      event(room, ruins ? 'ruins-cleared' : 'cave-cleared', ruins ? 'The two mummy wardens collapse. Four Sunstones glimmer between the broken pillars.' : 'The three demons fall. The Black Hollow is safe enough for the Explorer to search its deepest grottoes.');
+      event(room, ruins ? 'ruins-cleared' : 'cave-cleared', ruins ? 'The two mummy wardens collapse. Four Sunstones glimmer between the broken pillars.' : 'The two demons fall. The Gloom Shards can now be claimed.');
     }
     return { ok: true, targetId: target.id, damage: 22, targetHealth: target.health, defeated: target.health === 0 };
   }
   const attackDarkCave = attackEncounter;
   function tickCaveCombat(room, delta) {
-    const cavePlayers = players(room).filter((player) => player.archetype === 'Explorer' && zoneOf(player) === 'dark-cave' && !player.caveLocked && player.health > 0);
+    const cavePlayers = players(room).filter((player) => player.archetype === 'Explorer' && zoneOf(player) === 'dark-cave' && player.health > 0);
     if (!cavePlayers.length || room.caveCombat.cleared) return;
     const combat = ensureEncounterTactic(room, 'dark-cave'), tactic = ENCOUNTER_TACTICS[combat.tacticId] || ENCOUNTER_TACTICS['hunt-straggler'];
     for (const enemy of room.caveCombat.enemies) {
@@ -638,7 +637,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     }
   }
   function tickRuinsCombat(room, delta) {
-    const ruinsPlayers = players(room).filter((player) => player.archetype === 'Explorer' && zoneOf(player) === 'hidden-ruins' && !player.ruinsLocked && player.health > 0);
+    const ruinsPlayers = players(room).filter((player) => player.archetype === 'Explorer' && zoneOf(player) === 'hidden-ruins' && player.health > 0);
     if (!ruinsPlayers.length || room.ruinsCombat.cleared) return;
     const combat = ensureEncounterTactic(room, 'hidden-ruins'), tactic = ENCOUNTER_TACTICS[combat.tacticId] || ENCOUNTER_TACTICS['hunt-straggler'];
     for (const enemy of room.ruinsCombat.enemies) {
@@ -715,16 +714,22 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       return enterFinalTemple(room, player);
     }
     if (action === 'enter-dark-cave') {
-      if (player.caveLocked) return { ok: false, error: 'Your lantern was extinguished here. The Black Hollow will not admit you again this tale.' };
+      const cooldown = Math.max(0, (player.caveReentryUntil || 0) - now());
+      if (cooldown > 0) return { ok: false, error: `The Black Hollow will answer in ${Math.ceil(cooldown / 1000)} seconds.` };
+      player.caveLocked = false;
       room.world.unlocked.add('dark-cave-open'); player.zone = 'dark-cave'; player.x = 0; player.z = 11; player.inputX = 0; player.inputZ = 0; player.locationId = 'dark-cave'; player.visited.add('dark-cave'); player.health = player.maxHealth; player.caveSafeX = 0; player.caveSafeZ = 11; player.portalCooldownUntil = 0; ensureEncounterTactic(room, 'dark-cave');
     } else if (action === 'exit-dark-cave') {
+      const gloomCount = room.entities.filter((item) => item.id.startsWith('gloom-shard-') && item.collectedBy).length;
+      if (gloomCount < CAVE_SHARD_TOTAL) return { ok: false, error: 'The passage is sealed. Defeat both demons, then have the Explorer claim every Gloom Shard.' };
       returnExplorerToOverworld(player, 'dark-cave');
     } else if (action === 'enter-sunken-temple') {
       room.world.unlocked.add('sunken-temple-open'); player.zone = 'sunken-temple'; player.x = 0; player.z = 12; player.inputX = 0; player.inputZ = 0; player.locationId = 'sunken-temple'; player.visited.add('sunken-temple'); player.health = player.maxHealth;
     } else if (action === 'exit-sunken-temple') {
       returnExplorerToOverworld(player, 'sunken-temple');
     } else if (action === 'enter-hidden-ruins') {
-      if (player.ruinsLocked) return { ok: false, error: 'The mummy wardens cast you out. The buried arch will not admit you again this tale.' };
+      const cooldown = Math.max(0, (player.ruinsReentryUntil || 0) - now());
+      if (cooldown > 0) return { ok: false, error: `The buried arch will answer in ${Math.ceil(cooldown / 1000)} seconds.` };
+      player.ruinsLocked = false;
       room.world.unlocked.add('hidden-ruins-open'); player.zone = 'hidden-ruins'; player.x = 0; player.z = 11; player.inputX = 0; player.inputZ = 0; player.locationId = 'hidden-ruins'; player.visited.add('hidden-ruins'); player.health = player.maxHealth; ensureEncounterTactic(room, 'hidden-ruins');
     } else if (action === 'exit-hidden-ruins') {
       const sunstoneCount = room.entities.filter((item) => item.id.startsWith('sunstone-shard-') && item.collectedBy).length;

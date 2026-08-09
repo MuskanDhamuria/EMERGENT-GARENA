@@ -355,8 +355,8 @@ export function createRenderer(canvas, session) {
       ctx.fillStyle = 'rgba(58,112,125,.32)'; ctx.fillRect(0, y, canvas.width, 8);
       ctx.fillStyle = 'rgba(112,191,199,.2)'; ctx.fillRect(24 + (y % 48), y + 2, canvas.width - 72, 2);
     }
-    ctx.textAlign = 'center'; ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#a9d7da';
-    ctx.fillText('SUNKEN TEMPLE', canvas.width / 2, 27);
+    // The shared HUD already names the location. Keeping the map itself clear
+    // prevents a duplicate title from colliding with the shard tracker.
 
     // The original Sunken Temple footprint: a wide ritual hall, a broad altar
     // chamber above it, and a narrow return corridor below it.
@@ -415,8 +415,8 @@ export function createRenderer(canvas, session) {
       ctx.strokeStyle = 'rgba(83,54,105,.08)'; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.bezierCurveTo(180, y - 14, 310, y + 16, 480, y - 2); ctx.bezierCurveTo(640, y - 18, 800, y + 12, canvas.width, y - 4); ctx.stroke();
     }
-    ctx.textAlign = 'center'; ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#b7d5d3';
-    ctx.fillText('THE BLACK HOLLOW', canvas.width / 2, 27);
+    // The shared HUD already names the location. Keeping the map itself clear
+    // prevents a duplicate title from colliding with the shard tracker.
 
     // The visible rock rim and server collision share this exact irregular shape.
     darkCavePath(); ctx.strokeStyle = '#020307'; ctx.lineJoin = 'round'; ctx.lineWidth = 42; ctx.stroke();
@@ -500,8 +500,8 @@ export function createRenderer(canvas, session) {
     const sky = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 70, canvas.width / 2, canvas.height / 2, 560);
     sky.addColorStop(0, '#3b2418'); sky.addColorStop(.58, '#1c1412'); sky.addColorStop(1, '#090a0d');
     ctx.fillStyle = sky; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.textAlign = 'center'; ctx.font = 'bold 15px monospace'; ctx.fillStyle = '#f4d489';
-    ctx.fillText('THE HIDDEN RUINS', canvas.width / 2, 27);
+    // The shared HUD already names the location. Keeping the map itself clear
+    // prevents a duplicate title from colliding with the shard tracker.
 
     hiddenRuinsPath(); ctx.strokeStyle = '#17100d'; ctx.lineJoin = 'round'; ctx.lineWidth = 38; ctx.stroke();
     hiddenRuinsPath(); ctx.strokeStyle = '#6d4021'; ctx.lineWidth = 20; ctx.stroke();
@@ -571,17 +571,12 @@ export function createRenderer(canvas, session) {
   }
   function drawMinimalHud({ suppressNotice = false } = {}) {
     const mine = state.mine;
-    const showCombatCue = mine?.zone === 'dark-cave';
-    panel(14, 14, 282, showCombatCue ? 58 : 52); ctx.textAlign = 'left';
+    panel(14, 14, 282, 52); ctx.textAlign = 'left';
     ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('EMERGENT', 27, 35);
     ctx.font = '10px monospace'; ctx.fillStyle = '#d2f0cf';
     const remaining = Number(state.world?.observationSecondsRemaining);
     const status = !state.network.connected ? 'CONNECTING…' : !gameReady() ? `${state.players.length}/4 LANTERNS` : mine?.zone === 'sunken-temple' ? 'SUNKEN TEMPLE' : mine?.zone === 'dark-cave' ? 'THE BLACK HOLLOW' : mine?.zone === 'hidden-ruins' ? 'THE HIDDEN RUINS' : state.world?.phase === 'observing' ? remaining > 0 ? `THE WORLD IS WATCHING · ${remaining}s` : 'THE CALLINGS AWAKEN' : mine?.archetype ? `${mine.archetype.toUpperCase()}` : 'YOUR STORY IS FORMING';
     ctx.fillText(status, 27, 54);
-    if (showCombatCue) {
-      const roleCue = mine?.archetype ? `${mine.archetype.toUpperCase()} · ` : '';
-      ctx.font = 'bold 8px monospace'; ctx.fillStyle = '#f7d25c'; ctx.fillText(`${roleCue}SPACE · STRIKE`, 27, 66);
-    }
     const caveProgress = mine?.zone === 'dark-cave' ? state.world?.caveShardProgress : null;
     const ruinsProgress = mine?.zone === 'hidden-ruins' ? state.world?.ruinsShardProgress : null;
     const templeProgress = mine?.zone === 'sunken-temple' ? state.world?.shardProgress : null;

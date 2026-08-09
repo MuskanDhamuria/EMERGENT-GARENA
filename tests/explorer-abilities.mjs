@@ -104,8 +104,11 @@ assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: 0, z: 11 }, 't
 discoveryWorld.recordTelemetry(discoveryRoom, routeExplorer, { x: -14, z: -2 }, true);
 assert.deepEqual({ x: routeExplorer.x, z: routeExplorer.z }, { x: -14, z: -2 }, 'the western shard grotto should be walkable');
 routeExplorer.x = 0; routeExplorer.z = 12;
-assert.equal(discoveryWorld.interact(discoveryRoom, routeExplorer, 'exit-dark-cave', 'dark-cave-exit').ok, true, 'the southern passage should return the Explorer to Everdawn');
-assert.equal(routeExplorer.zone, 'overworld');
+const sealedCaveExit = discoveryWorld.interact(discoveryRoom, routeExplorer, 'exit-dark-cave', 'dark-cave-exit');
+assert.equal(sealedCaveExit.ok, false, 'the cave return passage should stay sealed until its shards are secured');
+assert.match(sealedCaveExit.error, /passage is sealed/i);
+routeExplorer.zone = 'overworld';
+routeExplorer.locationId = 'overworld';
 
 routeExplorer.x = 20; routeExplorer.z = -3;
 const enterTemple = discoveryWorld.interact(discoveryRoom, routeExplorer, 'enter-sunken-temple', 'hidden-temple-entrance');
@@ -232,6 +235,13 @@ assert.deepEqual(ruinsWorld.serializeRoom(ruinsRoom, ruinsExplorer.id).ruinsShar
 assert.equal(ruinsWorld.serializeRoom(ruinsRoom, ruinsCollector.id).ruinsShardProgress, undefined, 'other roles must not receive the Explorer Sunstone counter');
 assert.equal(finalSunstone.missionComplete?.expedition, 'hidden-ruins', 'the final Sunstone should trigger a completion return');
 assert.equal(ruinsExplorer.zone, 'overworld', 'collecting the final Sunstone should return the Explorer to the overworld');
+ruinsExplorer.ruinsReentryUntil = ruinsClock + 40_000;
+ruinsExplorer.x = 12; ruinsExplorer.z = -9;
+const ruinsCoolingDown = ruinsWorld.interact(ruinsRoom, ruinsExplorer, 'enter-hidden-ruins', 'hidden-ruins-entrance');
+assert.equal(ruinsCoolingDown.ok, false, 'a defeated ruins player should wait briefly before returning');
+assert.match(ruinsCoolingDown.error, /answer in/i);
+ruinsClock = ruinsExplorer.ruinsReentryUntil + 1;
+assert.equal(ruinsWorld.interact(ruinsRoom, ruinsExplorer, 'enter-hidden-ruins', 'hidden-ruins-entrance').ok, true, 'the ruins should admit the Explorer after the cooldown');
 
 const lakeWorld = createGameWorld({ collisionTiles: [] });
 const lakeRoom = lakeWorld.createRoom('LAKE'); lakeWorld.rooms.set(lakeRoom.code, lakeRoom); lakeRoom.phase = 'evolving';
@@ -264,7 +274,7 @@ const fighterTwo = combatWorld.createPlayer('fighter-two', 'Fighter Two', 1); fi
 assert.equal(combatWorld.interact(combatRoom, fighterOne, 'enter-dark-cave', 'hidden-cave-mouth').ok, true);
 assert.match(combatWorld.interact(combatRoom, fighterTwo, 'enter-dark-cave', 'hidden-cave-mouth').error, /Only the Explorer/i, 'the cave must remain a solo Explorer expedition');
 const combatState = combatWorld.serializeRoom(combatRoom, fighterOne.id);
-assert.equal(combatState.caveCombat.enemies.length, 3, 'three demons should guard the Black Hollow');
+assert.equal(combatState.caveCombat.enemies.length, 2, 'two demons should guard the Black Hollow');
 assert.ok(combatState.caveCombat.enemies.every((enemy) => enemy.maxHealth === CAVE_DEMON_MAX_HEALTH && enemy.maxHealth === CAVE_PLAYER_MAX_HEALTH * .75), 'each demon should have 75% of a player health bar');
 assert.equal(fighterOne.health, CAVE_PLAYER_MAX_HEALTH);
 
@@ -296,10 +306,14 @@ assert.equal(demonStrikeState.caveCombat.enemies.find((enemy) => enemy.id === ex
 for (let strike = 1; strike < 20; strike += 1) { combatClock += 1_300; combatWorld.tickRoom(combatRoom, 0); }
 assert.equal(fighterOne.health, 0, 'the Explorer can be reduced to zero health in the cave');
 assert.equal(fighterOne.zone, 'overworld', 'zero health should eject the Explorer from the cave');
-assert.equal(fighterOne.caveLocked, true, 'a defeated Explorer should be locked out for the remainder of the match');
+assert.equal(fighterOne.caveLocked, false, 'a defeated Explorer should not be permanently locked out');
+assert.ok(fighterOne.caveReentryUntil > combatClock, 'a defeated Explorer should receive a short re-entry cooldown');
 fighterOne.x = -21; fighterOne.z = -11;
-const lockedReturn = combatWorld.interact(combatRoom, fighterOne, 'enter-dark-cave', 'hidden-cave-mouth');
-assert.equal(lockedReturn.ok, false);
-assert.match(lockedReturn.error, /will not admit/i, 'the defeated player must receive a clear re-entry denial');
+const coolingDown = combatWorld.interact(combatRoom, fighterOne, 'enter-dark-cave', 'hidden-cave-mouth');
+assert.equal(coolingDown.ok, false);
+assert.match(coolingDown.error, /answer in/i, 'the defeated player should receive a clear cooldown notice');
+combatClock = fighterOne.caveReentryUntil + 1;
+const caveReturn = combatWorld.interact(combatRoom, fighterOne, 'enter-dark-cave', 'hidden-cave-mouth');
+assert.equal(caveReturn.ok, true, 'the Explorer should return to the cave after the cooldown');
 
 console.log('Two-of-three expedition drafting, Explorer discoveries, Hidden Ruins mummy combat, Black Hollow, Sunken Temple, and role-gated shards passed.');

@@ -1247,9 +1247,29 @@ function drawCollectorGame(){
     ctx.font = '10px monospace'; ctx.fillStyle = '#71907a'; ctx.fillText('CLICK ANYWHERE TO BEGIN', 480, 454);
   }
   function drawLobby() { ctx.fillStyle = 'rgba(20,42,57,.74)'; ctx.fillRect(0, 0, canvas.width, canvas.height); panel(212, 214, 536, 188); ctx.textAlign = 'center'; ctx.font = 'bold 22px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText('GATHERING THE EXPEDITION', 480, 255); ctx.font = 'bold 44px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${state.players.length} / 4`, 480, 315); ctx.font = '12px monospace'; ctx.fillStyle = '#d2f0cf'; ctx.fillText('The game begins exactly when four lanterns are present.', 480, 347); }
+  function drawEndingRecap() {
+    const finale=state.world?.finalObjective,recap=finale?.reflection;if(finale?.phase!=='COMPLETE'||!recap)return false;
+    ctx.fillStyle='#05070d';ctx.fillRect(0,0,canvas.width,canvas.height);
+    const elapsed=Math.max(0,(Date.now()-Number(finale.completedAt||Date.now()))/1000),drift=elapsed*19;
+    for(let index=0;index<90;index+=1){const x=(index*137)%canvas.width,y=((index*83-drift*.12)%canvas.height+canvas.height)%canvas.height,bright=index%7===0;ctx.fillStyle=bright?'rgba(211,233,255,.42)':'rgba(137,164,195,.20)';ctx.fillRect(x,y,bright?2:1,bright?2:1);}
+    const blocks=[];
+    blocks.push({text:'THE WORLD YOU CREATED',size:24,color:'#fff2b8',gap:52});
+    blocks.push({text:`FINALE · ${recap.finale?.title||finale.variant?.title||'COMPLETE'}`,size:12,color:'#9ee8ff',gap:44});
+    blocks.push({text:'Four strangers entered one changing world.',size:11,color:'#d9e1ed',gap:24});
+    blocks.push({text:'This is what the world remembers.',size:11,color:'#d9e1ed',gap:54});
+    for(const player of recap.playerRecaps||[]){blocks.push({text:`${player.name.toUpperCase()} · ${String(player.archetype).toUpperCase()}`,size:14,color:{Explorer:'#9de3ff',Collector:'#ffe49b',Guardian:'#9ff0b8',Loner:'#d9b4ff'}[player.archetype]||'#fff',gap:27});blocks.push({text:`Travelled ${player.travelled} steps · Visited ${player.placesVisited} places`,size:10,color:'#c9d3df',gap:18});blocks.push({text:`Completed ${player.missionsCompleted+player.objectivesCompleted} missions · Collected ${player.relicsCollected+player.curiosCollected} discoveries`,size:10,color:'#c9d3df',gap:18});blocks.push({text:`Together ${player.secondsTogether}s · Alone ${player.secondsAlone}s · Rescues ${player.rescues} · Risks ${player.riskEvents}`,size:10,color:'#c9d3df',gap:42});}
+    if(recap.worldEvolutions?.length){blocks.push({text:'THE WORLD CHANGED',size:15,color:'#fff2b8',gap:32});for(const evolution of recap.worldEvolutions)blocks.push({text:`✦ ${evolution.title||evolution.feature}`,size:10,color:'#bce7c4',gap:19});blocks.push({text:'',size:10,color:'#fff',gap:28});}
+    if(recap.highlights?.length){blocks.push({text:'MOMENTS THE WORLD REMEMBERS',size:15,color:'#fff2b8',gap:34});for(const highlight of recap.highlights.slice(-8))blocks.push({text:highlight,size:10,color:'#cbd5e4',gap:28});}
+    if(recap.finale?.winnerName)blocks.push({text:`${recap.finale.winnerName.toUpperCase()} WAS THE LAST LIVING ECHO`,size:15,color:'#f3c6ff',gap:52});
+    blocks.push({text:'You did not follow a story.',size:12,color:'#e8edf5',gap:25});blocks.push({text:'You taught the world what story to become.',size:12,color:'#e8edf5',gap:42});blocks.push({text:'SO I CREATED THIS WORLD.',size:17,color:'#fff2b8',gap:80});blocks.push({text:'Thank you for playing.',size:11,color:'#8fa1b8',gap:30});
+    let y=canvas.height+30-drift;ctx.textAlign='center';
+    for(const block of blocks){ctx.font=`bold ${block.size}px monospace`;ctx.fillStyle=block.color;if(block.text){const words=String(block.text).split(/\s+/);let line='',lines=[];for(const word of words){const next=line?`${line} ${word}`:word;if(ctx.measureText(next).width>690&&line){lines.push(line);line=word;}else line=next;}if(line)lines.push(line);for(const text of lines){if(y>-30&&y<canvas.height+30)ctx.fillText(text,canvas.width/2,y);y+=block.size+7;}}y+=block.gap;}
+    const fade=ctx.createLinearGradient(0,0,0,canvas.height);fade.addColorStop(0,'rgba(5,7,13,1)');fade.addColorStop(.12,'rgba(5,7,13,0)');fade.addColorStop(.86,'rgba(5,7,13,0)');fade.addColorStop(1,'rgba(5,7,13,1)');ctx.fillStyle=fade;ctx.fillRect(0,0,canvas.width,canvas.height);ctx.textAlign='left';return true;
+  }
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!state.joined) { drawStart(); return; }
+    if (drawEndingRecap()) return;
     if (drawTempleFinale() || drawGuardianTrial() || drawLanternRite() || drawEchoAccord() || drawLonerRealm()) return;
     const zone = state.mine?.zone || 'overworld';
     if (zone === 'sunken-temple') drawSunkenTemple();

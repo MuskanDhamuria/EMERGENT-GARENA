@@ -1,6 +1,6 @@
 import { createSession } from './client/session.js';
 import { createRenderer } from './client/renderer.js';
-import { applyCollectorPreview, applyFinalePortalPreview, applyFinalePreview, applyRealmPreview } from './client/realm-preview.js';
+import { applyCollectorPreview, applyEndingPreview, applyFinalePortalPreview, applyFinalePreview, applyRealmPreview } from './client/realm-preview.js';
 import { createMusicController } from './client/music.js';
 
 // Thin composition root: browser setup, controls, and the join form only.
@@ -45,6 +45,7 @@ applyRealmPreview(session.state, previewRealm);
 applyCollectorPreview(session.state, previewRealm);
 applyFinalePreview(session.state, previewRealm);
 applyFinalePortalPreview(session.state, previewRealm);
+applyEndingPreview(session.state, previewRealm);
 const { state, attack, gameReady, activeEntities, interact, aimAt, joinRoom, update, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, lanternSupport } = session;
 const { render } = createRenderer(canvas, session);
 const music = createMusicController(state);

@@ -44,7 +44,7 @@ export function createFinaleSystem(world, options={}) {
   const minimumMatchMs = Number(options.minimumMatchMs ?? 180_000);
   const preparationMs = Number(options.preparationMs ?? 8_000);
   const ritualWindowMs = Number(options.ritualWindowMs ?? 10_000);
-  const resetAfterMs = Number(options.resetAfterMs ?? 30_000);
+  const resetAfterMs = Number(options.resetAfterMs ?? 120_000);
 
   function eligibility(room){
     if(room.finalObjective) return {ok:false,error:'A finale is already active.'};
@@ -109,7 +109,9 @@ export function createFinaleSystem(world, options={}) {
   function reflection(room){
     const lines=players(room).map((player)=>{const base=player.evolutionBaseline||{};const travelled=Math.max(0,Math.round(player.movement-(base.movement||0)));const alone=Math.max(0,Math.round(player.aloneSeconds-(base.alone||0)));const near=Math.max(0,Math.round(player.nearSeconds-(base.near||0)));const relics=Math.max(0,player.relicIds.size-(base.relics||0));const evidence=player.archetype==='Explorer'?`travelled ${travelled} steps beyond familiar roads`:player.archetype==='Collector'?`gathered ${player.observationItems?.size||0} overlooked curios and completed ${player.collectorProgress?.title||'a relic challenge'}`:player.archetype==='Guardian'?`remained near the group for ${near} seconds`:`walked alone for ${alone} seconds`;return `${player.name}, the ${player.archetype}, ${evidence}.`;});
     const winner=players(room).find((player)=>player.id===room.finalObjective.echoAccord?.winnerId); if(winner) lines.push(`${winner.name} remained when every other living echo had shattered.`);
-    return {lines:[...lines,'So I created this world.'],assignedRoles:players(room).map((p)=>({playerId:p.id,name:p.name,archetype:p.archetype})),behaviourEvidence:players(room).map((p)=>world.playerTelemetry(room,p).postAssignment),worldEvolutions:room.worldEvolutions.map((item)=>({...item})),finaleComposition:{destination:room.finalObjective.destination,roleSteps:room.finalObjective.roleSteps,complication:room.finalObjective.complication},transformedMapOverview:{transformedLandmark:room.finalObjective.destination.title,evolvedLandmarks:room.worldEvolutions.map((item)=>item.title),complicationStopped:true}};
+    const playerRecaps=players(room).map((player)=>{const base=player.evolutionBaseline||{};return {playerId:player.id,name:player.name,archetype:player.archetype,travelled:Math.max(0,Math.round(player.movement-(base.movement||0))),placesVisited:player.visited?.size||0,relicsCollected:player.relicIds?.size||0,curiosCollected:player.observationItems?.size||0,objectivesCompleted:player.roleObjectives?.size||0,missionsCompleted:player.completedEvolutions?.size||0,secondsTogether:Math.max(0,Math.round(player.nearSeconds-(base.near||0))),secondsAlone:Math.max(0,Math.round(player.aloneSeconds-(base.alone||0))),rescues:player.rescues||0,riskEvents:player.riskEvents||0};});
+    const highlights=room.events.filter((item)=>!item.privateTo&&!['gm-guidance','player-guidance'].includes(item.type)).slice(-12).map((item)=>item.message).filter((message,index,list)=>message&&list.indexOf(message)===index);
+    return {lines:[...lines,'So I created this world.'],assignedRoles:players(room).map((p)=>({playerId:p.id,name:p.name,archetype:p.archetype})),playerRecaps,highlights,finale:{title:room.finalObjective.variant?.title||'The Finale',winnerId:winner?.id||null,winnerName:winner?.name||null},behaviourEvidence:players(room).map((p)=>world.playerTelemetry(room,p).postAssignment),worldEvolutions:room.worldEvolutions.map((item)=>({...item})),finaleComposition:{destination:room.finalObjective.destination,roleSteps:room.finalObjective.roleSteps,complication:room.finalObjective.complication},transformedMapOverview:{transformedLandmark:room.finalObjective.destination.title,evolvedLandmarks:room.worldEvolutions.map((item)=>item.title),complicationStopped:true}};
   }
 
   function complete(room){

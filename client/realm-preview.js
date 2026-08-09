@@ -74,3 +74,12 @@ export function applyFinalePortalPreview(state, requestedPreview) {
   state.world={code:'PREVIEW',phase:'finale',players,entities:[{id:'finale-entrance',type:'finale-entrance',x:0,z:0,label:'Finale Portal',feature:'ancient-temple',action:'enter-final-temple'}],terrain:[],relics:[],world:{unlocked:['ancient-temple'],privateUnlocks:[]},finalObjective:{status:'entrance-revealed',variant:{id:'lantern_rite',title:'Lantern Rite'}},events:[]};
   return true;
 }
+
+export function applyEndingPreview(state, requestedPreview) {
+  if(requestedPreview!=='finale-ending')return false;
+  const roles=['Explorer','Collector','Guardian','Loner'];
+  const players=roles.map((archetype,index)=>({id:`ending-${index}`,name:['Ari','Bea','Cy','Dee'][index],archetype,color:['#76d7c4','#f3c969','#83b9f5','#c999ed'][index],sprite:[1,2,3,5][index],realm:'echo-accord',zone:'overworld',x:8+index*8,y:8+index*3,targetX:8+index*8,targetY:8+index*3,evolutions:[],completedEvolutions:[]}));
+  const playerRecaps=players.map((player,index)=>({playerId:player.id,name:player.name,archetype:player.archetype,travelled:[382,214,167,305][index],placesVisited:[12,8,7,10][index],relicsCollected:index===1?7:0,curiosCollected:index===1?5:0,objectivesCompleted:2,missionsCompleted:2,secondsTogether:[94,121,188,42][index],secondsAlone:[18,25,9,146][index],rescues:[1,0,5,0][index],riskEvents:[3,1,0,6][index]}));
+  state.joined=true;state.network.connected=true;state.network.playerId=players[0].id;state.network.roomCode='PREVIEW';state.players=players;state.mine=players[0];state.camera={x:16,y:17};state.notice='';state.noticeTimer=0;
+  state.world={code:'PREVIEW',phase:'complete',players,entities:[],terrain:[],relics:[],world:{unlocked:[],privateUnlocks:[]},finalObjective:{status:'complete',phase:'COMPLETE',completedAt:Date.now()-9000,variant:{id:'echo_accord',title:'Last Snake Standing'},reflection:{finale:{title:'Last Snake Standing',winnerId:players[3].id,winnerName:players[3].name},playerRecaps,worldEvolutions:[{title:'The Spirit Realm Awakened'},{title:'The Crystal Heart Was Restored'},{title:'The Guardian Sanctums Endured'},{title:'The Hidden Ruins Emerged'}],highlights:['The party uncovered a passage into the Black Hollow.','Five lost crystal fragments returned to the Crystal Heart.','Four callings entered the shared finale portal together.'],lines:[]}},events:[]};return true;
+}

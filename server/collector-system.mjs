@@ -12,10 +12,10 @@ export const COLLECTOR_FEATURES = Object.freeze([
 
 const CHALLENGES = Object.freeze({
   'crystal-mine': Object.freeze({ title: 'Restore the Crystal Heart', minigame: 'crystal-rebuild', goal: 5, instruction: 'Excavate five scattered fragments, then rebuild the Crystal Heart.' }),
-  'ancient-vault': Object.freeze({ title: 'Decode the Ancient Vault', minigame: 'rune-sequence', goal: 4, instruction: 'Gather the rune clues and enter the four seals in their hidden order.' }),
+  'ancient-vault': Object.freeze({ title: 'Decode the Ancient Vault', minigame: 'sequence', goal: 4, instruction: 'Gather the rune clues and enter the four seals in their hidden order.' }),
   'treasure-cache': Object.freeze({ title: 'Curate the Treasure Cache', minigame: 'appraisal', goal: 3, instruction: 'Read every appraisal clue, then identify the three genuine relics.' }),
   'relic-forge': Object.freeze({ title: 'Forge the Resonance Core', minigame: 'forge', goal: 4, instruction: 'Balance the recipe, heat the core, follow the hammer pattern, and quench it correctly.' }),
-  'sunken-relic': Object.freeze({ title: 'Recover the Sunken Crown', minigame: 'current-navigation', goal: 1, instruction: 'Navigate the flooded corridors and use the currents to reach the crown chamber.' }),
+  'sunken-relic': Object.freeze({ title: 'Recover the Sunken Crown', minigame: 'current', goal: 1, instruction: 'Navigate the flooded corridors and use the currents to reach the crown chamber.' }),
 });
 
 const CLUES = Object.freeze({
@@ -40,20 +40,20 @@ const CLUES = Object.freeze({
 });
 
 const LANDMARKS = Object.freeze({
-  'crystal-mine': Object.freeze({ x: -19, z: -7, sprite: 'crystal-mine' }),
-  'ancient-vault': Object.freeze({ x: 16, z: -4, sprite: 'ancient-vault' }),
-  'treasure-cache': Object.freeze({ x: 3, z: 5, sprite: 'treasure-cache' }),
-  'relic-forge': Object.freeze({ x: 8, z: -3, sprite: 'relic-forge' }),
-  'sunken-relic': Object.freeze({ x: 17, z: 5, sprite: 'sunken-relic' }),
+  'crystal-mine': Object.freeze({ x: -10, z: -10, sprite: 'crystal-mine' }),
+  'ancient-vault': Object.freeze({ x: 14, z: 9, sprite: 'ancient-vault' }),
+  'treasure-cache': Object.freeze({ x: 5, z: 10, sprite: 'treasure-cache' }),
+  'relic-forge': Object.freeze({ x: 11, z: -5, sprite: 'relic-forge' }),
+  'sunken-relic': Object.freeze({ x: 12, z: 7, sprite: 'sunken-relic' }),
 });
 
 const CLUE_POSITIONS = Object.freeze([
-  Object.freeze([-22, -10]), Object.freeze([-13, 12]), Object.freeze([-2, -12]), Object.freeze([5, 3]),
-  Object.freeze([18, -11]), Object.freeze([-18, 3]), Object.freeze([-7, -7]), Object.freeze([3, -4]),
-  Object.freeze([15, -2]), Object.freeze([1, 13]), Object.freeze([-15, 7]), Object.freeze([-1, 7]),
+  Object.freeze([-21, -10]), Object.freeze([-13, 12]), Object.freeze([-2, -12]), Object.freeze([7, 12]),
+  Object.freeze([18, -11]), Object.freeze([24, 8]), Object.freeze([-18, 3]), Object.freeze([-7, -7]),
+  Object.freeze([4, 4]), Object.freeze([15, 10]), Object.freeze([23, -2]), Object.freeze([1, 13]),
 ]);
 const DIG_POSITIONS = Object.freeze([
-  Object.freeze([-24, -6]), Object.freeze([-14, 13]), Object.freeze([-2, -13]), Object.freeze([5, 4]), Object.freeze([18, -8]),
+  Object.freeze([-24, -6]), Object.freeze([-12, 13]), Object.freeze([2, -13]), Object.freeze([17, 12]), Object.freeze([25, -8]),
 ]);
 
 function featureLabel(feature) { return CHALLENGES[feature]?.title || feature.replaceAll('-', ' '); }
@@ -64,9 +64,10 @@ export function createCollectorSystem({ event, now = () => Date.now() } = {}) {
 
   function profile(player) {
     const interactions = Object.values(player.interactions || {}).reduce((sum, value) => sum + (Number(value) || 0), 0);
-    const relicTypes = new Set([...player.relicIds || []].map((id) => String(id).split('-')[0]));
+    const observed = [...(player.observationItems || [])];
+    const relicTypes = new Set(observed.map((id) => id.includes('coin') ? 'coin' : id.includes('gem') ? 'gem' : id.includes('key') ? 'key' : id.includes('shard') ? 'shard' : 'other'));
     return {
-      relics: player.relicIds?.size || 0,
+      relics: observed.length || player.relicIds?.size || 0,
       variety: relicTypes.size,
       movement: Number(player.movement) || 0,
       visited: player.visited?.size || 0,

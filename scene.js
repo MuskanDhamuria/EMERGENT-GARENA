@@ -1,6 +1,6 @@
 import { createSession } from './client/session.js';
 import { createRenderer } from './client/renderer.js';
-import { applyRealmPreview } from './client/realm-preview.js';
+import { applyCollectorPreview, applyRealmPreview } from './client/realm-preview.js';
 
 // Thin composition root: browser setup, controls, and the join form only.
 const canvas = document.createElement('canvas');
@@ -41,7 +41,8 @@ howModal.addEventListener('click', (event) => { if (event.target === howModal) c
 const session = createSession();
 const previewRealm = new URLSearchParams(location.search).get('preview');
 applyRealmPreview(session.state, previewRealm);
-const { state, attack, gameReady, interact, aimAt, joinRoom, update, activeEntities, handleCollectorPointer, handleCollectorKey, lanternSupport } = session;
+applyCollectorPreview(session.state, previewRealm);
+const { state, attack, gameReady, activeEntities, interact, aimAt, joinRoom, update, handleGameKey, handleGameClick, handleGamePointerDown, handleGamePointerMove, handleGamePointerUp, lanternSupport } = session;
 const { render } = createRenderer(canvas, session);
 const keys = {};
 
@@ -84,7 +85,7 @@ addEventListener('keydown', (event) => {
   // a name must remain a letter rather than opening an interaction.
   if (isTypingTarget(event.target)) return;
   const key = inputKey(event); keys[key] = true;
-  if (state.collectorGame && handleCollectorKey(key)) {
+  if (state.collectorGame && handleGameKey(key)) {
     event.preventDefault();
     return;
   }
@@ -97,24 +98,20 @@ addEventListener('keydown', (event) => {
 });
 addEventListener('keyup', (event) => { if (!isTypingTarget(event.target)) keys[inputKey(event)] = false; });
 addEventListener('blur', () => { for (const key of Object.keys(keys)) keys[key] = false; });
-canvas.addEventListener('pointerdown', () => canvas.focus({ preventScroll: true }));
+function canvasPoint(event) { const rect=canvas.getBoundingClientRect(),scale=Math.min(rect.width/canvas.width,rect.height/canvas.height),offsetX=(rect.width-canvas.width*scale)/2,offsetY=(rect.height-canvas.height*scale)/2;return{x:(event.clientX-rect.left-offsetX)/scale,y:(event.clientY-rect.top-offsetY)/scale}; }
+canvas.addEventListener('pointerdown', (event) => { canvas.focus({ preventScroll:true });const {x,y}=canvasPoint(event);if(state.collectorGame){event.preventDefault();if(state.collectorGame.type==='crystal-rebuild')handleGamePointerDown(x,y);else handleGameClick(x,y);canvas.setPointerCapture?.(event.pointerId);} });
 canvas.addEventListener('pointermove', (event) => {
+  const {x,y}=canvasPoint(event);if(state.collectorGame?.type==='crystal-rebuild'){event.preventDefault();handleGamePointerMove(x,y);return;}
   if (state.mine?.realm !== 'ghost-village') return;
-  const bounds = canvas.getBoundingClientRect();
-  aimAt((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height, canvas.width, canvas.height, false);
+  aimAt(x,y,canvas.width,canvas.height,false);
 });
+canvas.addEventListener('pointerup',(event)=>{if(state.collectorGame?.type!=='crystal-rebuild')return;event.preventDefault();const{x,y}=canvasPoint(event);handleGamePointerUp(x,y);});
+canvas.addEventListener('pointercancel',(event)=>{if(state.collectorGame?.type!=='crystal-rebuild')return;event.preventDefault();const{x,y}=canvasPoint(event);handleGamePointerUp(x,y);});
 canvas.addEventListener('click', (event) => {
   if (!state.joined && !document.getElementById('lantern-gate')) { showLanternGate(); return; }
-  if (state.collectorGame) {
-    const bounds = canvas.getBoundingClientRect();
-    const x = (event.clientX - bounds.left) * canvas.width / bounds.width;
-    const y = (event.clientY - bounds.top) * canvas.height / bounds.height;
-    const hit = (state.collectorGame.hitboxes || []).find((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
-    if (handleCollectorPointer(hit)) return;
-  }
+  if (state.collectorGame) { event.preventDefault(); return; }
   if (state.mine?.realm === 'ghost-village') {
-    const bounds = canvas.getBoundingClientRect();
-    aimAt((event.clientX - bounds.left) * canvas.width / bounds.width, (event.clientY - bounds.top) * canvas.height / bounds.height, canvas.width, canvas.height);
+    const {x,y}=canvasPoint(event);aimAt(x,y,canvas.width,canvas.height);
   }
 });
 

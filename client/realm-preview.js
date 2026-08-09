@@ -1,4 +1,5 @@
 const REALMS = new Set(['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-village']);
+const COLLECTOR_PREVIEWS = new Set(['collector-crystal-mine', 'collector-ancient-vault', 'collector-treasure-cache', 'collector-relic-forge', 'collector-sunken-relic']);
 
 function dungeonEntities() {
   return [
@@ -24,4 +25,21 @@ export function applyRealmPreview(state, requestedRealm) {
   state.world = { code:'PREVIEW', phase:'evolving', players:[player], entities:realm==='dungeon'?dungeonEntities():[], terrain:[], relics:[], world:{unlocked:[requestedRealm],privateUnlocks:[requestedRealm]}, events:[] };
   state.notice = ''; state.noticeTimer = 0; state.guidance = null; state.privateRule = null;
   return true;
+}
+
+export function applyCollectorPreview(state, requestedPreview) {
+  if (!COLLECTOR_PREVIEWS.has(requestedPreview)) return false;
+  const feature=requestedPreview.replace('collector-',''),player={id:'preview-collector',name:'Collector Preview',archetype:'Collector',color:'#f3c969',sprite:2,facing:'down',moving:false,realm:'overworld',zone:'overworld',x:0,y:0,evolutions:[feature],completedEvolutions:[]};
+  const shared={feature,title:{'crystal-mine':'Restore the Crystal Heart','ancient-vault':'Decode the Ancient Vault','treasure-cache':'Curate the Treasure Cache','relic-forge':'Forge the Resonance Core','sunken-relic':'Recover the Sunken Crown'}[feature],instruction:{'crystal-mine':'Seat the five crystal fragments in their resonant order.','ancient-vault':'Enter the four seals in the order revealed by the private clues.','treasure-cache':'Identify the three genuine relics from the appraisal notes.','relic-forge':'Balance, heat, hammer, and quench the Resonance Core.','sunken-relic':'Navigate the flooded currents to reach the crown chamber.'}[feature],targetId:`collector-landmark-${feature}`,clueTotal:feature==='sunken-relic'?0:4,clues:feature==='sunken-relic'?[]:[{title:'Recovered Note',text:'This preview includes a sample of the Collector’s private evidence.'}],hitboxes:[],progress:0,message:''};
+  const games={
+    'crystal-mine':{...shared,type:'crystal-rebuild',pieces:[{x:150,y:258,homeX:150,homeY:258,targetX:475,targetY:328,locked:false},{x:280,y:300,homeX:280,homeY:300,targetX:565,targetY:328,locked:false},{x:150,y:388,homeX:150,homeY:388,targetX:520,targetY:394,locked:false},{x:282,y:430,homeX:282,homeY:430,targetX:478,targetY:399,locked:false},{x:196,y:500,homeX:196,homeY:500,targetX:562,targetY:399,locked:false}],dragging:null,selectedPiece:null,dragOffset:{x:0,y:0}},
+    'ancient-vault':{...shared,type:'sequence',symbols:['MOON','KEY','GEM','FLAME'],answer:[2,0,3,1],entered:[],resetAt:0},
+    'treasure-cache':{...shared,type:'appraisal',items:[{name:'Ancient Idol',value:3,risk:'Genuine',sprite:'ancient-idol'},{name:'Jeweled Goblet',value:3,risk:'Genuine',sprite:'jeweled-goblet'},{name:'Reliquary Box',value:2,risk:'Genuine',sprite:'reliquary-box'},{name:'Cursed Crown',value:5,risk:'Cursed',sprite:'sunken-crown'},{name:'Golden Compass',value:0,risk:'Replica',sprite:'ornate-key'}],chosen:[]},
+    'relic-forge':{...shared,type:'forge',phase:'ingredients',components:['STABILITY','MEMORY','ENERGY','EMBER','IRON'],recipe:[],recipeAnswer:[2,0,4],bellows:0,heat:0,hammerStep:0,hammerPattern:[4,0,2,1,3],quench:null},
+    'sunken-relic':{...shared,type:'current',clueTotal:0,clues:[],diver:{x:0,y:5},goal:{x:7,y:0},blocked:['1,0','5,0','1,1','3,1','5,1','7,1','1,2','3,2','7,2','3,3','5,3','7,3','1,4','5,4','3,5','7,5'],currents:{'0,4':'right','2,4':'up','4,2':'right','5,2':'right'},setbacks:{'0,3':{direction:'down',x:0,y:5},'4,4':{direction:'left',x:3,y:4},'6,4':{direction:'left',x:4,y:4},'7,4':{direction:'left',x:6,y:4}},width:8,height:6},
+  };
+  player.collectorObjective={feature,title:shared.title,completed:false};
+  state.joined=true;state.network.connected=false;state.network.playerId=player.id;state.network.roomCode='PREVIEW';state.players=[player];state.mine=player;state.camera={x:30,y:17};state.collectorGame=games[feature];
+  state.world={code:'PREVIEW',phase:'evolving',players:[player],entities:[],terrain:[],relics:[],world:{unlocked:[feature],privateUnlocks:[]},collectorTrial:{plan:[feature],completedFeatures:[],active:{feature,title:shared.title,completed:false}},events:[]};
+  state.notice='';state.noticeTimer=0;state.guidance=null;state.privateRule=null;return true;
 }

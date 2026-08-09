@@ -110,6 +110,14 @@ export const TERRAIN_OVERLAYS = Object.freeze([
 ]);
 
 export const ENTITY_DEFINITIONS = Object.freeze([
+  Object.freeze({ id: 'curio-coin-1', type: 'observation-item', x: -8, z: -2, label: 'Old Coin', sprite: 'ancient-coin', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-shard-1', type: 'observation-item', x: 1, z: -5, label: 'Shiny Fragment', sprite: 'relic-shard', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-gem-1', type: 'observation-item', x: 6, z: 2, label: 'Unusual Gem', sprite: 'glowing-gem-cluster', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-coin-2', type: 'observation-item', x: -14, z: 5, label: 'Weathered Coin', sprite: 'ancient-coin', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-key-1', type: 'observation-item', x: 3, z: 8, label: 'Ornate Key', sprite: 'ornate-key', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-shard-2', type: 'observation-item', x: 17, z: -4, label: 'Golden Relic Shard', sprite: 'relic-shard', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-gem-2', type: 'observation-item', x: -4, z: 11, label: 'Strange Crystal', sprite: 'glowing-gem-cluster', action: 'collect-curio' }),
+  Object.freeze({ id: 'curio-coin-3', type: 'observation-item', x: 12, z: 10, label: 'Ancient Token', sprite: 'ancient-coin', action: 'collect-curio' }),
   Object.freeze({ id: 'river-pearl', type: 'relic', x: 12, z: 7, role: 'Collector', terrain: 'echo-water', label: 'River Pearl' }),
   Object.freeze({ id: 'drowned-idol', type: 'relic', x: 10, z: 5, role: 'Collector', terrain: 'echo-water', label: 'Drowned Idol' }),
   Object.freeze({ id: 'vault-amber', type: 'relic', x: 14, z: 8, role: 'Collector', terrain: 'echo-water', label: 'Vault Amber' }),

@@ -21,6 +21,8 @@ const room = { players: new Map([[collector.id, collector], [helper.id, helper]]
 const inferred = system.initialize(collector);
 assert.equal(inferred.plan.length, 2, 'the GM always chooses exactly two Collector trials');
 assert.equal(new Set(inferred.plan).size, 2, 'the two selected Collector trials are distinct');
+const curioCollector = { ...collector, id: 'curio-collector', collector: null, relicIds: new Set(), observationItems: new Set(['curio-coin-1','curio-gem-1','curio-key-1','curio-shard-1']), interactions: { 'collect-curio': 4 }, movement: 0, visited: new Set(), nearSeconds: 0, aloneSeconds: 0, follows: 0 };
+assert.ok(system.choosePlan(curioCollector).plan.includes('treasure-cache'), 'Muskan observation-curio variety influences the selected Collector trials');
 
 // Drive a deterministic pair so each authoritative interaction can be checked.
 collector.collector = { plan: ['crystal-mine', 'relic-forge'], reasons: {}, completed: new Set(), active: null };

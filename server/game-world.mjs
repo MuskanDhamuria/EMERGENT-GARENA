@@ -247,7 +247,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     return { id: player.id, name: player.name, location: player.locationId, locationsDiscovered: player.visited.size, relicsCollected: player.relicIds.size, interactions: player.interactions, distanceTravelled: Math.round(player.movement), nearGroupSeconds: Math.round(player.nearSeconds), aloneSeconds: Math.round(player.aloneSeconds), riskEvents: player.riskEvents, rescues: player.rescues, follows: player.follows, cohesion: Number((player.nearSeconds / elapsed).toFixed(2)), postAssignment: { distanceTravelled: Math.max(0, Math.round(player.movement - (base.movement || 0))), nearGroupSeconds: Math.max(0, Math.round(player.nearSeconds - (base.near || 0))), aloneSeconds: Math.max(0, Math.round(player.aloneSeconds - (base.alone || 0))), relicsCollected: Math.max(0, player.relicIds.size - (base.relics || 0)), riskEvents: Math.max(0, player.riskEvents - (base.risk || 0)), rescues: Math.max(0, player.rescues - (base.rescues || 0)), follows: Math.max(0, player.follows - (base.follows || 0)) } };
   }
   function roomTelemetry(room) { return { roomCode: room.code, phase: room.phase, playerCount: room.players.size, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: players(room).map((player) => playerTelemetry(room, player)), relicsCollected: room.entities.filter((entity) => entity.type === 'relic' && entity.collectedBy).length, unlockedFeatures: [...room.world.unlocked], finalObjective: room.finalObjective, emergentRuleTypes: (room.emergentState?.activeRules || []).map((rule) => rule.type), aiDecisionWindows: pendingAiDecisions(room), encounterPlans: { 'dark-cave': room.caveCombat.tacticId, 'hidden-ruins': room.ruinsCombat.tacticId } }; }
-  function scoreArchetypes(player) { return { Explorer: player.visited.size * 3 + player.movement / 30 + player.riskEvents * 2, Collector: player.relicIds.size * 9 + (player.interactions.relic || 0) * 2, Guardian: player.nearSeconds / 3 + player.rescues * 8 + (player.interactions['activate-shrine'] || 0) * 2 + player.follows, Loner: player.aloneSeconds / 3 + player.visited.size + (player.interactions['enter-spirit-realm'] || 0) * 3 }; }
+  function scoreArchetypes(player) { return { Explorer: player.visited.size * 3 + player.movement / 30 + player.riskEvents * 2, Collector: (player.observationItems?.size || 0) * 14 + (player.interactions['collect-curio'] || 0) * 3 + player.relicIds.size * 9 + (player.interactions.relic || 0) * 2, Guardian: player.nearSeconds / 3 + player.rescues * 8 + (player.interactions['activate-shrine'] || 0) * 2 + player.follows, Loner: player.aloneSeconds / 3 + player.visited.size + (player.interactions['enter-spirit-realm'] || 0) * 3 }; }
   function calculateAssignments(room) {
     const group = players(room); if (group.length !== MAX_PLAYERS) return [];
     let best = { score: -Infinity, choices: [] };
@@ -639,8 +639,17 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     }
   }
   function interact(room, player, type, targetId, intent = {}) {
-    if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until all four players have received their roles.' };
     const action = cleanText(type, '', 32), cleanTargetId = cleanText(targetId, '', 48);
+    if (room.phase === 'observing' && action === 'collect-curio') {
+      const curio = room.entities.find((entity) => entity.id === cleanTargetId && entity.type === 'observation-item');
+      if (!curio || curio.collectedBy) return { ok: false, error: 'That curiosity is no longer available.' };
+      if (distance(player, curio) > 3.25) return { ok: false, error: 'Move closer to inspect it.' };
+      curio.collectedBy = player.id; player.observationItems ||= new Set(); player.observationItems.add(curio.id);
+      player.interactions['collect-curio'] = (player.interactions['collect-curio'] || 0) + 1;
+      event(room, 'curio-collected', `${player.name} pockets ${curio.label}.`, { playerId: player.id, targetId: curio.id });
+      return { ok: true, targetId: curio.id };
+    }
+    if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until all four players have received their roles.' };
     const realmResult = realms?.interact(room, player, action, cleanTargetId, intent);
     if (realmResult) {
       if (realmResult.ok && ['dungeon-exit', 'exit-shadow-forest', 'moon-shrine-interact'].includes(action)) recordRoleObjective(room, player, `${player.archetype.toLowerCase()}-${action}`);

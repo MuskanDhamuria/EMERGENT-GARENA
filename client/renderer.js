@@ -38,14 +38,29 @@ export function createRenderer(canvas, session) {
   // as individual source assets so the merge does not depend on a stale dist
   // bundle and each rite has its own visual language.
   [
-    'ancient-coin', 'ancient-idol', 'ancient-vault', 'clue-scroll', 'crystal-mine',
-    'glowing-gem-cluster', 'jeweled-goblet', 'ornate-key', 'relic-forge',
-    'reliquary-box', 'sunken-crown', 'sunken-relic', 'treasure-cache',
-    'vault-flame', 'vault-gem', 'vault-key', 'vault-moon', 'vault-seal',
+    'crystal-mine', 'ancient-vault', 'treasure-cache', 'relic-forge', 'sunken-relic',
+    'relic-shard', 'ancient-coin', 'glowing-gem-cluster', 'ornate-key', 'treasure-map',
+    'collector-satchel', 'excavation-pickaxe', 'relic-detector', 'inventory-bag',
+    'relic-attraction', 'collector-emblem', 'sunken-crown', 'vault-seal',
+    'ancient-idol', 'jeweled-goblet', 'reliquary-box', 'clue-scroll',
+    'vault-moon', 'vault-key', 'vault-gem', 'vault-flame',
   ].forEach((key) => loadDecor(key, `/game-art/collector/${key}.png`));
   ['forge-anvil', 'forge-bellows', 'forge-flame', 'forge-hammer', 'forge-hearth', 'forge-ingot', 'quench-oil', 'quench-spirit', 'quench-water'].forEach((key) => loadDecor(key, `/game-art/generated/${key}.png`));
+  Object.entries({
+    uiFrame: 'ui-frame.png', uiHeader: 'ui-header.png', uiButton: 'ui-button-sheet.png',
+    uiCompass: 'ui-compass.png', uiScroll: 'ui-scroll.png',
+    uiArrowLeft: 'ui-left-arrow-sheet.png', uiArrowRight: 'ui-right-arrow-sheet.png',
+    uiArrowUp: 'ui-up-arrow-sheet.png', uiArrowDown: 'ui-down-arrow-sheet.png',
+    uiClose: 'ui-close-sheet.png',
+  }).forEach(([key, file]) => loadDecor(key, `/game-art/ui/${file}`));
+  Object.entries({
+    forgeAnvil: 'forge-anvil.png', forgeBellows: 'forge-bellows.png', forgeFlame: 'forge-flame.png',
+    forgeHammer: 'forge-hammer.png', forgeHearth: 'forge-hearth.png', forgeIngot: 'forge-ingot.png',
+    quenchOil: 'quench-oil.png', quenchSpirit: 'quench-spirit.png', quenchWater: 'quench-water.png',
+  }).forEach(([key, file]) => loadDecor(key, `/game-art/generated/${file}`));
   loadDecor('lanternCore', '/game-art/finale/lantern-core.png');
   loadDecor('lanternFloor', '/game-art/finale/lantern-floor-emblem.png');
+  loadDecor('lanternEmblem', '/game-art/finale/lantern-floor-emblem.png');
   loadDecor('lanternSwitch', '/game-art/finale/lantern-switch.png');
   loadDecor('dungeonTiles', '/game-art/dungeon/Dungeon_Tileset.png');
   loadDecor('dungeonCharacters', '/game-art/dungeon/Dungeon_Character.png');
@@ -119,8 +134,20 @@ export function createRenderer(canvas, session) {
   }
   function drawWorldEntity(entity) {
     const kind = String(entity.kind || entity.type || '').toLowerCase();
+    if (entity.id === 'finale-entrance') {
+      drawLonerPortal(entity);
+      const X=px(entity.x)+10,Y=py(entity.y)-26;
+      ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillStyle='#c8f8ff';ctx.fillText('FINALE PORTAL · E',X,Y);
+      return;
+    }
     if (entity.id === 'spirit-portal') { drawLonerPortal(entity); return; }
     if (kind === 'realm-portal') { drawLonerPortal(entity); return; }
+    if (kind === 'observation-item') {
+      const X=px(entity.x),Y=py(entity.y),asset=art[entity.sprite],pulse=18+Math.sin(state.frame*1.4+entity.x)*3;
+      const glow=ctx.createRadialGradient(X+10,Y+10,2,X+10,Y+10,pulse);glow.addColorStop(0,'rgba(255,231,139,.58)');glow.addColorStop(1,'rgba(255,213,80,0)');ctx.fillStyle=glow;ctx.beginPath();ctx.arc(X+10,Y+10,pulse,0,Math.PI*2);ctx.fill();
+      if(asset)ctx.drawImage(asset,X-7,Y-11,34,34);else drawEntity(entity);
+      if(entity.label){ctx.font='bold 8px monospace';ctx.textAlign='center';ctx.fillStyle='#fff5c8';ctx.fillText(entity.label,X+10,Y-17);}return;
+    }
     if (entity.collectorChallenge) {
       const X = px(entity.x), Y = py(entity.y), asset = art[entity.sprite];
       const pulse = 1 + Math.sin(state.frame * 1.6 + entity.x) * .06;
@@ -572,100 +599,261 @@ export function createRenderer(canvas, session) {
       ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; wrap(message, 480, hasNotice ? 573 : 584, 570, 16);
     }
   }
-  function puzzleButton(game, x, y, w, h, label, hit, selected = false, accent = '#7ed7d3') {
-    ctx.fillStyle = selected ? '#e8b954' : '#27455a'; ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = selected ? '#fff2a1' : accent; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-    ctx.textAlign = 'center'; ctx.font = 'bold 10px monospace'; ctx.fillStyle = selected ? '#213246' : '#fff7d5';
-    wrap(label, x + w / 2, y + h / 2 - 4, w - 14, 12);
-    game.hitboxes.push({ x, y, w, h, ...hit });
+  function drawSprite(name, X, Y, width, height, alpha = 1) { const sprite = art[name]; if (!sprite) return false; const scale = Math.min(width / sprite.width, height / sprite.height), drawW = Math.max(1, Math.round(sprite.width * scale)), drawH = Math.max(1, Math.round(sprite.height * scale)); ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(sprite, Math.round(X + (width - drawW) / 2), Math.round(Y + (height - drawH)), drawW, drawH); ctx.restore(); return true; }
+
+  function drawUiSprite(name, sx, sy, sw, sh, dx, dy, dw, dh, alpha = 1) { const sprite = art[name]; if (!sprite) return false; ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(sprite, sx, sy, sw, sh, dx, dy, dw, dh); ctx.restore(); return true; }
+  function drawNineSlice(name, x, y, w, h, border = 16, alpha = 1) {
+    const sprite = art[name];
+    if (!sprite) { rounded(x, y, w, h, 12, 'rgba(20,29,40,.97)', '#e6c674'); return false; }
+    const sw = sprite.width, sh = sprite.height, innerW = sw - border * 2, innerH = sh - border * 2;
+    const dw = Math.max(1, w - border * 2), dh = Math.max(1, h - border * 2);
+    ctx.save(); ctx.globalAlpha = alpha;
+    ctx.drawImage(sprite, 0, 0, border, border, x, y, border, border);
+    ctx.drawImage(sprite, border, 0, innerW, border, x + border, y, dw, border);
+    ctx.drawImage(sprite, sw - border, 0, border, border, x + w - border, y, border, border);
+    ctx.drawImage(sprite, 0, border, border, innerH, x, y + border, border, dh);
+    ctx.drawImage(sprite, border, border, innerW, innerH, x + border, y + border, dw, dh);
+    ctx.drawImage(sprite, sw - border, border, border, innerH, x + w - border, y + border, border, dh);
+    ctx.drawImage(sprite, 0, sh - border, border, border, x, y + h - border, border, border);
+    ctx.drawImage(sprite, border, sh - border, innerW, border, x + border, y + h - border, dw, border);
+    ctx.drawImage(sprite, sw - border, sh - border, border, border, x + w - border, y + h - border, border, border);
+    ctx.restore();
+    return true;
   }
-  function puzzleImage(key, x, y, width, height) {
-    const asset = art[key];
-    if (asset) ctx.drawImage(asset, x, y, width, height);
-    else { ctx.fillStyle = '#426b72'; ctx.fillRect(x, y, width, height); }
+  function drawUiHeader(x, y, w, label, iconName = null) {
+    if (art.uiHeader) ctx.drawImage(art.uiHeader, 0, 0, art.uiHeader.width, art.uiHeader.height, x, y, w, 28);
+    else rounded(x, y, w, 28, 8, '#3f2f46', '#e6c674');
+    if (iconName) drawSprite(iconName, x + 6, y + 4, 20, 20);
+    ctx.fillStyle = '#47311f'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left'; ctx.fillText(label, x + (iconName ? 28 : 12), y + 18);
   }
-  function drawCollectorGame() {
-    const game = state.collectorGame; if (!game) return;
-    game.hitboxes = [];
-    ctx.fillStyle = 'rgba(7,20,35,.78)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    panel(54, 42, 852, 556); ctx.fillStyle = '#193348'; ctx.fillRect(58, 46, 844, 548);
-    ctx.textAlign = 'left'; ctx.font = 'bold 19px monospace'; ctx.fillStyle = '#fff0ae'; ctx.fillText(game.title.toUpperCase(), 82, 79);
-    ctx.font = '10px monospace'; ctx.fillStyle = '#cce9dd'; wrap(game.instruction, 82, 101, 720, 13);
-    puzzleButton(game, 850, 57, 34, 28, '×', { action: 'close' }, false, '#e99a86');
-    if (game.clues?.length) {
-      ctx.font = 'bold 9px monospace'; ctx.fillStyle = '#9de3ff'; ctx.fillText(`PRIVATE CLUES ${game.clues.length}/${game.clueTotal}`, 82, 145);
-      game.clues.slice(0, 2).forEach((clue, index) => {
-        const x = 230 + index * 318; puzzleImage('clue-scroll', x, 121, 28, 28);
-        ctx.textAlign = 'left'; ctx.font = '9px monospace'; ctx.fillStyle = '#fff2bd'; ctx.fillText(clue.title, x + 34, 135);
-        ctx.fillStyle = '#d4e9df'; wrap(clue.text, x + 34, 148, 255, 11);
-      });
+  function drawUiButton(x, y, w, h, label, variant = 0) {
+    const sprite = art.uiButton;
+    if (sprite) {
+      const fw = sprite.width / 4;
+      drawUiSprite('uiButton', fw * variant, 0, fw, sprite.height, x, y, w, h);
+    } else rounded(x, y, w, h, 10, '#344656', '#a6cde5');
+    ctx.fillStyle = '#fff8e1'; ctx.font = `bold ${Math.max(10, Math.floor(h * 0.4))}px monospace`; ctx.textAlign = 'center'; ctx.fillText(label, x + w / 2, y + h * 0.67); ctx.textAlign = 'left';
+  }
+  function drawArrowGlyph(direction, x, y, w, h) {
+    const map = { left:['uiArrowLeft',3], right:['uiArrowRight',3], up:['uiArrowUp',2], down:['uiArrowDown',2] };
+    const [name, frames] = map[direction] || [];
+    const sprite = art[name];
+    if (sprite) {
+      const fw = sprite.width / frames;
+      drawUiSprite(name, 0, 0, fw, sprite.height, x, y, w, h);
+      return;
     }
-    const contentY = game.clues?.length ? 190 : 145;
-    if (game.feature === 'crystal-mine') {
-      puzzleImage('crystal-mine', 96, contentY + 16, 218, 260);
-      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#bdf7f1'; ctx.fillText('REBUILD THE CRYSTAL HEART', 366, contentY + 34);
-      ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`${game.placed.length}/5 fragments seated`, 366, contentY + 54);
-      for (let index = 0; index < 5; index += 1) {
-        const column = index % 3, row = Math.floor(index / 3), placed = game.placed.includes(index);
-        puzzleButton(game, 366 + column * 150, contentY + 82 + row * 92, 128, 68, placed ? `FRAGMENT ${index + 1}\nSET` : `PLACE\nFRAGMENT ${index + 1}`, { action: 'crystal', value: index }, placed, '#7bdce2');
-      }
-    } else if (game.feature === 'ancient-vault') {
-      puzzleImage('ancient-vault', 82, contentY + 18, 262, 274);
-      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#f2d479'; ctx.fillText('ENTER THE CARVED ORDER', 390, contentY + 34);
-      const runes = [['gem', 'GEM', 'vault-gem'], ['moon', 'MOON', 'vault-moon'], ['flame', 'FLAME', 'vault-flame'], ['key', 'KEY', 'vault-key']];
-      runes.forEach(([id, label, asset], index) => {
-        const x = 390 + (index % 2) * 190, y = contentY + 70 + Math.floor(index / 2) * 112;
-        puzzleImage(asset, x + 8, y + 8, 42, 42);
-        puzzleButton(game, x, y, 168, 72, `PRESS ${label}`, { action: 'rune', value: id }, game.entered.includes(id), '#d6ad63');
-      });
-      ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`SEALS HELD ${game.entered.length}/4`, 390, contentY + 314);
-    } else if (game.feature === 'treasure-cache') {
-      puzzleImage('treasure-cache', 80, contentY + 16, 246, 250);
-      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#f2d479'; ctx.fillText('SELECT THE THREE GENUINE RELICS', 360, contentY + 33);
-      const items = [['ancient-idol', 'ANCIENT IDOL'], ['ornate-key', 'GOLDEN COMPASS'], ['sunken-crown', 'CURSED CROWN'], ['reliquary-box', 'RELIQUARY BOX']];
-      items.forEach(([asset, label], index) => {
-        const x = 360 + (index % 2) * 202, y = contentY + 61 + Math.floor(index / 2) * 128;
-        puzzleImage(asset, x + 6, y + 6, 52, 52);
-        puzzleButton(game, x, y, 184, 84, label, { action: 'relic-card', value: index }, game.selected.includes(index), '#d6ad63');
-      });
-      puzzleButton(game, 520, contentY + 330, 220, 46, `CONFIRM APPRAISAL  ${game.selected.length}/3`, { action: 'confirm-appraisal' }, false, '#a8d78b');
-    } else if (game.feature === 'relic-forge') {
-      puzzleImage(game.phase === 'quench' ? 'quench-oil' : 'relic-forge', 80, contentY + 12, 254, 270);
-      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#ffc66a'; ctx.fillText(`FORGE PHASE · ${game.phase.toUpperCase()}`, 370, contentY + 32);
-      if (game.phase === 'recipe') {
-        [['energy', 'ENERGY', 'forge-flame'], ['stability', 'STABILITY', 'forge-anvil'], ['iron', 'IRON', 'forge-ingot']].forEach(([id, label, asset], index) => {
-          const x = 370 + index * 160; puzzleImage(asset, x + 8, contentY + 65, 42, 42); puzzleButton(game, x, contentY + 56, 142, 76, label, { action: 'ingredient', value: id }, game.recipe.includes(id), '#ef9b55');
-        });
-        ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`BALANCED INGREDIENTS ${game.recipe.length}/3`, 370, contentY + 161);
-      } else if (game.phase === 'heat') {
-        ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffe2aa'; ctx.fillText('ORANGE HEAT RANGE 76–88', 370, contentY + 78);
-        ctx.fillStyle = '#172331'; ctx.fillRect(370, contentY + 95, 390, 22); ctx.fillStyle = game.heat >= 76 && game.heat <= 88 ? '#f3a447' : '#5f9abd'; ctx.fillRect(374, contentY + 99, 382 * Math.max(0, Math.min(100, game.heat)) / 100, 14);
-        ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${Math.round(game.heat)}°`, 770, contentY + 112);
-        puzzleButton(game, 370, contentY + 145, 180, 66, 'PUMP BELLOWS', { action: 'bellows' }, false, '#ef9b55');
-        puzzleButton(game, 575, contentY + 145, 180, 66, 'TEMPER CORE', { action: 'temper' }, false, '#f2d479');
-      } else if (game.phase === 'hammer') {
-        ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffe2aa'; ctx.fillText('STRIKE THE HAMMER DIAGRAM', 370, contentY + 78);
-        [['right', 'RIGHT'], ['left', 'LEFT'], ['up', 'UPPER']].forEach(([id, label], index) => puzzleButton(game, 370 + index * 130, contentY + 104, 114, 66, label, { action: 'hammer', value: id }, game.hammer.includes(id), '#ef9b55'));
-      } else {
-        ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffe2aa'; ctx.fillText('CHOOSE THE LIQUID THAT SETS THE CORE', 370, contentY + 78);
-        [['oil', 'OIL', 'quench-oil'], ['water', 'WATER', 'quench-water'], ['spirit', 'SPIRIT', 'quench-spirit']].forEach(([id, label, asset], index) => { const x = 370 + index * 130; puzzleImage(asset, x + 30, contentY + 95, 45, 45); puzzleButton(game, x, contentY + 90, 114, 86, label, { action: 'quench', value: id }, false, '#ef9b55'); });
-      }
-    } else if (game.feature === 'sunken-relic') {
-      puzzleImage('sunken-relic', 80, contentY + 16, 258, 254);
-      ctx.textAlign = 'left'; ctx.font = 'bold 12px monospace'; ctx.fillStyle = '#a7eff7'; ctx.fillText('RIDE THE FLOODED CURRENTS', 372, contentY + 33);
-      const gridX = 394, gridY = contentY + 63, size = 42;
-      for (let row = 0; row < 5; row += 1) for (let column = 0; column < 5; column += 1) { ctx.fillStyle = (row + column) % 2 ? '#1b6681' : '#287b99'; ctx.fillRect(gridX + column * size, gridY + row * size, size - 2, size - 2); }
-      const progress = Math.min(game.step, game.route.length), playerPath = [[0,4],[1,4],[1,3],[1,2],[2,2],[2,3],[3,3]][progress] || [0,4];
-      ctx.fillStyle = '#fff0ae'; ctx.fillRect(gridX + playerPath[0] * size + 12, gridY + playerPath[1] * size + 12, 18, 18);
-      ctx.fillStyle = '#e6c966'; ctx.fillRect(gridX + 3 * size + 11, gridY + 3 * size + 8, 20, 26);
-      ctx.font = '10px monospace'; ctx.fillStyle = '#c9e1d5'; ctx.fillText(`CURRENT CHAMBER ${game.step}/${game.route.length}`, 394, gridY + 235);
-      puzzleButton(game, 694, contentY + 94, 68, 46, '↑', { action: 'current', value: 'up' }, false, '#7bdce2');
-      puzzleButton(game, 620, contentY + 152, 68, 46, '←', { action: 'current', value: 'left' }, false, '#7bdce2');
-      puzzleButton(game, 694, contentY + 152, 68, 46, '↓', { action: 'current', value: 'down' }, false, '#7bdce2');
-      puzzleButton(game, 768, contentY + 152, 68, 46, '→', { action: 'current', value: 'right' }, false, '#7bdce2');
-      ctx.font = '9px monospace'; ctx.fillStyle = '#d4e9df'; ctx.fillText('ARROWS / WASD ALSO STEER', 620, contentY + 230);
-    }
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center'; ctx.fillText({ left:'←', right:'→', up:'↑', down:'↓' }[direction], x + w / 2, y + h * 0.68); ctx.textAlign = 'left';
   }
+  function drawFeatureBadge(game, x, y) {
+    const feature=String(game.feature||'');
+    const icon = feature.includes('crystal-mine') ? 'crystal-mine' : feature.includes('ancient-vault') ? 'ancient-vault' : feature.includes('treasure-cache') ? 'treasure-cache' : feature.includes('relic-forge') ? 'relic-forge' : feature.includes('sunken-relic') ? 'sunken-relic' : 'collector-emblem';
+    drawSprite(icon, x, y, 38, 38);
+    return icon;
+  }
+
+  function rounded(x,y,w,h,r=8,fill='#243444',stroke='#e8cf7a'){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();}
+
+function uiPanel(x,y,w,h,fill='rgba(11,18,40,.96)',stroke='#d39f53',line=2,r=12){
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fillStyle=fill; ctx.fill(); if (stroke) { ctx.strokeStyle=stroke; ctx.lineWidth=line; ctx.stroke(); } ctx.restore();
+}
+function uiInset(x,y,w,h,fill='rgba(20,32,66,.86)',stroke='rgba(125,155,214,.35)',line=1,r=10){
+  ctx.save(); ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fillStyle=fill; ctx.fill(); if (stroke) { ctx.strokeStyle=stroke; ctx.lineWidth=line; ctx.stroke(); } ctx.restore();
+}
+function drawDivider(x,y,w,color='rgba(219,169,90,.55)'){ ctx.save(); ctx.strokeStyle=color; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+w,y); ctx.stroke(); ctx.restore(); }
+function drawCollectorWindow(game){
+  const showJournal = (game.clueTotal||0) > 0 || (game.clues||[]).length > 0;
+  const box = { x:28, y:18, w:930, h:612, innerX:48, innerY:150, innerW: showJournal ? 620 : 858, innerH: 424, showJournal, journalX: showJournal ? 688 : 0, journalW: 250 };
+  ctx.fillStyle='rgba(4,8,18,.84)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  uiPanel(box.x, box.y, box.w, box.h, 'rgba(8,12,34,.97)', '#d4974d', 2, 16);
+  uiInset(box.x+14, box.y+14, box.w-28, 66, 'rgba(16,18,50,.94)', 'rgba(232,192,112,.20)', 1, 12);
+  drawFeatureBadge(game, box.x+24, box.y+22);
+  ctx.textAlign='left'; ctx.fillStyle='#fff3d8'; ctx.font='bold 18px monospace'; ctx.fillText(game.title, box.x+76, box.y+46);
+  const closeX=box.x+box.w-54, closeY=box.y+24;
+  uiInset(closeX, closeY, 30, 30, 'rgba(34,26,52,.96)', 'rgba(232,192,112,.42)', 1, 8);
+  if(art.uiClose){ const fw=art.uiClose.width/4; drawUiSprite('uiClose',0,0,fw,art.uiClose.height,closeX+5,closeY+5,20,20); }
+  else { ctx.fillStyle='#fff2df'; ctx.font='bold 17px monospace'; ctx.textAlign='center'; ctx.fillText('×',closeX+15,closeY+21); ctx.textAlign='left'; }
+  game.hitboxes.push({x:closeX,y:closeY,w:30,h:30,action:'close'});
+  uiInset(box.x+20, box.y+92, box.w-40, 52, 'rgba(12,18,48,.82)', 'rgba(97,125,204,.18)', 1, 10);
+  ctx.fillStyle='#edf2ff'; ctx.font='11px monospace'; wrap(game.instruction, box.x+34, box.y+113, box.w-68, 13, 3);
+  if (showJournal) drawClueJournal(game, box);
+  return box;
+}
+function crystalTemplate(index){
+  const pieces=[
+    [[-78,-72],[0,-42],[0,12],[-102,-5]],
+    [[0,-42],[78,-72],[102,-5],[0,12]],
+    [[0,12],[38,52],[-38,52]],
+    [[-102,-5],[0,12],[-38,52],[0,112],[-72,48]],
+    [[0,12],[102,-5],[72,48],[0,112],[38,52]]
+  ];
+  const points=pieces[index%5];
+  const cx=points.reduce((sum,[x])=>sum+x,0)/points.length;
+  const cy=points.reduce((sum,[,y])=>sum+y,0)/points.length;
+  return points.map(([x,y])=>[x-cx,y-cy]);
+}
+function crystalHeartOutline(){
+  return [[-78,-72],[0,-42],[78,-72],[102,-5],[72,48],[0,112],[-72,48],[-102,-5]];
+}
+function traceCrystal(cx, cy, points, scale = 1){
+  ctx.beginPath(); points.forEach(([px,py],i)=>{ const x=cx+px*scale, y=cy+py*scale; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.closePath();
+}
+function drawCrystalShard(cx, cy, index, options={}){
+  const { selected=false, locked=false, alpha=1, socket=false } = options; const points=crystalTemplate(index), scale=socket ? 1.0 : 1.0;
+  ctx.save(); ctx.globalAlpha=alpha; traceCrystal(cx, cy, points, scale);
+  if(socket){
+    ctx.fillStyle='rgba(72,118,192,.20)'; ctx.fill();
+    ctx.strokeStyle= selected ? '#d7fbff' : '#7de1ff'; ctx.lineWidth= selected ? 4 : 3; ctx.stroke();
+    ctx.save(); ctx.shadowBlur=16; ctx.shadowColor='rgba(120,225,255,.5)'; ctx.stroke(); ctx.restore();
+  }
+  else {
+    const grad=ctx.createLinearGradient(cx-18, cy-48, cx+28, cy+50); grad.addColorStop(0, locked ? '#f3ffff' : '#dbfbff'); grad.addColorStop(.45, locked ? '#b4f4ff' : '#9ae7ff'); grad.addColorStop(1, locked ? '#58c8ff' : '#43a8f0');
+    ctx.shadowBlur = selected ? 28 : 18; ctx.shadowColor = selected ? 'rgba(221,251,255,.98)' : 'rgba(106,230,255,.92)'; ctx.fillStyle=grad; ctx.fill(); ctx.shadowBlur=0;
+    ctx.strokeStyle='#eefcff'; ctx.lineWidth=3; ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.24)'; traceCrystal(cx-6, cy-10, [[-2,-16],[13,-8],[10,16],[-6,18],[-14,0]], 1.2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawAppraisalCard(x,y,w,h,item,selected,revealed){
+  uiInset(x,y,w,h, selected ? 'rgba(42,52,88,.98)' : 'rgba(18,24,60,.95)', selected ? '#f7d98f' : 'rgba(122,150,224,.28)', selected ? 2 : 1, 12);
+  if(selected){ ctx.save(); ctx.shadowBlur=18; ctx.shadowColor='rgba(255,232,157,.38)'; ctx.strokeStyle='rgba(255,232,157,.55)'; ctx.lineWidth=2; ctx.strokeRect(x+4,y+4,w-8,h-8); ctx.restore(); }
+  drawSprite(item.sprite, x+10, y+12, 54, 54); ctx.fillStyle='#fff4d0'; ctx.font='bold 10px monospace'; wrap(item.name, x+68, y+28, w-84, 12, 2);
+  if(selected){ ctx.fillStyle='#ffe595'; ctx.font='bold 10px monospace'; ctx.fillText('SELECTED', x+w-78, y+18); }
+  ctx.fillStyle=revealed ? (item.risk==='Cursed' ? '#ffb1a8' : item.risk==='Replica' ? '#bdc7d3' : '#b7f0bf') : '#d8dfef'; ctx.font='10px monospace';
+  wrap(revealed ? `${item.value} value · ${item.risk}` : 'Appraise with clues', x+12, y+h-18, w-24, 11, 2);
+}
+function drawQuenchBasin(x,y,w,h,label,selected=false){
+  uiInset(x,y,w,h, selected ? 'rgba(42,52,88,.98)' : 'rgba(18,24,60,.95)', selected ? '#f7d98f' : 'rgba(122,150,224,.28)', selected ? 2 : 1, 12);
+  const spriteName = label === 'WATER' ? 'quenchWater' : label === 'OIL' ? 'quenchOil' : 'quenchSpirit';
+  const sprite = art[spriteName];
+  if(sprite) ctx.drawImage(sprite, x+22, y+28, w-44, h-48);
+  else {
+    ctx.fillStyle='#6f4b3b'; ctx.fillRect(x+26,y+58,w-52,20);
+    ctx.fillStyle='#4e3025'; ctx.fillRect(x+18,y+76,w-36,30);
+    ctx.strokeStyle='#8b5e49'; ctx.strokeRect(x+18,y+76,w-36,30);
+    ctx.fillStyle='#86b3cd'; ctx.fillRect(x+28,y+64,w-56,10);
+  }
+  ctx.fillStyle='#fff5d8'; ctx.font='bold 12px monospace'; ctx.textAlign='center'; ctx.fillText(label, x+w/2, y+20); ctx.textAlign='left';
+}
+function helperCountForForge(){ const mine=state.mine; if(!mine) return 0; return state.players.filter((player)=>player.id!==mine.id && (player.realm||'overworld')===(mine.realm||'overworld')).length; }
+
+  function hit(game,x,y,w,h,action,extra={}){game.hitboxes.push({x,y,w,h,action,...extra});}
+
+
+function drawClueJournal(game, box){
+  const x=box.journalX, y=box.innerY, w=box.journalW, h=box.innerH;
+  uiInset(x,y,w,h,'rgba(13,20,52,.92)','rgba(234,192,112,.22)',1,12);
+  ctx.fillStyle='#fff4d8'; ctx.font='bold 12px monospace'; ctx.fillText(`CLUE JOURNAL · ${game.clues.length}/${game.clueTotal}`, x+14, y+22);
+  drawDivider(x+12, y+30, w-24);
+  if(!game.clues.length){
+    if(art.uiScroll) ctx.drawImage(art.uiScroll, x+70, y+84, 52, 58);
+    ctx.fillStyle='#dce6ff'; ctx.font='11px monospace'; wrap('No clues found yet. Search the wider map for parchment scrolls that glow beside your role.', x+18, y+180, w-36, 14, 6);
+    return;
+  }
+  let cy=y+46;
+  game.clues.forEach((clue, index)=>{
+    const cardH = 88;
+    uiInset(x+12, cy, w-24, cardH, 'rgba(17,24,60,.96)', 'rgba(104,130,212,.28)', 1, 10);
+    if(art.uiScroll) ctx.drawImage(art.uiScroll, x+20, cy+16, 24, 30); else drawSprite('clue-scroll', x+18, cy+16, 24, 30);
+    ctx.fillStyle='#fff0c7'; ctx.font='bold 10px monospace'; wrap(`${index+1}. ${clue.title}`, x+52, cy+22, w-74, 12, 2);
+    ctx.fillStyle='#d8e3ff'; ctx.font='10px monospace'; wrap(clue.text, x+52, cy+44, w-74, 12, 3);
+    cy += cardH + 10;
+  });
+}
+function drawCollectorGame(){
+  const game=state.collectorGame; if(!game) return; game.hitboxes=[];
+  const box=drawCollectorWindow(game);
+  const leftX=box.innerX, topY=box.innerY, contentW=box.innerW, contentH=box.innerH;
+  if(game.type==='crystal-rebuild'){
+    ctx.fillStyle='#fff2d1'; ctx.font='bold 12px monospace'; ctx.fillText('CRYSTAL MINE REASSEMBLY', leftX, topY+16);
+    uiInset(leftX, topY+38, 260, 370, 'rgba(17,22,55,.96)', 'rgba(92,123,211,.22)', 1, 12);
+    ctx.fillStyle='#a9b9df'; ctx.font='10px monospace'; wrap('Recovered fragments', leftX+18, topY+62, 170, 12, 1);
+    uiInset(leftX+280, topY+38, 340, 370, 'rgba(8,18,62,.95)', 'rgba(92,123,211,.22)', 1, 12);
+    ctx.fillStyle='#a9b9df'; ctx.font='10px monospace'; wrap('Restore the Crystal Heart', leftX+298, topY+62, 220, 12, 1);
+
+    const heartCenterX=520, heartCenterY=355;
+    ctx.save();
+    ctx.globalAlpha=.16;
+    traceCrystal(heartCenterX,heartCenterY,crystalHeartOutline(),1.08);
+    ctx.fillStyle='rgba(78,138,205,.28)'; ctx.fill();
+    ctx.strokeStyle='rgba(126,226,255,.40)'; ctx.lineWidth=2; ctx.stroke();
+    ctx.restore();
+
+    game.pieces.forEach((piece,index)=>{
+      drawCrystalShard(piece.targetX,piece.targetY,index,{socket:true,selected:game.selectedPiece===index});
+    });
+    game.pieces.forEach((piece,index)=>{
+      drawCrystalShard(piece.x,piece.y,index,{selected:game.selectedPiece===index,locked:piece.locked});
+      if(!piece.locked) game.hitboxes.push({x:piece.x-55,y:piece.y-55,w:110,h:110,action:'crystal-piece',index});
+      if(game.selectedPiece===index && !piece.locked) game.hitboxes.push({x:piece.targetX-42,y:piece.targetY-42,w:84,h:84,action:'crystal-socket',index});
+    });
+
+    uiInset(leftX, topY+418, 620, 46, 'rgba(15,22,56,.88)', 'rgba(92,123,211,.22)', 1, 12);
+    ctx.fillStyle='#dfe8ff'; ctx.font='11px monospace'; wrap('Drag each fragment into the matching section. When all five are seated, they join into one complete Crystal Heart.', leftX+14, topY+437, 594, 13, 2);
+    ctx.fillStyle='#fff4d8'; ctx.font='bold 11px monospace'; ctx.fillText(`FRAGMENTS LOCKED · ${game.pieces.filter((piece)=>piece.locked).length}/5`, leftX, topY+482);
+  } else if(game.type==='sequence'){
+    ctx.fillStyle='#fff2d1'; ctx.font='bold 12px monospace'; ctx.fillText('ANCIENT LOCKING PLATE', leftX, topY+18);
+    const tilePos=[[leftX+24,topY+46],[leftX+302,topY+46],[leftX+24,topY+214],[leftX+302,topY+214]], runeArt=['vault-moon','vault-key','vault-gem','vault-flame'];
+    game.symbols.forEach((name,i)=>{ const [x,y]=tilePos[i], active=game.entered.includes(i); uiInset(x,y,250,140, active ? 'rgba(38,48,84,.98)' : 'rgba(17,24,60,.95)', active ? '#f4ca6e' : 'rgba(104,130,212,.28)', active ? 2 : 1, 12); drawSprite(runeArt[i], x+72, y+24, 92, 72); ctx.textAlign='center'; ctx.fillStyle='#fff5d8'; ctx.font='bold 14px monospace'; ctx.fillText(name, x+125, y+116); ctx.textAlign='left'; game.hitboxes.push({x,y,w:250,h:140,action:'rune',index:i}); });
+    ctx.fillStyle='#dce7ff'; ctx.font='11px monospace'; ctx.fillText('Vault mechanism:', leftX, topY+392);
+    for(let i=0;i<4;i+=1){ const x=leftX+144+i*105; uiInset(x,topY+372,92,42, i<game.entered.length ? 'rgba(44,54,90,.98)' : 'rgba(17,24,60,.95)', i<game.entered.length ? '#f4ca6e' : 'rgba(104,130,212,.28)', 1, 10); ctx.textAlign='center'; ctx.fillStyle=i<game.entered.length ? '#fff1b5' : '#b6c1dc'; ctx.font='bold 11px monospace'; ctx.fillText(i<game.entered.length ? game.symbols[game.answer[i]] : '?', x+46, topY+398); ctx.textAlign='left'; }
+    ctx.fillStyle='#fff4d8'; ctx.font='bold 11px monospace'; ctx.fillText(`LOCKS TURNED · ${game.entered.length}/4`, leftX, topY+438);
+  } else if(game.type==='appraisal'){
+    ctx.fillStyle='#fff2d1'; ctx.font='bold 12px monospace'; ctx.fillText('APPRAISER TABLE · CHOOSE THREE', leftX, topY+20);
+    const revealed=game.clues.length>=game.clueTotal;
+    game.items.forEach((item,i)=>{ const x=leftX+(i%3)*202, y=topY+48+Math.floor(i/3)*148; drawAppraisalCard(x,y,184,126,item,game.chosen.includes(i),revealed); game.hitboxes.push({x,y,w:184,h:126,action:'item',index:i}); });
+    ctx.fillStyle='#ffe7a8'; ctx.font='bold 11px monospace'; ctx.fillText(`SELECTED VALUE · ${game.progress}`, leftX+214, topY+382);
+    drawUiButton(leftX+178, topY+396, 252, 42, 'CONFIRM TREASURES', 1); ctx.strokeStyle='rgba(14,20,36,.75)'; ctx.lineWidth=2; ctx.strokeRect(leftX+178, topY+396, 252, 42); game.hitboxes.push({x:leftX+178,y:topY+396,w:252,h:42,action:'confirm'});
+    ctx.fillStyle='#cfdaf2'; ctx.font='10px monospace'; wrap('Only the three genuine relics satisfy the full appraisal notes.', leftX, topY+458, 430, 12, 2);
+  } else if(game.type==='forge'){
+    ctx.fillStyle='#fff2d1'; ctx.font='bold 12px monospace'; ctx.fillText(`FORGE STAGE · ${game.phase.toUpperCase()}`, leftX, topY+20);
+    if(game.phase==='ingredients'){
+      uiInset(leftX, topY+42, 620, 188, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+      game.components.forEach((name,i)=>{ const x=leftX+18+i*120, y=topY+84, chosen=game.recipe.includes(i); uiInset(x,y,102,92, chosen ? 'rgba(42,52,88,.98)' : 'rgba(17,24,60,.95)', chosen ? '#f7d98f' : 'rgba(104,130,212,.28)', chosen ? 2 : 1, 10); ctx.textAlign='center'; ctx.fillStyle=chosen?'#fff1b5':'#e2e9ff'; ctx.font='bold 11px monospace'; wrap(name,x+51,y+44,78,12,2); ctx.textAlign='left'; game.hitboxes.push({x,y,w:102,h:92,action:'component',index:i}); });
+      ctx.fillStyle='#dce7ff'; ctx.font='11px monospace'; ctx.fillText(`Selected recipe · ${game.recipe.map((i)=>game.components[i]).join(' → ') || 'none'}`, leftX+18, topY+214);
+    } else if(game.phase==='heat'){
+      const heat=game.heat, target=heat>=82&&heat<=89;
+      uiInset(leftX, topY+42, 392, 312, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+      if(art.forgeHearth) ctx.drawImage(art.forgeHearth, leftX+24, topY+88, 344, 246);
+      if(art.forgeIngot) ctx.drawImage(art.forgeIngot, leftX+118, topY+72, 132, 62);
+      else { ctx.fillStyle='#9b7b63'; ctx.fillRect(leftX+120, topY+90, 122, 20); }
+      if(art.forgeHammer) ctx.drawImage(art.forgeHammer, leftX+262, topY+58, 56, 56);
+      if(art.forgeFlame) { const scale=0.88 + heat/140; const fw=156*scale, fh=156*scale; ctx.drawImage(art.forgeFlame, leftX+121-(fw-156)/2, topY+152-(fh-156)/2, fw, fh); }
+      if(target){ ctx.save(); ctx.shadowBlur=18; ctx.shadowColor='rgba(255,198,90,.9)'; ctx.strokeStyle='rgba(255,214,112,.95)'; ctx.lineWidth=2; ctx.strokeRect(leftX+116, topY+70, 136, 66); ctx.restore(); }
+      uiInset(leftX+412, topY+42, 208, 312, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+      if(art.forgeBellows) ctx.drawImage(art.forgeBellows, leftX+434, topY+80, 164, 118);
+      ctx.fillStyle='#fff4d8'; ctx.font='bold 14px monospace'; ctx.textAlign='center'; ctx.fillText('BELLOWS', leftX+516, topY+214); ctx.fillText(`${Math.round(heat)}% HEAT`, leftX+516, topY+292); ctx.textAlign='left';
+      drawUiButton(leftX+456, topY+232, 122, 40, 'PUMP', 2); game.hitboxes.push({x:leftX+456,y:topY+232,w:122,h:40,action:'bellows'});
+      ctx.fillStyle='#d2dcf2'; ctx.font='10px monospace'; wrap('Rapidly cooling forge. Each pump adds +2 heat. Other players can stand at the Relic Forge and press E to help pump.', leftX+430, topY+316, 172, 12, 6);
+      uiInset(leftX, topY+372, 620, 58, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+      ctx.fillStyle='#263550'; ctx.fillRect(leftX+16, topY+392, 588, 14); ctx.fillStyle='#6f3425'; ctx.fillRect(leftX+16, topY+392, 200, 14); ctx.fillStyle='#cb642a'; ctx.fillRect(leftX+216, topY+392, 120, 14); ctx.fillStyle='#f0a646'; ctx.fillRect(leftX+336, topY+392, 130, 14); ctx.fillStyle='#efe0a4'; ctx.fillRect(leftX+466, topY+392, 138, 14); ctx.strokeStyle='#a4bdd8'; ctx.strokeRect(leftX+16, topY+392, 588, 14); ctx.fillStyle='rgba(255,204,94,.24)'; ctx.fillRect(leftX+16+588*0.82, topY+388, 588*0.08, 22); const markerX=leftX+16+(588*Math.max(0,Math.min(100,heat))/100); ctx.fillStyle='#f5fbff'; ctx.beginPath(); ctx.moveTo(markerX,386); ctx.lineTo(markerX-7,379); ctx.lineTo(markerX+7,379); ctx.closePath(); ctx.fill();
+      ctx.fillStyle='#c7d9ef'; ctx.font='10px monospace'; ctx.fillText('COLD', leftX+16, topY+418); ctx.fillText('BUILD HEAT', leftX+236, topY+418); ctx.fillText('ORANGE TARGET', leftX+376, topY+418); ctx.fillText('OVERHEAT', leftX+528, topY+418);
+    } else if(game.phase==='hammer'){
+      uiInset(leftX, topY+42, 620, 320, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+      if(art.forgeAnvil) ctx.drawImage(art.forgeAnvil, leftX+190, topY+88, 250, 230);
+      if(art.forgeHammer) ctx.drawImage(art.forgeHammer, leftX+474, topY+86, 92, 92);
+      const marks=[[leftX+270, topY+126],[leftX+320, topY+108],[leftX+370, topY+120],[leftX+420, topY+104],[leftX+470, topY+130]];
+      marks.forEach(([cx,cy],i)=>{ const active=i===game.hammerPattern[game.hammerStep]; ctx.save(); ctx.beginPath(); ctx.arc(cx,cy,17,0,Math.PI*2); ctx.fillStyle=active?'rgba(255,235,135,.38)':'rgba(96,128,202,.15)'; ctx.fill(); ctx.strokeStyle=active?'#ffe79a':'#7892c8'; ctx.lineWidth=active?3:2; if(active){ctx.shadowBlur=16;ctx.shadowColor='rgba(255,226,126,.9)';} ctx.stroke(); ctx.restore(); game.hitboxes.push({x:cx-24,y:cy-24,w:48,h:48,action:'hammer',index:i}); });
+      ctx.fillStyle='#dce7ff'; ctx.font='11px monospace'; ctx.fillText(`Strike the glowing marks in order · ${game.hammerStep}/5`, leftX+18, topY+334);
+    } else {
+      uiInset(leftX, topY+42, 620, 232, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+      ['WATER','OIL','SPIRIT'].forEach((name,i)=>{ const x=leftX+28+i*196, y=topY+88; drawQuenchBasin(x,y,168,130,name,false); game.hitboxes.push({x,y,w:168,h:130,action:'quench',kind:name}); });
+      ctx.fillStyle='#dce7ff'; ctx.font='11px monospace'; wrap('Every basin shares the same blue sheen. Only the recovered forge clues reveal which liquid safely tempers the core.', leftX+18, topY+292, 592, 14, 3);
+    }
+  } else if(game.type==='current'){
+    ctx.fillStyle='#fff2d1'; ctx.font='bold 12px monospace'; ctx.fillText('FLOODED RUIN NAVIGATION', leftX, topY+20);
+    const size=60, gx=leftX+18, gy=topY+68;
+    uiInset(leftX, topY+42, 530, 410, 'rgba(10,20,52,.95)', 'rgba(92,123,211,.22)', 1, 12);
+    for(let row=0; row<game.height; row+=1) for(let col=0; col<game.width; col+=1){ const x=gx+col*size, y=gy+row*size, key=`${col},${row}`; uiInset(x,y,52,52,'rgba(14,26,70,.92)','rgba(92,123,211,.18)',1,8); if(game.blocked.includes(key)){ ctx.fillStyle='#51667a'; ctx.fillRect(x+16,y+6,8,40); ctx.fillRect(x+28,y+6,8,40); } else { ctx.fillStyle='rgba(96,181,224,.08)'; ctx.fillRect(x+8,y+8,36,36); } const current=game.currents[key]; if(current){ drawArrowGlyph(current,x+10,y+14,32,20); } const setback=game.setbacks?.[key]; if(setback){ ctx.save(); ctx.fillStyle='rgba(137,45,56,.34)'; ctx.fillRect(x+5,y+5,42,42); ctx.strokeStyle='rgba(255,140,126,.75)'; ctx.lineWidth=2; ctx.strokeRect(x+6,y+6,40,40); ctx.restore(); drawArrowGlyph(setback.direction,x+10,y+14,32,20); } if(col===game.goal.x && row===game.goal.y){ drawSprite('sunken-crown',x+8,y+6,38,38); } if(col===game.diver.x && row===game.diver.y){ ctx.save(); ctx.shadowBlur=18; ctx.shadowColor='rgba(135,235,255,.92)'; ctx.fillStyle='#b7f6ff'; ctx.beginPath(); ctx.arc(x+26,y+26,11,0,Math.PI*2); ctx.fill(); ctx.restore(); } }
+    uiInset(leftX+552, topY+42, 286, 410, 'rgba(13,19,48,.95)', 'rgba(92,123,211,.22)', 1, 12);
+    ctx.fillStyle='#dce7ff'; ctx.font='11px monospace'; wrap('Reach the crown chamber. Broken pillars block the ruin, and currents can push the swimmer one extra tile.', leftX+570, topY+72, 248, 14, 5);
+    drawDivider(leftX+566, topY+152, 258, 'rgba(104,130,212,.28)');
+    [['up',leftX+664,topY+190],['left',leftX+606,topY+250],['right',leftX+722,topY+250],['down',leftX+664,topY+310]].forEach(([dir,x,y])=>{ drawUiButton(x,y,64,44,'',2); drawArrowGlyph(dir,x+12,y+12,40,20); game.hitboxes.push({x,y,w:64,h:44,action:'current',direction:dir}); });
+    ctx.fillStyle='#fff4d8'; ctx.font='bold 11px monospace'; ctx.fillText(`DIVER POSITION · ${game.diver.x+1},${game.diver.y+1}`, leftX+572, topY+378);
+    ctx.fillStyle='#b7d5f0'; ctx.font='10px monospace'; wrap('Blue currents can help. Red setback arrows throw the swimmer backwards, so plan your route carefully.', leftX+572, topY+400, 244, 12, 3);
+  }
+  if(game.message){ uiInset(leftX, box.y+box.h-48, box.showJournal ? 620 : 858, 34, 'rgba(41,28,58,.96)', 'rgba(221,158,223,.24)', 1, 10); ctx.fillStyle='#ffd1ff'; ctx.font='bold 11px monospace'; wrap(game.message, leftX+12, box.y+box.h-27, (box.showJournal ? 596 : 834), 12, 2); }
+}
   function drawDirectorHud() {
     const { directives } = normalizeDirectorState(state.world, state.network.playerId);
     if (!directives.length) return;
@@ -974,63 +1162,64 @@ export function createRenderer(canvas, session) {
     }
     return true;
   }
-  function drawLanternRite() {
-    const rite = state.world?.lanternRite; if (!rite) return false;
-    const point = (x, z) => ({ x: 58 + (x - 1) / 30 * 844, y: 85 + (z - 1) / 27 * 478 });
-    const field = ctx.createRadialGradient(480, 270, 60, 480, 270, 620); field.addColorStop(0, '#3b5b64'); field.addColorStop(.5, '#1c3545'); field.addColorStop(1, '#0c1828'); ctx.fillStyle = field; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#2c5960'; ctx.fillRect(70, 205, 820, 142); ctx.fillRect(407, 100, 146, 410); ctx.fillStyle = '#486f71'; ctx.fillRect(303, 440, 354, 112);
-    const core = point(16, 10); if (art.lanternFloor) ctx.drawImage(art.lanternFloor, core.x - 95, core.y - 95, 190, 190); else { ctx.strokeStyle = '#85d6c4'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(core.x, core.y, 75, 0, Math.PI * 2); ctx.stroke(); }
-    for (const entity of activeEntities()) {
-      const p = point(entity.x, entity.y);
-      if (entity.type === 'lantern-core') { if (art.lanternCore) ctx.drawImage(art.lanternCore, p.x - 34, p.y - 52, 68, 68); else { ctx.fillStyle = '#ffe280'; ctx.fillRect(p.x - 11, p.y - 30, 22, 38); } drawHealthBar(p.x - 38, p.y + 32, 76, entity.health, entity.maxHealth, '#6fe6be'); }
-      else if (entity.type === 'lantern-entry-gate') { ctx.strokeStyle = '#ffe99c'; ctx.shadowColor = '#ffe99c'; ctx.shadowBlur = 16; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(p.x, p.y, 36, Math.PI, 0); ctx.stroke(); ctx.shadowBlur = 0; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff7d5'; ctx.fillText(`${entity.readyCount || 0}/4 READY · E`, p.x, p.y + 29); }
-      else if (entity.type === 'lantern-enemy') { ctx.fillStyle = entity.enemyType === 'brute' ? '#b87676' : entity.enemyType === 'swift' ? '#c99cf3' : '#d49b59'; ctx.beginPath(); ctx.arc(p.x, p.y, entity.enemyType === 'brute' ? 17 : 12, 0, Math.PI * 2); ctx.fill(); drawHealthBar(p.x - 20, p.y - 29, 40, entity.hp, entity.maxHp, '#ef7b6a'); }
-      else if (entity.type === 'lantern-switch') { if (art.lanternSwitch) ctx.drawImage(art.lanternSwitch, p.x - 23, p.y - 23, 46, 46); else { ctx.fillStyle = '#f6d26b'; ctx.fillRect(p.x - 13, p.y - 13, 26, 26); } ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff2bd'; ctx.fillText(entity.role, p.x, p.y + 33); }
-    }
-    for (const player of state.players.filter((entry) => entry.realm === 'lantern-rite')) { const p = point(player.x, player.y); character(player, p.x - 12, p.y - 14, 25); ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = player.color; ctx.fillText(player.name, p.x, p.y + 26); if (player.lanternMaxHealth) drawHealthBar(p.x - 18, p.y - 34, 36, player.lanternHealth, player.lanternMaxHealth, '#7ee5b7'); }
-    drawMinimalHud({ suppressNotice: true }); panel(260, 14, 440, 58); ctx.textAlign = 'center'; ctx.font = 'bold 13px monospace'; ctx.fillStyle = '#fff0a1'; ctx.fillText('THE LANTERN RITE', 480, 34); ctx.font = '9px monospace'; ctx.fillStyle = '#d9f4ea'; wrap(rite.task || 'The rite is gathering light.', 480, 52, 410, 11);
-    if (state.mine?.archetype === 'Guardian') { panel(690, 120, 245, 44); ctx.textAlign = 'center'; ctx.font = '9px monospace'; ctx.fillStyle = '#b9e3ff'; ctx.fillText('GUARDIAN · Q HEAL · R BARRIER', 812, 146); }
-    drawDirectorHud();
-    return true;
+  function glow(X,Y,radius=22,color='rgba(255,214,96,.55)'){const pulse=.9+Math.sin((state.frame||0)*.8)*.08,gradient=ctx.createRadialGradient(X,Y,2,X,Y,radius*pulse);gradient.addColorStop(0,color);gradient.addColorStop(.38,color.replace(/\.[0-9]+\)/,'.22)'));gradient.addColorStop(1,'rgba(255,255,255,0)');ctx.save();ctx.globalCompositeOperation='screen';ctx.fillStyle=gradient;ctx.beginPath();ctx.arc(X,Y,radius*pulse,0,Math.PI*2);ctx.fill();ctx.restore();}
+  function drawMuskanLanternEntity(entity) {
+    const X=px(entity.x),Y=py(entity.y??entity.z),kind=String(entity.kind||entity.type||'').toLowerCase();
+    if(kind==='lantern-entry-gate'){const ready=Number(entity.readyCount||0);glow(X+10,Y+8,36,'rgba(102,226,255,.5)');ctx.save();ctx.strokeStyle='#7ee7ff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(X+10,Y+12,22,Math.PI,0);ctx.lineTo(X+32,Y+22);ctx.moveTo(X-12,Y+22);ctx.lineTo(X-12,Y+12);ctx.stroke();ctx.restore();ctx.fillStyle='rgba(8,18,38,.9)';ctx.fillRect(X-46,Y-28,112,16);ctx.fillStyle='#e7faff';ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText(`ENTER RITE · ${ready}/4`,X+10,Y-17);ctx.textAlign='left';}
+    else if(kind==='lantern-core'){const health=Math.max(0,Number(entity.health||0)),max=Math.max(1,Number(entity.maxHealth||1)),ratio=health/max;glow(X+10,Y+8,34,`rgba(72,213,255,${.35+.25*ratio})`);if(art.lanternCore)ctx.drawImage(art.lanternCore,X-25,Y-30,70,70);ctx.fillStyle='rgba(20,28,45,.9)';ctx.fillRect(X-28,Y-16,76,7);ctx.fillStyle=ratio>.5?'#70e6f6':ratio>.25?'#f4c96b':'#ef6c73';ctx.fillRect(X-28,Y-16,76*ratio,7);ctx.strokeStyle='rgba(235,251,255,.75)';ctx.strokeRect(X-28,Y-16,76,7);}
+    else if(kind==='lantern-switch'){const mine=entity.role===state.mine?.archetype;if(entity.activeBy)glow(X+10,Y+10,26,'rgba(255,226,120,.65)');else if(mine)glow(X+10,Y+10,28,'rgba(118,235,255,.62)');if(art.lanternSwitch)ctx.drawImage(art.lanternSwitch,X-10,Y-16,40,40);else{ctx.fillStyle='#58cfe8';ctx.fillRect(X+3,Y+3,14,14);}const roleColor={Explorer:'#9de3ff',Collector:'#ffe49b',Guardian:'#9ff0b8',Loner:'#d9b4ff'}[entity.role]||'#fff';ctx.font='bold 9px monospace';ctx.textAlign='center';const title=mine?`YOUR ${String(entity.role).toUpperCase()} SWITCH`:`${String(entity.role).toUpperCase()} SWITCH`,tw=ctx.measureText(title).width+10;ctx.fillStyle=mine?'rgba(10,37,52,.96)':'rgba(10,20,35,.88)';ctx.fillRect(X+10-tw/2,Y-32,tw,14);ctx.fillStyle=roleColor;ctx.fillText(title,X+10,Y-22);ctx.textAlign='left';}
+    else if(kind==='lantern-enemy'){const sprite=Number(entity.sprite)||0,sx=(sprite%7)*16,sy=Math.floor(sprite/7)*16,scale=entity.enemyType==='brute'?28:entity.enemyType==='swift'?20:24;if(art.dungeonCharacters)ctx.drawImage(art.dungeonCharacters,sx,sy,16,16,X+(20-scale)/2,Y+(20-scale)/2,scale,scale);else{ctx.fillStyle='#ba4b62';ctx.fillRect(X+2,Y+2,16,16);}const ratio=Math.max(0,Number(entity.hp||0))/Math.max(1,Number(entity.maxHp||1));ctx.fillStyle='#35151f';ctx.fillRect(X,Y-5,20,4);ctx.fillStyle=entity.enemyType==='swift'?'#f2c65d':entity.enemyType==='brute'?'#df7463':'#e45b69';ctx.fillRect(X,Y-5,20*ratio,4);if(state.attackTimer>0&&state.attackTargetId===entity.id){ctx.fillStyle=`rgba(255,245,210,${Math.min(1,state.attackTimer*3)})`;ctx.fillRect(X,Y,20,20);}}
   }
-  function drawEchoAccord() {
-    const finale = state.world?.finalObjective, accord = finale?.echoAccord;
-    if (!accord || state.mine?.realm !== 'echo-accord') return false;
-    const arena = accord.arena || { minX: 2, maxX: 46, minZ: 2, maxZ: 30 };
-    const point = (x, z) => ({ x: 68 + (x - arena.minX) / Math.max(1, arena.maxX - arena.minX) * 824, y: 90 + (z - arena.minZ) / Math.max(1, arena.maxZ - arena.minZ) * 438 });
-    const dusk = ctx.createLinearGradient(0, 0, 0, canvas.height); dusk.addColorStop(0, '#171a3d'); dusk.addColorStop(.52, '#31214d'); dusk.addColorStop(1, '#15182f'); ctx.fillStyle = dusk; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    for (let z = arena.minZ; z < arena.maxZ; z += 2) for (let x = arena.minX; x < arena.maxX; x += 2) {
-      const a = point(x, z), b = point(x + 2, z + 2);
-      ctx.fillStyle = (Math.floor(x / 2) + Math.floor(z / 2)) % 2 ? 'rgba(104,75,152,.24)' : 'rgba(48,75,133,.24)';
-      ctx.fillRect(Math.round(a.x), Math.round(a.y), Math.ceil(b.x - a.x), Math.ceil(b.y - a.y));
+  function drawLanternPlayerWorldStatus(player){if(player.realm!=='lantern-rite')return;const X=px(player.x),Y=py(player.y),max=Math.max(1,Number(player.lanternMaxHealth||1)),health=Math.max(0,Number(player.lanternHealth||0)),ratio=health/max,shield=Math.max(0,Number(player.lanternShield||0));if(shield>0){ctx.save();ctx.strokeStyle='rgba(125,225,255,.9)';ctx.lineWidth=2;ctx.shadowBlur=10;ctx.shadowColor='#7de1ff';ctx.beginPath();ctx.arc(X+10,Y+8,16,0,Math.PI*2);ctx.stroke();ctx.restore();}ctx.fillStyle='rgba(18,20,35,.88)';ctx.fillRect(X-1,Y+22,22,4);ctx.fillStyle=ratio>.5?'#8fe89e':ratio>.25?'#f1cb68':'#ef6c73';ctx.fillRect(X-1,Y+22,22*ratio,4);if(player.lanternDownedUntil>Date.now()){ctx.fillStyle='rgba(10,10,20,.72)';ctx.fillRect(X-4,Y-8,28,32);ctx.fillStyle='#ffd0d5';ctx.font='bold 8px monospace';ctx.textAlign='center';ctx.fillText('DOWN',X+10,Y+10);ctx.textAlign='left';}}
+  function drawMuskanAttack(){const player=state.mine;if(!player||state.attackTimer<=0||!['dungeon','lantern-rite'].includes(player.realm))return;const X=px(player.x)+10,Y=py(player.y)+10,dx=state.attackTargetX-player.x,dy=state.attackTargetY-player.y,angle=Math.atan2(dy,dx),progress=1-state.attackTimer/.28,swing=angle-.9+progress*1.8;ctx.save();ctx.translate(X,Y);ctx.rotate(swing);ctx.fillStyle='#d9e7ee';ctx.fillRect(8,-2,15,4);ctx.fillStyle='#fff8c9';ctx.fillRect(20,-1,7,2);ctx.fillStyle='#8b6b46';ctx.fillRect(4,-3,6,6);ctx.restore();}
+  function drawLanternArena(){
+    ctx.fillStyle='#090e1a';ctx.fillRect(0,0,canvas.width,canvas.height);
+    const minX=Math.floor(state.camera.x-25),maxX=Math.ceil(state.camera.x+25),minY=Math.floor(state.camera.y-17),maxY=Math.ceil(state.camera.y+17);
+    for(let y=minY;y<=maxY;y++)for(let x=minX;x<=maxX;x++){
+      const X=px(x),Y=py(y),center=Math.hypot(x-16,(y-10)*1.35)<=10.5,horizontal=y>=8&&y<=12,vertical=x>=13&&x<=19&&y<=19.4,forecourt=x>=10&&x<=22&&y>=19.4&&y<=27.5,approach=x>=13&&x<=19&&y>=18.4&&y<=27.5,walk=center||horizontal||vertical||forecourt||approach;
+      ctx.fillStyle=walk?(((x+y)%2)?'#253342':'#2b3948'):'#111923';ctx.fillRect(X,Y,T,T);
+      if(walk){ctx.strokeStyle='rgba(93,117,135,.16)';ctx.strokeRect(X,Y,T,T);}
     }
-    const frame = point(arena.minX, arena.minZ), end = point(arena.maxX, arena.maxZ);
-    ctx.strokeStyle = '#b78bf0'; ctx.lineWidth = 5; ctx.shadowColor = '#b78bf0'; ctx.shadowBlur = 16; ctx.strokeRect(frame.x, frame.y, end.x - frame.x, end.y - frame.y); ctx.shadowBlur = 0;
-    for (const orb of accord.echoes || []) {
-      if (!orb.active) continue;
-      const p = point(orb.x, orb.z), colors = ['#78e7ff', '#ffde73', '#96ed9d', '#dfa8ff'];
-      ctx.save(); ctx.fillStyle = colors[Number(orb.hue) % colors.length]; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 12;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-    }
-    for (const player of state.players.filter((entry) => entry.realm === 'echo-accord')) {
-      const color = player.echoColor || player.color || '#fff';
-      const trail = player.echoTrail || [];
-      ctx.save(); ctx.strokeStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 9; ctx.lineWidth = 5; ctx.lineJoin = 'round';
-      ctx.beginPath(); trail.forEach((tile, index) => { const p = point(tile.x, tile.z); if (!index) ctx.moveTo(p.x, p.y); else ctx.lineTo(p.x, p.y); }); ctx.stroke(); ctx.restore();
-      const p = point(player.x, player.y);
-      if (player.echoAlive !== false) {
-        ctx.save(); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 15; ctx.beginPath(); ctx.arc(p.x, p.y, 12, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-        character(player, p.x - 12, p.y - 13, 25);
-      } else { ctx.fillStyle = 'rgba(12,11,27,.64)'; ctx.fillRect(p.x - 13, p.y - 13, 26, 26); }
-      ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = color; ctx.fillText(`${player.name} · ${player.echoCollected || 0}`, p.x, p.y + 30);
-    }
-    drawMinimalHud({ suppressNotice: true }); panel(240, 14, 480, 60); ctx.textAlign = 'center'; ctx.font = 'bold 14px monospace'; ctx.fillStyle = '#f3dcff'; ctx.fillText('THE ECHO ACCORD', 480, 35); ctx.font = '9px monospace'; ctx.fillStyle = '#e8ebff';
-    const winner = state.players.find((player) => player.id === accord.winnerId);
-    wrap(winner ? `${winner.name}'s living echo endured. The Game Master records what this group became.` : 'MOVE CONTINUOUSLY · GATHER LIGHT · DO NOT STRIKE ANOTHER LIVING TRAIL', 480, 53, 440, 11);
-    if (winner) { ctx.fillStyle = 'rgba(232,207,255,.2)'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-    drawDirectorHud();
-    return true;
+    if(art.lanternEmblem)ctx.drawImage(art.lanternEmblem,px(11.2),py(5.2),192,192);
+    ctx.strokeStyle='rgba(92,201,226,.15)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(px(2),py(10)+10);ctx.lineTo(px(30),py(10)+10);ctx.moveTo(px(16)+10,py(2));ctx.lineTo(px(16)+10,py(18));ctx.stroke();
+    // Staging threshold before the arena. Players begin here and deliberately enter.
+    ctx.fillStyle='rgba(15,30,50,.64)';ctx.fillRect(px(10),py(20),13*T,8*T);ctx.strokeStyle='rgba(110,226,255,.38)';ctx.lineWidth=2;ctx.strokeRect(px(10),py(20),13*T,8*T);
+    ctx.fillStyle='#d8f7ff';ctx.font='bold 9px monospace';ctx.textAlign='center';ctx.fillText('LANTERN RITE FORECOURT',px(16)+10,py(21)-8);ctx.fillStyle='#9edcea';ctx.font='8px monospace';ctx.fillText('Explore the approach, then gather at the glowing threshold.',px(16)+10,py(27)-6);ctx.textAlign='left';
   }
+  function drawLanternHud(){
+    const rite=state.mine?.lanternRite;if(!rite?.active&&state.world?.finalObjective?.phase!=='COMPLETE')return;
+    const phase=rite?.phase||'COMPLETE',enemyCount=(rite?.enemies||[]).filter((e)=>!e.defeated).length,core=rite?.core||{health:0,maxHealth:1},coreRatio=Math.max(0,core.health)/Math.max(1,core.maxHealth);
+    panel(14,14,390,96);ctx.textAlign='left';ctx.fillStyle='#ffe49b';ctx.font='bold 12px monospace';ctx.fillText('FINALE · LANTERN RITE',28,35);ctx.fillStyle='#fff';ctx.font='10px monospace';wrap(rite?.task||'The Lantern Rite is complete.',28,54,360,13,4);
+    panel(414,14,256,106);ctx.fillStyle='#9de3ff';ctx.font='bold 10px monospace';ctx.fillText(phase==='ENTRY'?'ARENA PREPARATION':`WAVE · ${Math.min(rite?.wave||0,rite?.waveCount||0)}/${rite?.waveCount||0}`,428,34);ctx.fillStyle='#fff';ctx.fillText(phase==='ENTRY'?`READY · ${Object.keys(rite?.entry?.ready||{}).length}/4`:`ENEMIES · ${enemyCount}`,428,51);ctx.fillStyle='#fff1b8';ctx.font='bold 9px monospace';ctx.fillText('ENERGY CORE',428,69);ctx.fillStyle='#1b2638';ctx.fillRect(428,78,222,12);ctx.fillStyle=coreRatio>.5?'#70e6f6':coreRatio>.25?'#f4c96b':'#ef6c73';ctx.fillRect(428,78,222*coreRatio,12);ctx.strokeStyle='#dffaff';ctx.strokeRect(428,78,222,12);ctx.fillStyle='#fff';ctx.font='9px monospace';ctx.fillText(`${Math.ceil(core.health)} / ${core.maxHealth}`,428,104);
+    panel(680,14,266,112);ctx.fillStyle='#fff1b8';ctx.font='bold 10px monospace';ctx.fillText('TASK LIST',694,34);ctx.font='9px monospace';
+    const tasks=phase==='ENTRY'?['1. Enter the glowing threshold','2. Prepare to defend the core','3. Stay together before wave 1']:['1. Attack enemies with E','2. Repair core between waves','3. Finish on your role switch'];
+    tasks.forEach((task,i)=>{ctx.fillStyle=(phase==='ENTRY'&&i===0)||(phase==='DEFEND'&&i===0)||(phase==='REPAIR'&&i===1)||(phase==='SWITCHES'&&i===2)?'#9ff0b8':'#a5b0c1';ctx.fillText(task,694,53+i*18);});
+    if(phase!=='ENTRY'){
+      panel(14,122,292,94);ctx.fillStyle='#fff1b8';ctx.font='bold 9px monospace';ctx.fillText('PARTY STATUS',28,140);
+      state.players.filter((p)=>p.realm==='lantern-rite').forEach((p,index)=>{const y=154+index*15,max=Math.max(1,p.lanternMaxHealth||1),ratio=Math.max(0,p.lanternHealth||0)/max;ctx.fillStyle=p.color;ctx.fillRect(28,y-7,7,7);ctx.fillStyle='#fff';ctx.font='8px monospace';ctx.fillText(`${String(p.name).slice(0,8)} · ${p.archetype}`,40,y);ctx.fillStyle='#2b3242';ctx.fillRect(155,y-7,88,7);ctx.fillStyle=ratio>.5?'#8fe89e':ratio>.25?'#f1cb68':'#ef6c73';ctx.fillRect(155,y-7,88*ratio,7);if((p.lanternShield||0)>0){ctx.fillStyle='#8ae8ff';ctx.fillText(`SH ${p.lanternShield}`,248,y);}});
+    }
+    if(state.mine?.archetype==='Guardian'&&phase!=='ENTRY'){
+      panel(680,132,266,64);ctx.fillStyle='#9ff0b8';ctx.font='bold 10px monospace';ctx.fillText('GUARDIAN SUPPORT',694,151);ctx.fillStyle='#fff';ctx.font='9px monospace';ctx.fillText('Q · Heal nearest injured ally',694,169);ctx.fillText('R · Barrier nearest ally',694,185);
+    }
+    if(phase==='REPAIR'){panel(350,552,260,48);ctx.textAlign='center';ctx.fillStyle='#ffe49b';ctx.font='bold 11px monospace';ctx.fillText(`REPAIR · ${rite.repair.progress}/${rite.repair.goal}`,480,578);}
+    if(phase==='SWITCHES'){const ready=Object.keys(rite.switches.participants||{}).length;panel(318,538,324,64);ctx.textAlign='center';ctx.fillStyle='#ffe49b';ctx.font='bold 11px monospace';ctx.fillText(`YOUR SWITCH · ${String(state.mine?.archetype||'').toUpperCase()}`,480,558);ctx.fillText(`SWITCHES ACTIVE · ${ready}/4`,480,576);ctx.font='9px monospace';ctx.fillStyle='#fff';ctx.fillText('Your switch glows cyan. Stand on it and press E.',480,592);}
+    ctx.textAlign='left';
+  }
+  function echoPixelPanel(x,y,w,h,accent='#61d7ff'){
+    ctx.fillStyle='rgba(3,7,21,.78)';ctx.fillRect(x+6,y+7,w,h);ctx.fillStyle='#070c20';ctx.fillRect(x+4,y,w-8,h);ctx.fillRect(x,y+4,w,h-8);ctx.strokeStyle='#1d315c';ctx.lineWidth=4;ctx.strokeRect(x+4,y+4,w-8,h-8);ctx.strokeStyle=accent;ctx.lineWidth=2;ctx.strokeRect(x+8,y+8,w-16,h-16);ctx.fillStyle=accent;ctx.fillRect(x+4,y+4,8,8);ctx.fillRect(x+w-12,y+4,8,8);ctx.fillRect(x+4,y+h-12,8,8);ctx.fillRect(x+w-12,y+h-12,8,8);
+  }
+  function drawMuskanEchoAccord(){
+    ctx.fillStyle='#090d22';ctx.fillRect(0,0,canvas.width,canvas.height);
+    const arena=state.world?.finalObjective?.echoAccord?.arena||{minX:2,maxX:46,minZ:2,maxZ:30};
+    ctx.strokeStyle='rgba(104,154,255,.09)';ctx.lineWidth=1;for(let x=arena.minX;x<=arena.maxX;x+=2){ctx.beginPath();ctx.moveTo(px(x),py(arena.minZ));ctx.lineTo(px(x),py(arena.maxZ));ctx.stroke();}for(let y=arena.minZ;y<=arena.maxZ;y+=2){ctx.beginPath();ctx.moveTo(px(arena.minX),py(y));ctx.lineTo(px(arena.maxX),py(y));ctx.stroke();}
+    ctx.strokeStyle='#5d8ee8';ctx.lineWidth=4;ctx.strokeRect(px(arena.minX),py(arena.minZ),(arena.maxX-arena.minX)*T,(arena.maxZ-arena.minZ)*T);
+    for(const echo of state.world?.finalObjective?.echoAccord?.echoes||[])if(echo.active){const palette=['#65e8ff','#ffe46e','#83f29a','#d19aff'],X=px(echo.x)+10,Y=py(echo.z)+10;glow(X,Y,14,`${palette[echo.hue] || palette[0]}88`);ctx.fillStyle=palette[echo.hue]||palette[0];ctx.beginPath();ctx.arc(X,Y,4,0,Math.PI*2);ctx.fill();}
+    for(const player of state.players.filter((item)=>item.echoAlive!==false)){const color=player.echoColor||player.color||'#8deaff',trail=player.echoTrail||[];trail.slice().reverse().forEach((point,index)=>{const progress=(index+1)/Math.max(1,trail.length),radius=4+progress*4;ctx.fillStyle=color;ctx.globalAlpha=.35+progress*.55;ctx.beginPath();ctx.arc(px(point.x)+10,py(point.z)+10,radius,0,Math.PI*2);ctx.fill();});ctx.globalAlpha=1;ctx.fillStyle=color;ctx.beginPath();ctx.arc(px(player.x)+10,py(player.y)+10,10,0,Math.PI*2);ctx.fill();ctx.fillStyle='#10152c';ctx.beginPath();ctx.arc(px(player.x)+7,py(player.y)+7,2,0,Math.PI*2);ctx.arc(px(player.x)+13,py(player.y)+7,2,0,Math.PI*2);ctx.fill();}
+    const game=state.world?.finalObjective?.echoAccord,alive=state.players.filter((player)=>player.echoAlive!==false),winner=state.players.find((player)=>player.id===game?.winnerId);echoPixelPanel(170,10,620,72,winner?'#f7d25c':'#61d7ff');ctx.textAlign='center';ctx.fillStyle=winner?'#f7d25c':'#82e6ff';ctx.font='bold 14px monospace';ctx.fillText('LAST SNAKE STANDING',480,35);ctx.fillStyle='#fff7d5';ctx.font='bold 10px monospace';ctx.fillText(winner?'MATCH OVER':`[ ${alive.length}/4 ALIVE ]  EAT LIGHT · AVOID RIVAL TRAILS`,480,56);ctx.fillStyle='#8194bb';ctx.font='bold 9px monospace';ctx.fillText(winner?'FINAL SURVIVOR CONFIRMED':'WASD / ARROWS TO STEER',480,72);
+    echoPixelPanel(170,88,620,58,'#546b9c');state.players.slice(0,4).forEach((player,index)=>{const x=182+index*150,y=100,color=player.echoColor||player.color||'#8deaff',name=String(player.name||`P${index+1}`).slice(0,10),out=player.echoAlive===false;ctx.fillStyle=out?'#151c31':'#101b34';ctx.fillRect(x,y,138,34);ctx.fillStyle=out?'#4b5369':color;ctx.fillRect(x+5,y+5,8,24);ctx.fillRect(x+17,y+5,4,4);ctx.textAlign='left';ctx.font='bold 9px monospace';ctx.fillStyle=out?'#6e778e':'#fff7d5';ctx.fillText(name.toUpperCase(),x+27,y+15);ctx.fillStyle=out?'#e76b75':color;ctx.font='bold 8px monospace';ctx.fillText(out?'OUT':`LENGTH ${7+(player.echoCollected||0)}`,x+27,y+28);});if(winner&&!state.world?.finalObjective?.reflection){echoPixelPanel(292,246,376,136,winner.echoColor||winner.color||'#f7d25c');ctx.textAlign='center';ctx.fillStyle='#fff7d5';ctx.font='bold 12px monospace';ctx.fillText('★  FINAL SURVIVOR  ★',480,282);ctx.fillStyle=winner.echoColor||winner.color||'#f7d25c';ctx.font='bold 26px monospace';ctx.fillText(`${String(winner.name).toUpperCase()} WON!`,480,333);ctx.fillStyle='#8194bb';ctx.font='bold 9px monospace';ctx.fillText('LAST SNAKE STANDING',480,358);}
+  }
+  function drawLanternRite(){if(state.mine?.realm!=='lantern-rite')return false;state.camera||={x:16,y:17};if(!state.mine.lanternRite&&state.world?.lanternRite)state.mine.lanternRite={active:true,...state.world.lanternRite};drawLanternArena();activeEntities().filter((entity)=>String(entity.kind||entity.type).startsWith('lantern-')).forEach(drawMuskanLanternEntity);state.players.filter((player)=>player.realm==='lantern-rite').forEach((player)=>{character(player);drawLanternPlayerWorldStatus(player);label(player.name,player.x,player.y,player.color);});drawMuskanAttack();drawLanternHud();return true;}
+  function drawEchoAccord(){if(state.mine?.realm!=='echo-accord'||!state.world?.finalObjective?.echoAccord)return false;state.camera||={x:state.mine.x,y:state.mine.y};drawMuskanEchoAccord();return true;}
   function drawStart() {
     const gradient = ctx.createRadialGradient(480, 320, 40, 480, 320, 620);
     gradient.addColorStop(0, '#163f2e'); gradient.addColorStop(.5, '#0d2b20'); gradient.addColorStop(1, '#061710');

@@ -247,7 +247,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     return { id: player.id, name: player.name, location: player.locationId, locationsDiscovered: player.visited.size, relicsCollected: player.relicIds.size, interactions: player.interactions, distanceTravelled: Math.round(player.movement), nearGroupSeconds: Math.round(player.nearSeconds), aloneSeconds: Math.round(player.aloneSeconds), riskEvents: player.riskEvents, rescues: player.rescues, follows: player.follows, cohesion: Number((player.nearSeconds / elapsed).toFixed(2)), postAssignment: { distanceTravelled: Math.max(0, Math.round(player.movement - (base.movement || 0))), nearGroupSeconds: Math.max(0, Math.round(player.nearSeconds - (base.near || 0))), aloneSeconds: Math.max(0, Math.round(player.aloneSeconds - (base.alone || 0))), relicsCollected: Math.max(0, player.relicIds.size - (base.relics || 0)), riskEvents: Math.max(0, player.riskEvents - (base.risk || 0)), rescues: Math.max(0, player.rescues - (base.rescues || 0)), follows: Math.max(0, player.follows - (base.follows || 0)) } };
   }
   function roomTelemetry(room) { return { roomCode: room.code, phase: room.phase, playerCount: room.players.size, observationSecondsRemaining: room.observationEndsAt ? Math.max(0, Math.ceil((room.observationEndsAt - now()) / 1000)) : null, players: players(room).map((player) => playerTelemetry(room, player)), relicsCollected: room.entities.filter((entity) => entity.type === 'relic' && entity.collectedBy).length, unlockedFeatures: [...room.world.unlocked], finalObjective: room.finalObjective, emergentRuleTypes: (room.emergentState?.activeRules || []).map((rule) => rule.type), aiDecisionWindows: pendingAiDecisions(room), encounterPlans: { 'dark-cave': room.caveCombat.tacticId, 'hidden-ruins': room.ruinsCombat.tacticId } }; }
-  function scoreArchetypes(player) { return { Explorer: player.visited.size * 3 + player.movement / 30 + player.riskEvents * 2, Collector: player.relicIds.size * 9 + (player.interactions.relic || 0) * 2, Guardian: player.nearSeconds / 3 + player.rescues * 8 + (player.interactions['activate-shrine'] || 0) * 2 + player.follows, Loner: player.aloneSeconds / 3 + player.visited.size + (player.interactions['enter-spirit-realm'] || 0) * 3 }; }
+  function scoreArchetypes(player) { return { Explorer: player.visited.size * 3 + player.movement / 30 + player.riskEvents * 2, Collector: (player.observationItems?.size || 0) * 14 + (player.interactions['collect-curio'] || 0) * 3 + player.relicIds.size * 9 + (player.interactions.relic || 0) * 2, Guardian: player.nearSeconds / 3 + player.rescues * 8 + (player.interactions['activate-shrine'] || 0) * 2 + player.follows, Loner: player.aloneSeconds / 3 + player.visited.size + (player.interactions['enter-spirit-realm'] || 0) * 3 }; }
   function calculateAssignments(room) {
     const group = players(room); if (group.length !== MAX_PLAYERS) return [];
     let best = { score: -Infinity, choices: [] };
@@ -358,11 +358,11 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     room.phase = 'finale';
     room.finalObjective = {
       id: `finale-${room.createdAt}`,
-      title: 'The Ancient Temple Is Listening',
+      title: 'The Finale Portal Is Forming',
       description: `The Game Master is watching the completed rites to shape ${variant.title}. The Guardian and Loner must each complete two authored personal objectives before the entrance can appear.`,
       createdAt: now(), source, status: 'awaiting-rites', phase: 'PREPARING',
       variant,
-      destination: { evolutionId: 'ancient-temple-awakens', feature: 'ancient-temple', title: 'Ancient Temple', targetId: 'finale-entrance' },
+      destination: { evolutionId: 'finale-portal-awakens', feature: 'ancient-temple', title: variant.title, targetId: 'finale-entrance' },
       roleSteps,
       complication: { ...complication, active: true },
       groupRitual: { windowMs: 10_000, startedAt: null, participants: {} },
@@ -370,25 +370,25 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
       required: group.map((player) => ({ playerId: player.id, archetype: player.archetype, task: FINALE_TASKS[player.archetype], completed: false })),
     };
     recordAiDecision(room, 'finale-composition', variant.title, `The finale variant was chosen from the group’s continued cooperation, separation, risk, rescues, and following behaviour. ${complication.narration}`, source, { shardTotal, variantId: variant.id, complicationId: complication.id });
-    event(room, 'finale-preparing', `The Ancient Temple remains hidden. The Game Master is preparing ${variant.title} from how this party kept playing. When the Guardian and Loner complete two personal rites each, the entrance will reveal itself.`, { objective: room.finalObjective });
+    event(room, 'finale-preparing', `The finale portal remains hidden. The Game Master is preparing ${variant.title} from how this party kept playing. When the required personal missions are complete, the portal will appear at the center of the original map.`, { objective: room.finalObjective });
     return room.finalObjective;
   }
   const maybeCreateFinale = (room, source) => { if (players(room).length === MAX_PLAYERS && players(room).every((player) => player.archetype && player.evolutions.length)) createFinalObjective(room, source); };
   function maybeRevealFinaleEntrance(room) {
     const requiredPlayers = players(room).filter(hasDefinedFinaleObjectives);
     if (!room.finalObjective || room.finaleEntrance || !requiredPlayers.length || !requiredPlayers.every((player) => objectiveCount(player) >= 2)) return null;
-    room.phase = 'finale'; room.world.unlocked.add('ancient-temple'); room.world.unlocked.add('final-gate');
-    room.finalObjective.status = 'entrance-revealed'; room.finalObjective.title = 'The Ancient Temple Has Awakened';
+    room.phase = 'finale'; room.world.unlocked.add('ancient-temple');
+    room.finalObjective.status = 'entrance-revealed'; room.finalObjective.title = 'The Finale Portal Has Awakened';
     room.finaleEntrance = { revealedAt: now(), arrivals: new Set() };
-    room.director = { narration: 'The Guardian and Loner have completed their rites. The Ancient Temple entrance rises in the east—enter together.', source: 'portal-director', at: now() };
+    room.director = { narration: `The required missions are complete. A shared portal to ${room.finalObjective.variant?.title || 'the finale'} has appeared at the center of the original map—enter together.`, source: 'portal-director', at: now() };
     event(room, 'finale-entrance-revealed', room.director.narration, { objective: room.finalObjective });
     return room.finaleEntrance;
   }
   function enterFinalTemple(room, player) {
-    if (!room.finaleEntrance) return { ok: false, error: 'The Ancient Temple entrance has not appeared yet.' };
+    if (!room.finaleEntrance) return { ok: false, error: 'The finale portal has not appeared yet.' };
     if (hasDefinedFinaleObjectives(player) && objectiveCount(player) < 2) return { ok: false, error: 'Complete two personal objectives before entering the Temple.' };
     room.finaleEntrance.arrivals.add(player.id);
-    event(room, 'finale-entrance-entered', `${player.name} enters the Ancient Temple threshold.`, { playerId: player.id });
+    event(room, 'finale-entrance-entered', `${player.name} enters the shared finale portal.`, { playerId: player.id });
     if (room.finaleEntrance.arrivals.size < MAX_PLAYERS) return { ok: true, waitingFor: MAX_PLAYERS - room.finaleEntrance.arrivals.size };
     room.finalObjective.status = 'active';
     room.templeFinale = null;
@@ -639,8 +639,17 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     }
   }
   function interact(room, player, type, targetId, intent = {}) {
-    if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until all four players have received their roles.' };
     const action = cleanText(type, '', 32), cleanTargetId = cleanText(targetId, '', 48);
+    if (room.phase === 'observing' && action === 'collect-curio') {
+      const curio = room.entities.find((entity) => entity.id === cleanTargetId && entity.type === 'observation-item');
+      if (!curio || curio.collectedBy) return { ok: false, error: 'That curiosity is no longer available.' };
+      if (distance(player, curio) > 3.25) return { ok: false, error: 'Move closer to inspect it.' };
+      curio.collectedBy = player.id; player.observationItems ||= new Set(); player.observationItems.add(curio.id);
+      player.interactions['collect-curio'] = (player.interactions['collect-curio'] || 0) + 1;
+      event(room, 'curio-collected', `${player.name} pockets ${curio.label}.`, { playerId: player.id, targetId: curio.id });
+      return { ok: true, targetId: curio.id };
+    }
+    if (!['evolving', 'finale'].includes(room.phase)) return { ok: false, error: 'Wait until all four players have received their roles.' };
     const realmResult = realms?.interact(room, player, action, cleanTargetId, intent);
     if (realmResult) {
       if (realmResult.ok && ['dungeon-exit', 'exit-shadow-forest', 'moon-shrine-interact'].includes(action)) recordRoleObjective(room, player, `${player.archetype.toLowerCase()}-${action}`);
@@ -679,7 +688,7 @@ export function createGameWorld({ rooms = new Map(), collisionTiles = [], observ
     const interactionRadius = ['temple-entrance', 'cave', 'ruins-entrance'].includes(entity.type) ? 7 : ['temple-exit', 'cave-exit', 'ruins-exit'].includes(entity.type) ? 4 : 3.25;
     if (distance(player, entity) > interactionRadius) return { ok: false, error: 'Move closer to interact with that object.' };
     if (action === 'enter-final-temple') {
-      if (entity.type !== 'finale-entrance') return { ok: false, error: 'That is not the Ancient Temple entrance.' };
+      if (entity.type !== 'finale-entrance') return { ok: false, error: 'That is not the shared finale portal.' };
       return enterFinalTemple(room, player);
     }
     if (action === 'enter-dark-cave') {

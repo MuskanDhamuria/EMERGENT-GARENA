@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createGameWorld } from '../server/game-world.mjs';
 import { ghostVillageAimPoint } from '../client/session.js';
-import { applyRealmPreview } from '../client/realm-preview.js';
+import { applyCollectorPreview, applyRealmPreview } from '../client/realm-preview.js';
 
 assert.deepEqual(ghostVillageAimPoint(74, 110), { x: 0, z: 0 });
 assert.deepEqual(ghostVillageAimPoint(886, 518), { x: 28, z: 14 });
@@ -13,6 +13,9 @@ for (const feature of ['spirit-realm', 'shadow-forest', 'moon-shrine', 'ghost-vi
   assert.equal(preview.world.code, 'PREVIEW');
 }
 assert.equal(applyRealmPreview({network:{}}, 'not-a-realm'), false);
+for (const feature of ['crystal-mine','ancient-vault','treasure-cache','relic-forge','sunken-relic']) {
+  const preview={network:{}};assert.equal(applyCollectorPreview(preview,`collector-${feature}`),true);assert.equal(preview.mine.archetype,'Collector');assert.equal(preview.collectorGame.feature,feature);
+}
 
 const portalTestWorld = createGameWorld({ unlockAllLonerPortals: true });
 const portalTestRoom = portalTestWorld.createRoom('PORTALS');

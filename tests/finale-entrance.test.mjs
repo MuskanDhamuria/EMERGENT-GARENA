@@ -25,9 +25,14 @@ world.tickRoom(room, 0);
 assert.equal(room.world.unlocked.has('ancient-temple'), true, 'the Guardian and Loner two-objective gates reveal the entrance while other tracks are not authored');
 assert.equal(room.templeFinale, null, 'seeing the entrance does not teleport the party into the finale');
 assert.ok(world.serializeRoom(room, explorer.id).entities.some((entity) => entity.id === 'finale-entrance'));
+const lonerView = world.serializeRoom(room, loner.id);
+assert.equal(lonerView.entities.some((entity) => entity.id === 'final-gate'), false, 'the obsolete Loner-only final gate stays hidden');
+assert.equal(lonerView.entities.some((entity) => entity.id === 'finale-entrance'), true, 'the Loner sees the same shared finale entrance as everyone else');
+const finalePortal = lonerView.entities.find((entity) => entity.id === 'finale-entrance');
+assert.deepEqual({ x: finalePortal.x, z: finalePortal.z, label: finalePortal.label }, { x: 0, z: 0, label: 'Finale Portal' }, 'the shared finale portal appears in the middle of the original map');
 
 for (const player of [explorer, collector, guardian, loner]) {
-  player.x = 16; player.z = 8;
+  player.x = 0; player.z = 0;
   const result = world.interact(room, player, 'enter-final-temple', 'finale-entrance');
   if (player !== loner) assert.equal(result.lanternRite, undefined, 'the party waits at the entrance for every player');
   else assert.equal(result.lanternRite, true, 'the fourth arrival launches Muskan\'s cooperative Lantern Rite');

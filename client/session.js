@@ -121,6 +121,15 @@ export function createSession() {
   }
   function applyWorldState(world) {
     if (!world || !Array.isArray(world.players)) return;
+    const previousPhase = state.world?.phase;
+    // Once the shared recap has finished, the server resets the completed
+    // room to its waiting state. Return every browser to a fresh landing
+    // screen instead of leaving the old roster in another lobby.
+    if (previousPhase === 'complete' && world.phase === 'waiting-for-four') {
+      socket.disconnect();
+      window.location.reload();
+      return;
+    }
     state.world = world; state.network.roomCode = world.code || state.network.roomCode;
     state.network.serverOutdated = world.contentVersion !== CONTENT_VERSION;
     const previous = new Map(state.players.map((player) => [player.id, player]));
